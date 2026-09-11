@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.env
+.env.*
+!.env.example
+server/whatsapp-sessions/
+server/data/*.sqlite*
+dist/
+.vite/
