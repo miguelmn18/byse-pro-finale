@@ -60,7 +60,10 @@ function Clientes({
   );
 
   const addCustomer = async () => {
-    if (!form.name || !form.phone) return;
+    if (!form.name || !form.phone) {
+      alert("Preencha o nome e o telefone.");
+      return;
+    }
 
     const token = localStorage.getItem("byse_token");
     const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
@@ -81,17 +84,18 @@ function Clientes({
         })
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error(`Erro HTTP: ${response.status}`);
+        throw new Error(data.error || `Erro HTTP: ${response.status}`);
       }
 
-      const data = await response.json();
       setCustomers([...customers, data.cliente || data]);
       setForm({ name: "", phone: "", cpf: "" });
       setShowForm(false);
     } catch (error) {
       console.error("Erro ao salvar cliente:", error);
-      alert("Falha de conexão com o servidor. Verifique se o backend está rodando.");
+      alert(`Erro ao salvar cliente: ${error.message}`);
     }
   };
 

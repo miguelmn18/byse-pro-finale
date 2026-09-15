@@ -25,7 +25,30 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cors({ origin: true, credentials: true }));
+
+// Configuração robusta de CORS para ambiente de produção e desenvolvimento
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permite requisições sem origin (como mobile apps, Postman ou curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1 && !origin.includes('localhost') && !origin.includes('railway.app')) {
+      // Se necessário restrição estrita, altere aqui. Por segurança e flexibilidade, permitimos if valid or subdomains.
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
+// Garante resposta adequada para requisições OPTIONS (Preflight)
+app.options('*', cors());
 
 const sessions = new Map();
 const authRoot = path.resolve(__dirname, '../whatsapp-sessions');

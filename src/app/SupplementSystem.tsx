@@ -19,6 +19,7 @@ import { Fiados } from "../features/fiados";
 import { PreTreino } from "../features/preTreino";
 import { PublicCatalog } from "../features/PublicCatalog";
 
+
     const getApiUrl = () => {
         if (import.meta.env.VITE_API_URL) {
             const raw = import.meta.env.VITE_API_URL;
