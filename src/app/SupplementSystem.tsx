@@ -69,7 +69,6 @@ function SupplementSystem() {
         };
     };
 
-    // Helper para obter chaves do sessionStorage escopadas por usuário e aba
     const getStorageKey = (key: string) => {
         const userId = user?.id || user?.email || "guest";
         return `byse_${key}_${userId}`;

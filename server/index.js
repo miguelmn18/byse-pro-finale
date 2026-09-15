@@ -26,25 +26,26 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Configuração robusta de CORS para ambiente de produção e desenvolvimento
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  FRONTEND_URL
-].filter(Boolean);
+// Tratamento explícito e global para requisições de CORS e Preflight (OPTIONS)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-user-id, X-User-Id');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
 
 app.use(cors({
-  origin: function (origin, callback) {
-    // Permite requisições sem origin (como mobile apps, Postman ou curl)
-    if (!origin) return callback(null, true);
-    return callback(null, true);
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'X-User-Id']
 }));
 
-// Garante resposta adequada para requisições OPTIONS (Preflight)
 app.options('*', cors());
 
 const sessions = new Map();
@@ -120,6 +121,9 @@ app.get('/api/health', async (_req, res) => {
   catch { res.status(503).json({ ok: false }); }
 });
 
+// ==========================================
+// AUTENTICAÇÃO DO LOJISTA (DONO DO COMÉRCIO)
+// ==========================================
 app.post('/api/register', async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
@@ -203,7 +207,7 @@ app.put('/api/catalogo/config', authMiddleware, async (req,res)=>{
   res.json({success:true, publicUrl:`${FRONTEND_URL.replace(/\/$/,'')}/catalogo/${req.user.id}`});
 });
 
-// ---------- Customers ----------
+// ---------- Customers (Clientes do Comércio) ----------
 async function getCustomers(req,res){
   try { const r=await pool.query('SELECT * FROM customers WHERE user_id=$1 ORDER BY created_at DESC',[req.user.id]); res.json(r.rows.map(normalizeCustomer)); }
   catch(e){ console.error(e); res.status(500).json({error:'Erro ao buscar clientes.'}); }
@@ -307,7 +311,7 @@ app.get('/api/whatsapp',authMiddleware,async(req,res)=>{const r=await pool.query
 app.post('/api/whatsapp',authMiddleware,async(req,res)=>{const schedules=Array.isArray(req.body)?req.body:[];await pool.query(`INSERT INTO user_whatsapp_schedules(user_id,schedules,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(user_id) DO UPDATE SET schedules=$2,updated_at=NOW()`,[req.user.id,JSON.stringify(schedules)]);res.json({success:true});});
 app.post('/api/whatsapp/send-batch',authMiddleware,async(req,res)=>{const s=await createWhatsAppSession(req.user.id);if(s.status!=='connected')return res.status(409).json({error:'Conecte o WhatsApp deste usuário antes de enviar mensagens.'});const q=req.body||{};let sql='SELECT id,name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>\'\' AND whatsapp_opt_in=1 AND reminders_enabled=1';const params=[req.user.id];if(!q.sendToAll&&Array.isArray(q.customerIds)&&q.customerIds.length){sql+=' AND id=ANY($2)';params.push(q.customerIds);}const customers=await pool.query(sql,params);let sent=0;for(const c of customers.rows){const phone=String(c.phone).replace(/\D/g,'');if(!phone)continue;const msg=String(q.text||'').replaceAll('{nome}',c.name||'Cliente').replaceAll('{saldo}',`R$ ${Number(c.cashback||0).toFixed(2)}`);try{await s.sock.sendMessage(`${phone.startsWith('55')?phone:'55'+phone}@s.whatsapp.net`,{text:msg});sent++;await new Promise(r=>setTimeout(r,1500));}catch(e){console.error('[WA SEND]',e.message);}}res.json({success:true,message:`${sent} mensagem(ns) enviada(s).`,sent});});
 
-// ---------- Scheduler: each schedule belongs to user, sends only on that user's session ----------
+// ---------- Scheduler ----------
 cron.schedule('* * * * *',async()=>{
   try{
     const rows=await pool.query('SELECT user_id,schedules FROM user_whatsapp_schedules');
