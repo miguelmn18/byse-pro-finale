@@ -26,26 +26,30 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Tratamento explícito e global para requisições de CORS e Preflight (OPTIONS)
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-user-id, X-User-Id');
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-  next();
-});
+// ==========================================
+// CONFIGURAÇÃO CORRETA E SEGURA DE CORS
+// ==========================================
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3333',
+  FRONTEND_URL
+];
 
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Permite requisições sem origin (Postman, mobile) ou se estiver na lista/domínio do railway
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.up.railway.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Bloqueado pela política de CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'X-User-Id']
 }));
 
+// Resposta automática para preflight em todas as rotas
 app.options('*', cors());
 
 const sessions = new Map();
@@ -320,8 +324,28 @@ cron.schedule('* * * * *',async()=>{
   }catch(e){console.error('[WA CRON]',e);}
 },{timezone:'America/Sao_Paulo'});
 
-await initDb();
-const httpServer = app.listen(PORT,()=>console.log(`BYSE PRO API em http://localhost:${PORT} | frontend esperado: ${FRONTEND_URL}`));
-const shutdown = async (signal) => { console.log(`Encerrando servidor (${signal})...`); for (const [uid, session] of sessions) { try { session.sock.end(undefined); } catch {} sessions.delete(uid); } httpServer.close(async () => { await pool.end(); process.exit(0); }); };
+// Inicialização segura do Banco de Dados e Servidor HTTP
+try {
+  await initDb();
+} catch (err) {
+  console.error('[INIT DB ERROR] Falha ao inicializar o banco de dados:', err);
+}
+
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`BYSE PRO API em http://0.0.0.0:${PORT} | frontend esperado: ${FRONTEND_URL}`);
+});
+
+const shutdown = async (signal) => { 
+  console.log(`Encerrando servidor (${signal})...`); 
+  for (const [uid, session] of sessions) { 
+    try { session.sock.end(undefined); } catch {} 
+    sessions.delete(uid); 
+  } 
+  httpServer.close(async () => { 
+    await pool.end(); 
+    process.exit(0); 
+  }); 
+};
+
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

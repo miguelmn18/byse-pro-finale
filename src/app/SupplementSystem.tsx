@@ -56,7 +56,7 @@ function SupplementSystem() {
     const [cashbackPct, setCashbackPct] = useState(3);   
     const [cashbackValidityDays, setCashbackValidityDays] = useState(90);   
     const [waSchedule, setWaSchedule] = useState([     
-      { id: 1, label: "Lembrete de saldo cashback", day: "Toda sexta-feira", enabled: true, text: "Oi {nome}, você tem {saldo} en cashback esperando! 🎁" },     
+      { id: 1, label: "Lembrete de saldo cashback", day: "Toda sexta-feira", enabled: true, text: "Oi {nome}, você tem {saldo} em cashback esperando! 🎁" },     
       { id: 2, label: "Promoção do mês", day: "Dia 5 de cada mês", enabled: true, text: "Oi {nome}! Temos novidades e promoções especiais esse mês na loja. 💪" },     
       { id: 3, label: "Cliente sumido (30 dias sem comprar)", day: "Dia 15 de cada mês", enabled: false, text: "Sentimos sua falta, {nome}! Faz tempo que você não aparece por aqui." },   
     ]);    
@@ -76,7 +76,6 @@ function SupplementSystem() {
 
     const fetchUserData = async () => {
         const headers = getAuthHeaders();
-        const currentUserId = user?.id || user?.email;
 
         try {
             const resCustomers = await fetch(`${API_URL}/customers`, { headers });
@@ -154,11 +153,12 @@ function SupplementSystem() {
         }
     };
 
+    // Ajustado para 45 segundos para prevenir sobrecarga de requisições concorrentes no Railway
     useEffect(() => {
         if (!user) return;
         const interval = setInterval(() => {
             fetchUserData();
-        }, 10000);
+        }, 45000);
         return () => clearInterval(interval);
     }, [user]);
 
@@ -290,9 +290,12 @@ function SupplementSystem() {
     const handleUpdateCustomers = async (newCustomers) => {
         const latestCustomer = Array.isArray(newCustomers) && newCustomers.length > 0 ? newCustomers[newCustomers.length - 1] : null;
         
+        setCustomers([...newCustomers]);
+        localStorage.setItem(getStorageKey("customers"), JSON.stringify(newCustomers));
+
         if (latestCustomer) {
             try {
-                const response = await fetch(`${API_URL}/customers`, {
+                await fetch(`${API_URL}/customers`, {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
@@ -303,10 +306,6 @@ function SupplementSystem() {
                         cashback: latestCustomer.cashback || 0
                     })
                 });
-                if (response.ok) {
-                    setCustomers([...newCustomers]);
-                    localStorage.setItem(getStorageKey("customers"), JSON.stringify(newCustomers));
-                }
             } catch (err) {
                 console.error("Erro ao salvar cliente no banco:", err);
             }
@@ -388,9 +387,12 @@ function SupplementSystem() {
     const handleUpdateSellers = async (newSellers) => {
         const latestSeller = Array.isArray(newSellers) && newSellers.length > 0 ? newSellers[newSellers.length - 1] : null;
 
+        setSellers([...newSellers]);
+        localStorage.setItem(getStorageKey("sellers"), JSON.stringify(newSellers));
+
         if (latestSeller) {
             try {
-                const response = await fetch(`${API_URL}/sellers`, {
+                await fetch(`${API_URL}/sellers`, {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
@@ -398,10 +400,6 @@ function SupplementSystem() {
                         name: latestSeller.name
                     })
                 });
-                if (response.ok) {
-                    setSellers([...newSellers]);
-                    localStorage.setItem(getStorageKey("sellers"), JSON.stringify(newSellers));
-                }
             } catch (err) {
                 console.error("Erro ao salvar vendedor no banco:", err);
             }
@@ -411,9 +409,12 @@ function SupplementSystem() {
     const handleUpdateFiados = async (newFiados) => {
         const latestFiado = Array.isArray(newFiados) && newFiados.length > 0 ? newFiados[newFiados.length - 1] : null;
 
+        setFiados([...newFiados]);
+        localStorage.setItem(getStorageKey("fiados"), JSON.stringify(newFiados));
+
         if (latestFiado) {
             try {
-                const response = await fetch(`${API_URL}/fiados`, {
+                await fetch(`${API_URL}/fiados`, {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
@@ -425,10 +426,6 @@ function SupplementSystem() {
                         origin: latestFiado.origin || 'PDV'
                     })
                 });
-                if (response.ok) {
-                    setFiados([...newFiados]);
-                    localStorage.setItem(getStorageKey("fiados"), JSON.stringify(newFiados));
-                }
             } catch (err) {
                 console.error("Erro ao salvar fiado no banco:", err);
             }
@@ -438,9 +435,12 @@ function SupplementSystem() {
     const handleUpdateSales = async (newSales) => {
         const latestSale = Array.isArray(newSales) && newSales.length > 0 ? newSales[newSales.length - 1] : null;
         
+        setSales([...newSales]);
+        localStorage.setItem(getStorageKey("sales"), JSON.stringify(newSales));
+
         if (latestSale) {
             try {
-                const response = await fetch(`${API_URL}/sales`, {
+                await fetch(`${API_URL}/sales`, {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
@@ -459,10 +459,6 @@ function SupplementSystem() {
                         date: latestSale.date || new Date().toISOString()
                     })
                 });
-                if (response.ok) {
-                    setSales([...newSales]);
-                    localStorage.setItem(getStorageKey("sales"), JSON.stringify(newSales));
-                }
             } catch (err) {
                 console.error("Erro de conexão ao registrar venda:", err);
             }
@@ -471,45 +467,39 @@ function SupplementSystem() {
 
     const handleUpdatePreTreinoRecords = async (newRecords) => {
         const latest = Array.isArray(newRecords) && newRecords.length > 0 ? newRecords[newRecords.length - 1] : null;
+        
+        setPreTreinoRecords([...newRecords]);
+        localStorage.setItem(getStorageKey("pre_treino_records"), JSON.stringify(newRecords));
+
         if (latest) {
             try {
-                const response = await fetch(`${API_URL}/pre-treino/records`, {
+                await fetch(`${API_URL}/pre-treino/records`, {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify(latest)
                 });
-                if (response.ok) {
-                    setPreTreinoRecords([...newRecords]);
-                    localStorage.setItem(getStorageKey("pre_treino_records"), JSON.stringify(newRecords));
-                }
             } catch (err) {
                 console.error("Erro ao salvar registro de pré-treino:", err);
             }
-        } else {
-            setPreTreinoRecords([...newRecords]);
-            localStorage.setItem(getStorageKey("pre_treino_records"), JSON.stringify(newRecords));
         }
     };
 
     const handleUpdatePreTreinoProducts = async (newProds) => {
         const latest = Array.isArray(newProds) && newProds.length > 0 ? newProds[newProds.length - 1] : null;
+        
+        setProdutosPreTreino([...newProds]);
+        localStorage.setItem(getStorageKey("pre_treino_products"), JSON.stringify(newProds));
+
         if (latest) {
             try {
-                const response = await fetch(`${API_URL}/pre-treino/products`, {
+                await fetch(`${API_URL}/pre-treino/products`, {
                     method: "POST",
                     headers: getAuthHeaders(),
                     body: JSON.stringify(latest)
                 });
-                if (response.ok) {
-                    setProdutosPreTreino([...newProds]);
-                    localStorage.setItem(getStorageKey("pre_treino_products"), JSON.stringify(newProds));
-                }
             } catch (err) {
                 console.error("Erro ao salvar produto de pré-treino:", err);
             }
-        } else {
-            setProdutosPreTreino([...newProds]);
-            localStorage.setItem(getStorageKey("pre_treino_products"), JSON.stringify(newProds));
         }
     };
 

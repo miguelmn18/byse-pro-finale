@@ -35,17 +35,6 @@ export async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_catalog_password_hash TEXT;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_api_url TEXT;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_api_key TEXT;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_provider VARCHAR(30) DEFAULT 'baileys';
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS cashback_percentage NUMERIC DEFAULT 3;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS cashback_validity_days INT DEFAULT 30;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS cashback_message TEXT DEFAULT 'Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁';
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_days_1 INT DEFAULT 1;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_days_2 INT DEFAULT 7;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_days_3 INT DEFAULT 15;
-
     CREATE TABLE IF NOT EXISTS user_pdv_configs (
       user_id VARCHAR(255) PRIMARY KEY,
       pdv_config JSONB NOT NULL DEFAULT '{}'
@@ -68,7 +57,6 @@ export async function initDb() {
       data_aniversario DATE,
       cashback NUMERIC DEFAULT 0,
       cashback_expiration_date DATE,
-      cashback_expiry DATE,
       cashback_lost NUMERIC DEFAULT 0,
       status VARCHAR(100) DEFAULT 'Ativo',
       whatsapp_opt_in INT DEFAULT 0,
@@ -83,11 +71,6 @@ export async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id, user_id)
     );
-
-    ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_tipo VARCHAR(20) DEFAULT 'avulso';
-    ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_inicio DATE;
-    ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_fim DATE;
-    ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_valor_avulso NUMERIC DEFAULT 0;
 
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_customers_user_phone ON customers(user_id, phone);
@@ -141,7 +124,6 @@ export async function initDb() {
       date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id, user_id)
     );
-    ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(50);
     CREATE INDEX IF NOT EXISTS idx_sales_user_date ON sales(user_id, date);
 
     CREATE TABLE IF NOT EXISTS sellers (
@@ -165,7 +147,6 @@ export async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id, user_id)
     );
-    ALTER TABLE fiados ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(50);
 
     CREATE TABLE IF NOT EXISTS pre_treino_produtos (
       id VARCHAR(255) NOT NULL,
@@ -173,11 +154,10 @@ export async function initDb() {
       name VARCHAR(255) NOT NULL,
       cost NUMERIC DEFAULT 0,
       price NUMERIC DEFAULT 0,
+      stock NUMERIC DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id, user_id)
     );
-    ALTER TABLE pre_treino_produtos ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT 0;
-    ALTER TABLE pre_treino_produtos ADD COLUMN IF NOT EXISTS stock NUMERIC DEFAULT 0;
 
     CREATE TABLE IF NOT EXISTS pre_treino_registros (
       id VARCHAR(255) NOT NULL,
@@ -195,9 +175,6 @@ export async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id, user_id)
     );
-    ALTER TABLE pre_treino_registros ADD COLUMN IF NOT EXISTS telefone_cliente VARCHAR(50);
-    ALTER TABLE pre_treino_registros ADD COLUMN IF NOT EXISTS valor NUMERIC DEFAULT 0;
-    ALTER TABLE pre_treino_registros ADD COLUMN IF NOT EXISTS tipo_consumo VARCHAR(20) DEFAULT 'avulso';
     CREATE INDEX IF NOT EXISTS idx_pre_treino_user_date ON pre_treino_registros(user_id, data);
 
     CREATE TABLE IF NOT EXISTS user_whatsapp_schedules (
@@ -207,5 +184,5 @@ export async function initDb() {
     );
   `);
 
-  console.log('Banco PostgreSQL inicializado com isolamento por user_id.');
+  console.log('Banco PostgreSQL inicializado com sucesso e isolamento por user_id.');
 }
