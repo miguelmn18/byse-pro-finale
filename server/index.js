@@ -37,14 +37,11 @@ app.use(cors({
   origin: function (origin, callback) {
     // Permite requisições sem origin (como mobile apps, Postman ou curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1 && !origin.includes('localhost') && !origin.includes('railway.app')) {
-      // Se necessário restrição estrita, altere aqui. Por segurança e flexibilidade, permitimos if valid or subdomains.
-    }
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'X-User-Id']
 }));
 
 // Garante resposta adequada para requisições OPTIONS (Preflight)
