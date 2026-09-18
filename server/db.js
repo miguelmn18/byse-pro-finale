@@ -56,6 +56,7 @@ export async function initDb() {
       cpf VARCHAR(50),
       data_aniversario DATE,
       cashback NUMERIC DEFAULT 0,
+      cashback_expiry DATE,
       cashback_expiration_date DATE,
       cashback_lost NUMERIC DEFAULT 0,
       status VARCHAR(100) DEFAULT 'Ativo',
@@ -71,6 +72,9 @@ export async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id, user_id)
     );
+
+    -- Assegura compatibilidade caso a tabela já exista sem a coluna cashback_expiry
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS cashback_expiry DATE;
 
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_customers_user_phone ON customers(user_id, phone);

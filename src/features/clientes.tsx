@@ -29,7 +29,18 @@ function Clientes({
   const [editingCashback, setEditingCashback] = useState(null);
   const [cashbackInput, setCashbackInput] = useState("");
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
+  const getApiUrl = () => {
+    if (import.meta.env.VITE_API_URL) {
+      const raw = import.meta.env.VITE_API_URL;
+      return raw.endsWith('/api') ? raw : `${raw.endsWith('/') ? raw.slice(0, -1) : raw}/api`;
+    }
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:3333/api';
+    }
+    return 'https://byse-pro-backend-production.up.railway.app/api';
+  };
+
+  const API_URL = getApiUrl();
 
   useEffect(() => {
     const fetchCustomers = async () => {
@@ -37,7 +48,7 @@ function Clientes({
       const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
       try {
-        const response = await fetch(`${API_URL}/api/clientes`, {
+        const response = await fetch(`${API_URL}/clientes`, {
           headers: { 
             "Authorization": `Bearer ${token}`,
             "x-user-id": user.id || "user_1" 
@@ -45,7 +56,9 @@ function Clientes({
         });
         if (response.ok) {
           const data = await response.json();
-          setCustomers(data);
+          if (Array.isArray(data)) {
+            setCustomers(data);
+          }
         }
       } catch (error) {
         console.error("Erro ao buscar clientes:", error);
@@ -69,7 +82,7 @@ function Clientes({
     const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
     try {
-      const response = await fetch(`${API_URL}/api/clientes`, {
+      const response = await fetch(`${API_URL}/clientes`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -90,7 +103,7 @@ function Clientes({
         throw new Error(data.error || `Erro HTTP: ${response.status}`);
       }
 
-      setCustomers([...customers, data.cliente || data]);
+      setCustomers([...customers, data]);
       setForm({ name: "", phone: "", cpf: "" });
       setShowForm(false);
     } catch (error) {
@@ -106,7 +119,7 @@ function Clientes({
       const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
       try {
-        const response = await fetch(`${API_URL}/api/clientes/${id}`, {
+        const response = await fetch(`${API_URL}/clientes/${id}`, {
           method: "DELETE",
           headers: { 
             "Authorization": `Bearer ${token}`,
@@ -169,7 +182,7 @@ function Clientes({
       try {
         const existingExpiry = targetCust.cashbackExpirationDate || targetCust.cashback_expiration_date || targetCust.cashbackExpiry || targetCust.cashback_expiry || null;
         
-        await fetch(`${API_URL}/api/clientes`, {
+        await fetch(`${API_URL}/clientes`, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -294,7 +307,7 @@ function Clientes({
                   </div>
                   {custSales.length === 0 && <div style={{ color: subtext }}>Nenhuma compra registrada.</div>}
                   {custSales.map((s) => (
-                    <div key={s.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: `1px dashed ${border}` }}>
+                    <div key={s.id} style={{ style: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: `1px dashed ${border}` }}>
                       <span>{new Date(s.date).toLocaleDateString("pt-BR")} — {(s.items || []).map((it) => it.name).join(", ")}</span>
                       <span style={{ fontWeight: 700 }}>{money(s.total)}</span>
                     </div>

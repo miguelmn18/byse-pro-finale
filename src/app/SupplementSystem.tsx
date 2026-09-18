@@ -19,13 +19,15 @@ import { Fiados } from "../features/fiados";
 import { PreTreino } from "../features/preTreino";
 import { PublicCatalog } from "../features/PublicCatalog";
 
-
     const getApiUrl = () => {
         if (import.meta.env.VITE_API_URL) {
             const raw = import.meta.env.VITE_API_URL;
             return raw.endsWith('/api') ? raw : `${raw.endsWith('/') ? raw.slice(0, -1) : raw}/api`;
         }
-        return '/api';
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            return 'http://localhost:3333/api';
+        }
+        return 'https://byse-pro-backend-production.up.railway.app/api';
     };
 
     const API_URL = getApiUrl();
@@ -153,7 +155,6 @@ function SupplementSystem() {
         }
     };
 
-    // Ajustado para 45 segundos para prevenir sobrecarga de requisições concorrentes no Railway
     useEffect(() => {
         if (!user) return;
         const interval = setInterval(() => {
@@ -269,14 +270,6 @@ function SupplementSystem() {
             localStorage.removeItem(`byse_pre_treino_records_${uKey}`);
             localStorage.removeItem(`byse_pre_treino_products_${uKey}`);
         }
-        localStorage.removeItem("byse_customers");
-        localStorage.removeItem("byse_products");
-        localStorage.removeItem("byse_sales");
-        localStorage.removeItem("byse_sellers");
-        localStorage.removeItem("byse_fiados");
-        localStorage.removeItem("byse_pre_treino_records");
-        localStorage.removeItem("byse_pre_treino_products");
-
         setUser(null);
         setCustomers([]);
         setSales([]);
@@ -354,8 +347,6 @@ function SupplementSystem() {
                 const updatedProducts = products.filter(p => p.id !== productId);
                 setProducts(updatedProducts);
                 localStorage.setItem(getStorageKey("products"), JSON.stringify(updatedProducts));
-            } else {
-                console.error("Erro ao excluir produto no servidor");
             }
         } catch (err) {
             console.error("Erro de conexão ao excluir produto:", err);

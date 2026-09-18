@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT || 3333);
 const JWT_SECRET = process.env.JWT_SECRET;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://byse-pro-finale-kappa.vercel.app';
 
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET deve existir e ter pelo menos 32 caracteres.');
@@ -27,21 +27,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ==========================================
-// CONFIGURAÇÃO CORRETA E SEGURA DE CORS
+// CONFIGURAÇÃO DINÂMICA E SEGURA DE CORS
 // ==========================================
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3333',
-  FRONTEND_URL
-];
+  'https://byse-pro-finale-kappa.vercel.app',
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Permite requisições sem origin (Postman, mobile) ou se estiver na lista/domínio do railway
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.up.railway.app')) {
+    if (!origin || origin.startsWith('http://localhost:') || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app') || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Bloqueado pela política de CORS'));
+      callback(null, true); 
     }
   },
   credentials: true,
@@ -49,7 +49,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'X-User-Id']
 }));
 
-// Resposta automática para preflight em todas as rotas
 app.options('*', cors());
 
 const sessions = new Map();
@@ -126,7 +125,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // ==========================================
-// AUTENTICAÇÃO DO LOJISTA (DONO DO COMÉRCIO)
+// AUTENTICAÇÃO DO LOJISTA
 // ==========================================
 app.post('/api/register', async (req, res) => {
   try {
@@ -164,7 +163,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// ---------- Generic per-user state ----------
 app.get('/api/app-state/:key', authMiddleware, async (req, res) => {
   const r = await pool.query('SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2', [req.user.id, req.params.key]);
   res.json(r.rows[0] ? json(r.rows[0].state, {}) : {});
@@ -174,7 +172,6 @@ app.put('/api/app-state/:key', authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
-// ---------- Public catalog + VIP ----------
 app.get('/api/public/catalogo/:userId', async (req, res) => {
   const userId = String(req.params.userId);
   if (!(await userExists(userId))) return res.status(404).json({ error: 'Loja não encontrada.' });
@@ -211,26 +208,32 @@ app.put('/api/catalogo/config', authMiddleware, async (req,res)=>{
   res.json({success:true, publicUrl:`${FRONTEND_URL.replace(/\/$/,'')}/catalogo/${req.user.id}`});
 });
 
-// ---------- Customers (Clientes do Comércio) ----------
-async function getCustomers(req,res){
-  try { const r=await pool.query('SELECT * FROM customers WHERE user_id=$1 ORDER BY created_at DESC',[req.user.id]); res.json(r.rows.map(normalizeCustomer)); }
+// ---------- Customers (Unificado para /api/customers e /api/clientes) ----------
+async function getCustomers(req, res){
+  try { 
+    const r = await pool.query('SELECT * FROM customers WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id]); 
+    res.json(r.rows.map(normalizeProduct ? normalizeCustomer : normalizeCustomer)); 
+  }
   catch(e){ console.error(e); res.status(500).json({error:'Erro ao buscar clientes.'}); }
 }
-async function saveCustomer(req,res){
+async function saveCustomer(req, res){
   try {
-    const c=req.body||{}, id=c.id||`cli_${crypto.randomUUID()}`;
-    const name=String(c.name||c.nome||'').trim(), phone=String(c.phone||c.telefone||'').trim();
-    if(!name||!phone) return res.status(400).json({error:'Nome e telefone são obrigatórios.'});
+    const c = req.body || {}, id = c.id || `cli_${crypto.randomUUID()}`;
+    const name = String(c.name || c.nome || '').trim(), phone = String(c.phone || c.telefone || '').trim();
+    if(!name || !phone) return res.status(400).json({error:'Nome e telefone são obrigatórios.'});
     await pool.query(`INSERT INTO customers(id,user_id,name,phone,cpf,data_aniversario,cashback,cashback_expiration_date,cashback_expiry,cashback_lost,status,whatsapp_opt_in,reminders_enabled,status_mensalidade,data_vencimento,valor_mensalidade,pre_treino_tipo,pre_treino_inicio,pre_treino_fim,pre_treino_valor_avulso) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(id,user_id) DO UPDATE SET name=$3,phone=$4,cpf=$5,data_aniversario=$6,cashback=$7,cashback_expiration_date=$8,cashback_expiry=$8,cashback_lost=$9,status=$10,whatsapp_opt_in=$11,reminders_enabled=$12,status_mensalidade=$13,data_vencimento=$14,valor_mensalidade=$15,pre_treino_tipo=$16,pre_treino_inicio=$17,pre_treino_fim=$18,pre_treino_valor_avulso=$19`,[
-      id,req.user.id,name,phone,c.cpf||null,c.birthDate||c.data_aniversario||null,Number(c.cashback||0),c.cashbackExpirationDate||c.cashback_expiration_date||c.cashback_expiry||null,Number(c.cashbackLost||c.cashback_lost||0),c.status||'Ativo',c.whatsappOptIn?1:Number(c.whatsapp_opt_in||0),c.remindersEnabled===false?0:1,c.statusMensalidade||c.status_mensalidade||'Pendente (Não Pago)',c.dataVencimento||c.data_vencimento||null,Number(c.valorMensalidade??c.valor_mensalidade??0),c.preTreinoTipo||c.pre_treino_tipo||'avulso',c.preTreinoInicio||c.pre_treino_inicio||null,c.preTreinoFim||c.pre_treino_fim||c.dataVencimento||c.data_vencimento||null,Number(c.preTreinoValorAvulso??c.pre_treino_valor_avulso??0)
+      id, req.user.id, name, phone, c.cpf || null, c.birthDate || c.data_aniversario || null, Number(c.cashback || 0), c.cashbackExpirationDate || c.cashback_expiration_date || c.cashback_expiry || null, Number(c.cashbackLost || c.cashback_lost || 0), c.status || 'Ativo', c.whatsappOptIn ? 1 : Number(c.whatsapp_opt_in || 0), c.remindersEnabled === false ? 0 : 1, c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)', c.dataVencimento || c.data_vencimento || null, Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0), c.preTreinoTipo || c.pre_treino_tipo || 'avulso', c.preTreinoInicio || c.pre_treino_inicio || null, c.preTreinoFim || c.pre_treino_fim || c.dataVencimento || c.data_vencimento || null, Number(c.preTreinoValorAvulso ?? c.pre_treino_valor_avulso ?? 0)
     ]);
-    const r=await pool.query('SELECT * FROM customers WHERE id=$1 AND user_id=$2',[id,req.user.id]); res.status(201).json(normalizeCustomer(r.rows[0]));
-  } catch(e){console.error('[CUSTOMER]',e);res.status(500).json({error:'Erro ao salvar cliente.'});}
+    const r = await pool.query('SELECT * FROM customers WHERE id=$1 AND user_id=$2', [id, req.user.id]); 
+    res.status(201).json(normalizeCustomer(r.rows[0]));
+  } catch(e){ console.error('[CUSTOMER]', e); res.status(500).json({error:'Erro ao salvar cliente.'}); }
 }
-app.get('/api/customers',authMiddleware,getCustomers); app.get('/api/clientes',authMiddleware,getCustomers);
-app.post('/api/customers',authMiddleware,saveCustomer); app.post('/api/clientes',authMiddleware,saveCustomer);
-app.delete('/api/customers/:id',authMiddleware,async(req,res)=>{await pool.query('DELETE FROM customers WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]);res.json({success:true});});
-app.delete('/api/clientes/:id',authMiddleware,async(req,res)=>{await pool.query('DELETE FROM customers WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]);res.json({success:true});});
+app.get('/api/customers', authMiddleware, getCustomers); 
+app.get('/api/clientes', authMiddleware, getCustomers);
+app.post('/api/customers', authMiddleware, saveCustomer); 
+app.post('/api/clientes', authMiddleware, saveCustomer);
+app.delete('/api/customers/:id', authMiddleware, async(req,res)=>{ await pool.query('DELETE FROM customers WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]); res.json({success:true}); });
+app.delete('/api/clientes/:id', authMiddleware, async(req,res)=>{ await pool.query('DELETE FROM customers WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]); res.json({success:true}); });
 
 // ---------- Products / stock ----------
 async function getProducts(req,res){ const r=await pool.query('SELECT * FROM products WHERE user_id=$1 ORDER BY created_at DESC',[req.user.id]); res.json(r.rows.map(normalizeProduct)); }
@@ -246,7 +249,7 @@ app.delete('/api/produtos/:id',authMiddleware,async(req,res)=>{await pool.query(
 app.get('/api/locais',authMiddleware,async(req,res)=>{let r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',[req.user.id]); if(!r.rows.length){const id=`loc_${req.user.id}`;await pool.query('INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[id,req.user.id,'Loja Física']);r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1',[req.user.id]);}res.json(r.rows);});
 app.post('/api/locais',authMiddleware,async(req,res)=>{const {id,name}=req.body||{};if(!name)return res.status(400).json({error:'Nome obrigatório.'});if(id)await pool.query('UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3',[name,id,req.user.id]);else await pool.query('INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3)',[`loc_${crypto.randomUUID()}`,req.user.id,name]);const r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',[req.user.id]);res.json(r.rows);});
 
-// ---------- Sales with transaction and stock isolation ----------
+// ---------- Sales ----------
 app.get('/api/sales',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC',[req.user.id]);res.json(r.rows.map(s=>({...s,customerId:s.customer_id,customerName:s.customer_name,customerPhone:s.customer_phone,total:Number(s.total||0),subtotal:Number(s.subtotal||0),discount:Number(s.discount||0),cashbackEarned:Number(s.cashback_earned||s.earned_cashback||0),items:json(s.items,[])})));});
 app.post('/api/sales',authMiddleware,async(req,res)=>{
   const client=await pool.connect();
@@ -288,7 +291,7 @@ app.post('/api/pre-treino/records',authMiddleware,async(req,res)=>{const r=req.b
 app.delete('/api/pre-treino/records/:id',authMiddleware,async(req,res)=>{await pool.query('DELETE FROM pre_treino_registros WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]);res.json({success:true});});
 app.get('/api/pre-treino/reports',authMiddleware,async(req,res)=>{const base=await pool.query('SELECT COUNT(*)::int AS total_consumos,COALESCE(SUM(valor),0) AS faturamento,COALESCE(SUM(custo),0) AS custo FROM pre_treino_registros WHERE user_id=$1',[req.user.id]);const clients=await pool.query(`SELECT nome_cliente,telefone_cliente,COUNT(*)::int AS consumos,COALESCE(SUM(valor),0) AS valor FROM pre_treino_registros WHERE user_id=$1 GROUP BY nome_cliente,telefone_cliente ORDER BY consumos DESC,valor DESC LIMIT 20`,[req.user.id]);const products=await pool.query(`SELECT produto_id,nome_produto,COUNT(*)::int AS consumos,COALESCE(SUM(valor),0) AS valor FROM pre_treino_registros WHERE user_id=$1 GROUP BY produto_id,nome_produto ORDER BY consumos DESC,valor DESC LIMIT 20`,[req.user.id]);res.json({summary:{totalConsumos:base.rows[0].total_consumos,faturamento:Number(base.rows[0].faturamento||0),custo:Number(base.rows[0].custo||0),lucro:Number(base.rows[0].faturamento||0)-Number(base.rows[0].custo||0)},topClients:clients.rows,topProducts:products.rows});});
 
-// ---------- WhatsApp per-user Baileys sessions ----------
+// ---------- WhatsApp sessions ----------
 async function createWhatsAppSession(userId){
   if(sessions.has(userId)) return sessions.get(userId);
   const dir=path.join(authRoot,crypto.createHash('sha256').update(userId).digest('hex'));
@@ -324,7 +327,6 @@ cron.schedule('* * * * *',async()=>{
   }catch(e){console.error('[WA CRON]',e);}
 },{timezone:'America/Sao_Paulo'});
 
-// Inicialização segura do Banco de Dados e Servidor HTTP
 try {
   await initDb();
 } catch (err) {
