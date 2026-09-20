@@ -112,7 +112,7 @@ export function Estoque({
       : {};
 
     const built = {
-      id: editingId || "prod_" + Date.now(),
+      id: editingId || `prod_${Date.now()}`,
       name: form.name,
       category: form.category || "Sem categoria",
       barcode: form.barcode || "",
@@ -568,6 +568,7 @@ export function Estoque({
           const pVipPrice = p.vip_price !== undefined ? p.vip_price : p.vipPrice;
           const pVipPrice3x = p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
           const pControlStock = p.control_stock !== undefined ? p.control_stock : p.controlStock;
+          const pImageUrl = p.image_url || p.imageUrl;
           
           return (
             <div
@@ -583,21 +584,36 @@ export function Estoque({
                 minWidth: 700
               }}
             >
-              <div style={{ fontWeight: 600 }}>
-                {p.name}
-                {(p.barcode || p.code) && (
-                  <div
+              <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
+                {pImageUrl && (
+                  <img
+                    src={pImageUrl}
+                    alt={p.name}
                     style={{
-                      fontSize: 11,
-                      color: subtext,
-                      fontWeight: 400
+                      width: 32,
+                      height: 32,
+                      objectFit: "cover",
+                      borderRadius: 4,
+                      flexShrink: 0
                     }}
-                  >
-                    {p.code && `cód. ${p.code}`}
-                    {p.code && p.barcode && " · "}
-                    {p.barcode}
-                  </div>
+                  />
                 )}
+                <div>
+                  {p.name}
+                  {(p.barcode || p.code) && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: subtext,
+                        fontWeight: 400
+                      }}
+                    >
+                      {p.code && `cód. ${p.code}`}
+                      {p.code && p.barcode && " · "}
+                      {p.barcode}
+                    </div>
+                  )}
+                </div>
               </div>
               <div>{p.category}</div>
               <div>{money(p.cost)}</div>

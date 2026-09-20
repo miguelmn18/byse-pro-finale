@@ -22,12 +22,11 @@ export function PDV({
   accent,
   text
 }) {
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
+  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
   const [step, setStep] = useState("gate"); // "gate", "register", "order"
   const [phoneQuery, setPhoneQuery] = useState("");
   const [foundCustomer, setFoundCustomer] = useState(null);
   
-  // Lista suspensa filtrada em tempo real pelas primeiras letras (nome) ou números (telefone)
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   
@@ -43,7 +42,6 @@ export function PDV({
   const [salesChannel, setSalesChannel] = useState("Loja física");
   const [deliveryType, setDeliveryType] = useState("Retirada");
 
-  // Configuração simplificada e novo botão de lembretes automáticos
   const [cashbackPercent, setCashbackPercent] = useState(3);
   const [cashbackValidityDays, setCashbackValidityDays] = useState(30);
   const [cashbackMessage, setCashbackMessage] = useState('Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁');
@@ -116,7 +114,6 @@ export function PDV({
     ...Array.from(new Set(products.map((p) => p.category || "Sem categoria")))
   ];
 
-  // Função de Busca Inteligente atualizada para nome ou telefone a partir das primeiras letras/números
   const handleCustomerInputChange = (value) => {
     setPhoneQuery(value);
     setFoundCustomer(null);
@@ -138,7 +135,6 @@ export function PDV({
 
     setCustomerSuggestions(matches);
 
-    // Se houver apenas 1 correspondência exata ou parcial clara, já pré-seleciona como achado
     if (matches.length === 1) {
       setFoundCustomer(matches[0]);
     }
@@ -170,7 +166,6 @@ export function PDV({
     }
   };
 
-  // Suporte a tecla Enter para selecionar o cliente ou acionar a busca
   const handleKeyDownSearch = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -265,7 +260,7 @@ export function PDV({
 
   const subtotal = cart.reduce((acc, item) => acc + (Number(item.price) || 0) * item.qty, 0);
   const total = Math.max(0, subtotal - Number(discount));
-  const earnedCashbackCalc = total * (cashbackPercent / 100);
+  const earnedCashbackCalc = selectedCustomer ? total * (cashbackPercent / 100) : 0;
 
   const generateReceiptText = (saleData) => {
     const itemsText = saleData.items
@@ -356,7 +351,7 @@ Obrigado pela preferência!
       location: localName
     }));
 
-    const cashbackEarnedVal = selectedCustomer ? total * (cashbackPercent / 100) : 0;
+    const cashbackEarnedVal = earnedCashbackCalc;
     
     const newSale = {
       id: `pur_${Date.now()}`,
@@ -552,7 +547,6 @@ Obrigado pela preferência!
                 </button>
               </div>
 
-              {/* Lista suspensa de sugestões inteligentes */}
               {customerSuggestions.length > 0 && (
                 <div
                   style={{
@@ -662,7 +656,6 @@ Obrigado pela preferência!
               </div>
             </div>
 
-            {/* Configuração de Lembretes Automáticos */}
             <div
               style={{
                 background: card,
@@ -1223,28 +1216,28 @@ Obrigado pela preferência!
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
+                  fontSize: 13,
+                  color: accent
+                }}
+              >
+                <span>Cashback da Compra ({cashbackPercent}%):</span>
+                <span>{earnedCashbackCalc.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
                   fontSize: 16,
                   fontWeight: "bold",
-                  color: accent
+                  color: accent,
+                  borderTop: `1px dashed ${border}`,
+                  paddingTop: 6,
+                  marginTop: 2
                 }}
               >
                 <span>Total:</span>
                 <span>{total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
               </div>
-              {selectedCustomer && (
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: subtext,
-                    background: `${accent}10`,
-                    padding: 6,
-                    borderRadius: 6,
-                    marginTop: 4
-                  }}
-                >
-                  🎁 Cashback a gerar (início hoje): <strong>{earnedCashbackCalc.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong> ({cashbackPercent}%)
-                </div>
-              )}
             </div>
 
             <button

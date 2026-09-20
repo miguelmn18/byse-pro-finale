@@ -48,7 +48,7 @@ function Clientes({
       const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
       try {
-        const response = await fetch(`${API_URL}/clientes`, {
+        const response = await fetch(`${API_URL}/customers`, {
           headers: { 
             "Authorization": `Bearer ${token}`,
             "x-user-id": user.id || "user_1" 
@@ -82,7 +82,7 @@ function Clientes({
     const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
     try {
-      const response = await fetch(`${API_URL}/clientes`, {
+      const response = await fetch(`${API_URL}/customers`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -119,7 +119,7 @@ function Clientes({
       const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
       try {
-        const response = await fetch(`${API_URL}/clientes/${id}`, {
+        const response = await fetch(`${API_URL}/customers/${id}`, {
           method: "DELETE",
           headers: { 
             "Authorization": `Bearer ${token}`,
@@ -182,7 +182,7 @@ function Clientes({
       try {
         const existingExpiry = targetCust.cashbackExpirationDate || targetCust.cashback_expiration_date || targetCust.cashbackExpiry || targetCust.cashback_expiry || null;
         
-        await fetch(`${API_URL}/clientes`, {
+        await fetch(`${API_URL}/customers`, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",

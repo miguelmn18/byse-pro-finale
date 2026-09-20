@@ -79,11 +79,9 @@ export function PublicCatalog() {
   };
 
   const handleCheckoutWhatsApp = () => {
-    if (!data?.whatsapp) {
-      alert('Número de WhatsApp da loja não configurado.');
-      return;
-    }
-    let message = `*Pedido via Catálogo Online - ${data.storeName || 'Loja'}*\n\n`;
+    const cleanPhone = '5583981932137';
+
+    let message = `*Pedido via Catálogo Online - ${data?.storeName || 'Loja'}*\n\n`;
     if (vip) message += `🔓 _Condição de Preço VIP Ativa_\n\n`;
 
     cart.forEach(item => {
@@ -93,7 +91,6 @@ export function PublicCatalog() {
     });
     message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
 
-    const cleanPhone = String(data.whatsapp).replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 

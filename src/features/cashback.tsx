@@ -126,9 +126,9 @@ import type {
 } from "../types";
 
 /**
- * Função utilitária para adicionar o cashback acumulado a um cliente quando uma compra é realizada.
+ * Função utilitária para adicionar o cashback acumulado a um cliente com validade padrão de 30 dias pós-venda.
  */
-export const applyCashback = (customers, setCustomers, customerId, saleTotal, cashbackPct, validityDays) => {
+export const applyCashback = (customers, setCustomers, customerId, saleTotal, cashbackPct, validityDays = 30) => {
   if (!customerId || !saleTotal || saleTotal <= 0) return;
   const earned = (saleTotal * (cashbackPct || 0)) / 100;
   
@@ -173,11 +173,18 @@ function Cashback({
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   useEffect(() => {
+    if (!cashbackValidityDays) {
+      setCashbackValidityDays(30);
+    }
+
     fetch('/api/cashback-config', {
       headers: { 'Authorization': 'Bearer ' + localStorage.getItem('byse_token') }
     })
       .then(res => res.json())
       .then(data => {
+        if (data.cashbackPercentage !== undefined && data.cashbackPercentage !== null) {
+          setCashbackPct(Number(data.cashbackPercentage));
+        }
         if (data.cashbackValidityDays) setCashbackValidityDays(data.cashbackValidityDays);
         if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
       })
@@ -193,9 +200,13 @@ function Cashback({
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + localStorage.getItem('byse_token')
         },
-        body: JSON.stringify({ cashbackValidityDays, cashbackMessage })
+        body: JSON.stringify({
+          cashbackPercentage: Number(cashbackPct) || 0,
+          cashbackValidityDays: cashbackValidityDays || 30,
+          cashbackMessage
+        })
       });
-      alert('Configurações de cashback e mensagem salvas com sucesso!');
+      alert('Configurações de cashback, percentual e mensagem salvas com sucesso!');
     } catch (err) {
       console.error('Erro ao salvar configurações', err);
       alert('Erro ao salvar configurações.');
@@ -244,7 +255,6 @@ function Cashback({
       const cashbackVal = Number(c.cashback) || 0;
       if (cashbackVal <= 0) return false;
 
-      // Se o filtro for 365 dias ("Todos com saldo ativo"), exibe todos que possuem cashback > 0
       if (filterDaysNum >= 365) {
         return true;
       }
@@ -284,7 +294,7 @@ function Cashback({
     <div>
       <SectionTitle
         title="Gestão de Cashback e Fidelidade"
-        sub="Controle percentual, validade de saldos e mensagens personalizadas de resgate"
+        sub="Controle percentual customizado, validade de 30 dias pós-venda e mensagens personalizadas"
         subtext={subtext}
       />
 
@@ -308,27 +318,36 @@ function Cashback({
             <Percent size={16} color={accent} /> Regras de Acúmulo
           </div>
 
-          <label style={{ fontSize: 12, color: subtext }}>Porcentagem de cashback por compra</label>
+          <label style={{ fontSize: 12, color: subtext }}>Porcentagem de cashback por compra (%)</label>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, marginBottom: 14 }}>
             <input
               type="range"
               min="0"
-              max="15"
+              max="50"
               step="0.5"
               value={cashbackPct}
               onChange={(e) => setCashbackPct(parseFloat(e.target.value))}
               style={{ flex: 1, accentColor: accent }}
             />
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: accent, minWidth: 45 }}>
-              {cashbackPct}%
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.5"
+              value={cashbackPct}
+              onChange={(e) => setCashbackPct(parseFloat(e.target.value) || 0)}
+              style={{ ...inputStyle(border, text), width: 70, textAlign: 'center', fontWeight: 'bold' }}
+            />
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: accent, minWidth: 20 }}>
+              %
             </div>
           </div>
 
-          <label style={{ fontSize: 12, color: subtext }}>Validade padrão (dias após o ganho)</label>
+          <label style={{ fontSize: 12, color: subtext }}>Validade Padrão Pós-Venda (Dias)</label>
           <input
             type="number"
-            value={cashbackValidityDays}
-            onChange={(e) => setCashbackValidityDays(parseInt(e.target.value) || 0)}
+            value={cashbackValidityDays || 30}
+            onChange={(e) => setCashbackValidityDays(parseInt(e.target.value) || 30)}
             style={{ ...inputStyle(border, text), width: "100%", marginTop: 6 }}
           />
         </div>
@@ -403,8 +422,8 @@ function Cashback({
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Filter size={18} color={accent} />
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: text }}>Filtrar Vencimento de Cashback</div>
-            <div style={{ fontSize: 11, color: subtext }}>Selecione o prazo limite para localizar clientes prestes a perder o saldo</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: text }}>Radar de Cashback (Filtro por Vencimento)</div>
+            <div style={{ fontSize: 11, color: subtext }}>Acompanhe os dias decrescentes e filtre saldos prestes a expirar</div>
           </div>
         </div>
 
@@ -421,14 +440,14 @@ function Cashback({
               cursor: "pointer"
             }}
           >
-            <option value="15" style={{ backgroundColor: card, color: text }}>A 15 dias de perder</option>
-            <option value="30" style={{ backgroundColor: card, color: text }}>A 30 dias de perder</option>
-            <option value="60" style={{ backgroundColor: card, color: text }}>A 60 dias de perder</option>
-            <option value="90" style={{ backgroundColor: card, color: text }}>A 90 dias de perder</option>
+            <option value="15" style={{ backgroundColor: card, color: text }}>A 15 dias de vencer</option>
+            <option value="30" style={{ backgroundColor: card, color: text }}>A 30 dias de vencer</option>
+            <option value="60" style={{ backgroundColor: card, color: text }}>A 60 dias de vencer</option>
+            <option value="90" style={{ backgroundColor: card, color: text }}>A 90 dias de vencer</option>
             <option value="365" style={{ backgroundColor: card, color: text }}>Todos com saldo ativo</option>
           </select>
           <div style={{ fontSize: 12, fontWeight: 600, color: accent, background: hexAlpha(accent, 0.1), padding: "6px 12px", borderRadius: 8 }}>
-            {filteredCustomers.length} cliente(s) encontrado(s)
+            {filteredCustomers.length} cliente(s) no radar
           </div>
         </div>
       </div>
@@ -455,14 +474,14 @@ function Cashback({
         >
           <div>Cliente / Telefone</div>
           <div>Saldo Cashback</div>
-          <div>Validade (Dias)</div>
+          <div>Contagem Regressiva</div>
           <div>Prévia da Mensagem</div>
           <div style={{ textAlign: "right" }}>Ação WhatsApp</div>
         </div>
 
         {filteredCustomers.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: subtext, fontSize: 13 }}>
-            Nenhum cliente encontrado dentro do período de validade selecionado.
+            Nenhum cliente encontrado no radar com os critérios de filtro selecionados.
           </div>
         ) : (
           filteredCustomers.map((c, i) => {
@@ -533,7 +552,7 @@ function Cashback({
                   <div style={{ fontSize: 12, fontWeight: 700, color: remainingDays !== null && remainingDays <= 5 ? DANGER : text }}>
                     {remainingDays !== null ? `${remainingDays} dia(s) restantes` : 'Sem prazo'}
                   </div>
-                  <div style={{ fontSize: 10, color: subtext }}>Expira em: {expDateFormatted}</div>
+                  <div style={{ fontSize: 10, color: subtext }}>Vence em: {expDateFormatted}</div>
                 </div>
 
                 <div

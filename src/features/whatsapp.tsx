@@ -59,6 +59,7 @@ function WhatsApp({
   customers = []
 }) {
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
+  const cleanApiUrl = API_URL.replace(/\/+$/, "");
 
   const [localCustomers, setLocalCustomers] = useState(customers);
   const [sendingNowId, setSendingNowId] = useState(null);
@@ -85,7 +86,7 @@ function WhatsApp({
     };
 
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/status`, { headers });
+      const res = await fetch(`${cleanApiUrl}/api/whatsapp/status`, { headers });
       if (res.ok) {
         const data = await res.json();
         setConnectionStatus(data.status);
@@ -110,7 +111,7 @@ function WhatsApp({
       };
 
       try {
-        const resClientes = await fetch(`${API_URL}/api/clientes`, { headers });
+        const resClientes = await fetch(`${cleanApiUrl}/api/clientes`, { headers });
         const contentTypeClientes = resClientes.headers.get("content-type");
         if (resClientes.ok && contentTypeClientes && contentTypeClientes.includes("application/json")) {
           const clientesData = await resClientes.json();
@@ -119,7 +120,7 @@ function WhatsApp({
           }
         }
 
-        const response = await fetch(`${API_URL}/api/whatsapp`, { headers });
+        const response = await fetch(`${cleanApiUrl}/api/whatsapp`, { headers });
         const contentTypeWa = response.headers.get("content-type");
         if (response.ok && contentTypeWa && contentTypeWa.includes("application/json")) {
           const data = await response.json();
@@ -139,7 +140,7 @@ function WhatsApp({
     // Polling a cada 5 segundos para atualizar o status da conexão/QR Code automaticamente
     const interval = setInterval(checkWhatsAppStatus, 5000);
     return () => clearInterval(interval);
-  }, [setWaSchedule, API_URL]);
+  }, [setWaSchedule, cleanApiUrl]);
 
   const fetchQrCode = async () => {
     setLoadingQr(true);
@@ -151,7 +152,7 @@ function WhatsApp({
         "x-user-id": user.id || "user_1" 
       };
 
-      const res = await fetch(`${API_URL}/api/whatsapp/qr`, { headers });
+      const res = await fetch(`${cleanApiUrl}/api/whatsapp/qr`, { headers });
       const data = await res.json();
       
       if (res.ok && data.success && data.qr) {
@@ -182,7 +183,7 @@ function WhatsApp({
         "x-user-id": user.id || "user_1" 
       };
 
-      const res = await fetch(`${API_URL}/api/whatsapp/reset`, {
+      const res = await fetch(`${cleanApiUrl}/api/whatsapp/reset`, {
         method: "POST",
         headers
       });
@@ -212,7 +213,7 @@ function WhatsApp({
     const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/send-batch`, {
+      const res = await fetch(`${cleanApiUrl}/api/whatsapp/send-batch`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -258,7 +259,7 @@ function WhatsApp({
     const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
 
     try {
-      await fetch(`${API_URL}/api/whatsapp`, {
+      await fetch(`${cleanApiUrl}/api/whatsapp`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

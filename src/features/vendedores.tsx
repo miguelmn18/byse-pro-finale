@@ -5,7 +5,8 @@ import { SectionTitle } from "../components/common";
 import { money, inputStyle } from "../utils/helpers";
 
 export function Vendedores({ sellers, setSellers, sales, card, border, subtext, accent, text }) {
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
+  // Remove barra dupla ou trailing slash se houver na variável de ambiente
+  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: "", commissionPct: "5" });
@@ -20,11 +21,10 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
     };
   };
 
-  // BUSCA OS VENDEDORES DO BANCO DE DADOS ASSIM QUE O COMPONENTE É CARREGADO
   useEffect(() => {
     const fetchSellers = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/vendedores`, {
+        const response = await fetch(`${API_URL}/api/sellers`, {
           headers: getAuthHeaders()
         });
         if (response.ok) {
@@ -57,39 +57,43 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
     if (!form.name.trim()) return;
     
     const sellerPayload = {
-      id: editingId || ("s" + Date.now()),
+      id: editingId || (`sel_${Date.now()}`),
       name: form.name.trim(),
-      commissionPct: parseFloat(form.commissionPct) || 0
+      commissionPct: parseFloat(form.commissionPct) || 0,
+      commission_pct: parseFloat(form.commissionPct) || 0
     };
 
     try {
-      const response = await fetch(`${API_URL}/api/vendedores`, {
-        method: "POST",
+      const url = editingId ? `${API_URL}/api/sellers/${editingId}` : `${API_URL}/api/sellers`;
+      const method = editingId ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method: method,
         headers: getAuthHeaders(),
         body: JSON.stringify(sellerPayload)
       });
 
-      if (!response.ok) throw new Error("Erro ao salvar no servidor");
-
-      const result = await response.json();
-      const savedSeller = result.seller || sellerPayload;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || `Erro ao salvar no servidor (Status: ${response.status})`);
+      }
 
       if (editingId) {
-        setSellers(sellers.map((s) => (s.id === editingId ? savedSeller : s)));
+        setSellers(sellers.map((s) => (s.id === editingId ? sellerPayload : s)));
       } else {
-        setSellers([...sellers, savedSeller]);
+        setSellers([...sellers, sellerPayload]);
       }
       cancel();
     } catch (error) {
       console.error("Erro ao salvar vendedor:", error);
-      alert("Erro ao salvar vendedor no servidor.");
+      alert(`Erro ao salvar vendedor: ${error.message}`);
     }
   };
 
   const remove = async (id) => {
     if (!confirm("Deseja realmente excluir este vendedor?")) return;
     try {
-      const response = await fetch(`${API_URL}/api/vendedores/${id}`, {
+      const response = await fetch(`${API_URL}/api/sellers/${id}`, {
         method: "DELETE",
         headers: getAuthHeaders()
       });
@@ -159,7 +163,7 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
         {sellers.map((s, i) => {
           const sellerSales = sales.filter((v) => v.seller === s.name || v.seller === s.id);
           const total = sellerSales.reduce((a, v) => a + v.total, 0);
-          const commissionPct = Number(s.commissionPct || 0);
+          const commissionPct = Number(s.commissionPct || s.commission_pct || 0);
           const commission = (total * commissionPct) / 100;
 
           return (
