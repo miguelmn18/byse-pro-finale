@@ -74,17 +74,6 @@ export async function initDb() {
         PRIMARY KEY (id, user_id)
       );
 
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS cashback_expiry DATE;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS cashback_expiration_date DATE;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS data_aniversario DATE;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS status_mensalidade VARCHAR(100) DEFAULT 'Pendente (Não Pago)';
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS data_vencimento DATE;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS valor_mensalidade NUMERIC DEFAULT 0;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_tipo VARCHAR(20) DEFAULT 'avulso';
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_inicio DATE;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_fim DATE;
-      ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_treino_valor_avulso NUMERIC DEFAULT 0;
-
       CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
       CREATE INDEX IF NOT EXISTS idx_customers_user_phone ON customers(user_id, phone);
 
@@ -186,12 +175,6 @@ export async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id, user_id)
       );
-
-      ALTER TABLE pre_treino_clientes ADD COLUMN IF NOT EXISTS data_inicio DATE;
-      ALTER TABLE pre_treino_clientes ADD COLUMN IF NOT EXISTS data_fim DATE;
-      ALTER TABLE pre_treino_clientes ADD COLUMN IF NOT EXISTS status_mensalidade VARCHAR(100) DEFAULT 'Pendente (Não Pago)';
-      ALTER TABLE pre_treino_clientes ADD COLUMN IF NOT EXISTS valor_mensalidade NUMERIC DEFAULT 0;
-
       CREATE INDEX IF NOT EXISTS idx_pre_treino_clientes_user ON pre_treino_clientes(user_id);
 
       CREATE TABLE IF NOT EXISTS pre_treino_registros (

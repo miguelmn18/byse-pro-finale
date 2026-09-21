@@ -99,6 +99,7 @@ export function Estoque({
     return (v / c) * 100;
   };
 
+  // Função robusta que envia dados para o backend via fetch POST/PUT e atualiza o estado corretamente
   const saveProduct = async () => {
     if (!form.name || !form.price) return;
     
@@ -121,23 +122,76 @@ export function Estoque({
       price: parseFloat(form.price) || 0,
       imposto: form.imposto ? parseFloat(form.imposto) : 0,
       frete: form.frete ? parseFloat(form.frete) : 0,
+      vipPrice: form.vipPrice !== "" && form.vipPrice != null ? parseFloat(form.vipPrice) : null,
       vip_price: form.vipPrice !== "" && form.vipPrice != null ? parseFloat(form.vipPrice) : null,
+      vipPrice3x: form.vipPrice3x !== "" && form.vipPrice3x != null ? parseFloat(form.vipPrice3x) : null,
       vip_price_3x: form.vipPrice3x !== "" && form.vipPrice3x != null ? parseFloat(form.vipPrice3x) : null,
       description: form.description || "",
+      controlStock: Boolean(form.controlStock),
       control_stock: Boolean(form.controlStock),
+      imageUrl: form.imageUrl || null,
       image_url: form.imageUrl || null,
       stocks: stocksObj
     };
 
-    if (editingId) {
-      if (onEditProduct) {
-        await onEditProduct(built);
+    try {
+      const token = localStorage.getItem("byse_token");
+      const rawApiUrl = import.meta.env.VITE_API_URL || (window.location.hostname === "localhost" ? "http://localhost:3333/api" : "https://byse-pro-backend-production.up.railway.app/api");
+      const API_URL = rawApiUrl.endsWith("/api") ? rawApiUrl : `${rawApiUrl.endsWith("/") ? rawApiUrl.slice(0, -1) : rawApiUrl}/api`;
+
+      const endpoint = editingId ? `${API_URL}/products/${editingId}` : `${API_URL}/products`;
+      const method = editingId ? "PUT" : "POST";
+
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(built)
+      });
+
+      if (response.ok) {
+        const savedData = await response.json();
+        const finalProduct = savedData.id ? savedData : built;
+
+        if (editingId) {
+          if (onEditProduct) {
+            await onEditProduct(finalProduct);
+          } else if (setProducts) {
+            const currentList = Array.isArray(products) ? products : [];
+            setProducts(currentList.map(p => p.id === finalProduct.id ? finalProduct : p));
+          }
+        } else {
+          if (setProducts) {
+            // Garante que o estado seja tratado como array e insere o novo item sem sobrescrevê-lo com um objeto puro
+            if (typeof setProducts === "function") {
+              // Verifica se a função aceita callback de estado ou array direto
+              const currentList = Array.isArray(products) ? products : [];
+              setProducts([finalProduct, ...currentList]);
+            }
+          }
+        }
+      } else {
+        // Fallback local caso a API retorne erro na requisição
+        if (editingId && onEditProduct) {
+          await onEditProduct(built);
+        } else if (!editingId && setProducts) {
+          const currentList = Array.isArray(products) ? products : [];
+          setProducts([built, ...currentList]);
+        }
       }
-    } else {
-      if (setProducts) {
-        await setProducts(built);
+    } catch (err) {
+      console.error("Erro ao salvar produto no backend:", err);
+      // Fallback offline/local
+      if (editingId && onEditProduct) {
+        await onEditProduct(built);
+      } else if (!editingId && setProducts) {
+        const currentList = Array.isArray(products) ? products : [];
+        setProducts([built, ...currentList]);
       }
     }
+
     cancelForm();
   };
 

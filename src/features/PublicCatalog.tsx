@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useState } from 'react';
-import { Lock, ShoppingBag, MessageCircle, CheckCircle2, Tag, X, Plus, Minus } from 'lucide-react';
+import { Lock, ShoppingBag, MessageCircle, CheckCircle2, Tag, X, Plus, Minus, Sparkles } from 'lucide-react';
 
 export function PublicCatalog() {
   const [data, setData] = useState<any>(null);
@@ -10,6 +10,8 @@ export function PublicCatalog() {
   const [showVip, setShowVip] = useState(false);
   const [loading, setLoading] = useState(true);
   
+  const [showIntro, setShowIntro] = useState(false);
+
   const [cart, setCart] = useState<{ product: any; quantity: number }[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
@@ -18,13 +20,23 @@ export function PublicCatalog() {
   const base = (import.meta.env.VITE_API_URL || 'http://localhost:3333').replace(/\/$/, '');
   const id = window.location.pathname.split('/')[2];
 
+  // Carregamento inicial robusto do catálogo
   useEffect(() => {
-    fetch(`${base}/api/public/catalogo/${id}`)
+    const token = localStorage.getItem(`vip_token_${id}`);
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    fetch(`${base}/api/public/catalogo/${id}`, { headers })
       .then(async r => {
         if (!r.ok) throw new Error();
         return r.json();
       })
-      .then(setData)
+      .then(resData => {
+        setData(resData);
+        setVip(resData.isVip || Boolean(token));
+      })
       .catch(() => setError('Catálogo não encontrado.'))
       .finally(() => setLoading(false));
   }, [id, base]);
@@ -41,11 +53,57 @@ export function PublicCatalog() {
         alert(resData.error || 'Senha VIP inválida.');
         return;
       }
-      setVip(true);
+
+      if (resData.accessToken) {
+        localStorage.setItem(`vip_token_${id}`, resData.accessToken);
+      }
+
       setShowVip(false);
       setPassword('');
+      setVip(true); 
+
+      // Mantém os produtos atuais intactos e apenas tenta atualizar dados complementares em segundo plano de forma segura
+      const token = resData.accessToken || localStorage.getItem(`vip_token_${id}`);
+      if (token) {
+        fetch(`${base}/api/public/catalogo/${id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+          .then(res => res.ok ? res.json() : null)
+          .then(freshData => {
+            if (freshData && Array.isArray(freshData.products) && freshData.products.length > 0) {
+              setData(freshData);
+            }
+          })
+          .catch(() => {});
+      }
+
+      // Exibe a introdução festiva
+      setShowIntro(true);
+      const timer = setTimeout(() => {
+        setShowIntro(false);
+      }, 4000);
+
+      return () => clearTimeout(timer);
+
     } catch (e) {
       alert('Erro ao validar senha VIP.');
+    }
+  };
+
+  const handleLogoutVip = async () => {
+    localStorage.removeItem(`vip_token_${id}`);
+    setVip(false);
+
+    try {
+      const res = await fetch(`${base}/api/public/catalogo/${id}`);
+      if (res.ok) {
+        const freshData = await res.json();
+        if (freshData && Array.isArray(freshData.products)) {
+          setData(freshData);
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao atualizar catálogo ao sair do VIP', e);
     }
   };
 
@@ -57,7 +115,6 @@ export function PublicCatalog() {
       }
       return [...prev, { product, quantity: 1 }];
     });
-    setIsCartOpen(true);
   };
 
   const updateQuantity = (productId: any, delta: number) => {
@@ -72,29 +129,36 @@ export function PublicCatalog() {
 
   const calculateTotal = () => {
     return cart.reduce((total, item) => {
-      const vipVal = item.product.vip_price !== undefined ? item.product.vip_price : item.product.vipPrice;
-      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : item.product.price;
+      const currentProduct = data?.products?.find((p: any) => p.id === item.product.id) || item.product;
+      const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
+      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : currentProduct.price;
       return total + (Number(price || 0) * item.quantity);
     }, 0);
   };
 
   const handleCheckoutWhatsApp = () => {
-    const cleanPhone = '5583981932137';
+    if (!data?.whatsapp) {
+      alert('Esta loja ainda não configurou um número de WhatsApp para pedidos.');
+      return;
+    }
+
+    const cleanPhone = String(data.whatsapp).replace(/\D/g, '');
 
     let message = `*Pedido via Catálogo Online - ${data?.storeName || 'Loja'}*\n\n`;
     if (vip) message += `🔓 _Condição de Preço VIP Ativa_\n\n`;
 
     cart.forEach(item => {
-      const vipVal = item.product.vip_price !== undefined ? item.product.vip_price : item.product.vipPrice;
-      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : item.product.price;
-      message += `• ${item.quantity}x ${item.product.name} - R$ ${(Number(price || 0) * item.quantity).toFixed(2)}\n`;
+      const currentProduct = data?.products?.find((p: any) => p.id === item.product.id) || item.product;
+      const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
+      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : currentProduct.price;
+      message += `• ${item.quantity}x ${currentProduct.name} - R$ ${(Number(price || 0) * item.quantity).toFixed(2)}\n`;
     });
     message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
 
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div style={{ minHeight: '100vh', background: '#0C0C0C', color: '#F0EFE9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
         Carregando catálogo...
@@ -102,7 +166,7 @@ export function PublicCatalog() {
     );
   }
 
-  if (error || !data) {
+  if (error && !data) {
     return (
       <div style={{ minHeight: '100vh', background: '#0C0C0C', color: '#F0EFE9', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
         <h2 style={{ color: '#DC2626' }}>Ops! Catálogo Indisponível</h2>
@@ -111,8 +175,10 @@ export function PublicCatalog() {
     );
   }
 
-  const categories = ['Todos', ...Array.from(new Set((data.products || []).map((p: any) => p.category || 'Geral')))];
-  const filteredProducts = (data.products || []).filter((product: any) => {
+  const productsList = Array.isArray(data?.products) ? data.products : [];
+  const categories = ['Todos', ...Array.from(new Set(productsList.map((p: any) => p.category || 'Geral')))];
+  
+  const filteredProducts = productsList.filter((product: any) => {
     const matchesCategory = selectedCategory === 'Todos' || product.category === selectedCategory;
     const matchesSearch = String(product.name || '').toLowerCase().includes(query.toLowerCase()) ||
                           String(product.description || '').toLowerCase().includes(query.toLowerCase());
@@ -120,38 +186,108 @@ export function PublicCatalog() {
   });
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0C0C0C', color: '#F0EFE9', padding: '24px 16px', fontFamily: 'sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: '#0C0C0C', color: '#F0EFE9', padding: '24px 16px', fontFamily: 'sans-serif', position: 'relative' }}>
+      
+      {showIntro && (
+        <div style={{
+          position: 'fixed', inset: 0, background: '#0c0c0c', zIndex: 9999,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          animation: 'fadeOutContainer 0.8s ease 3.2s forwards'
+        }}>
+          <style>{`
+            @keyframes fadeOutContainer {
+              to { opacity: 0; visibility: hidden; }
+            }
+            @keyframes seqStep {
+              0% { opacity: 0; transform: translateY(15px); }
+              20% { opacity: 1; transform: translateY(0); }
+              80% { opacity: 1; transform: translateY(0); }
+              100% { opacity: 0; transform: translateY(-15px); }
+            }
+            .intro-step-1 { animation: seqStep 1.2s ease forwards; }
+            .intro-step-2 { opacity: 0; animation: seqStep 1.2s ease 1.1s forwards; }
+            .intro-step-3 { opacity: 0; animation: seqStep 1.2s ease 2.2s forwards; }
+          `}</style>
+
+          <div style={{ textAlign: 'center', padding: 20, minHeight: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="intro-step-1" style={{ position: 'absolute' }}>
+              <div style={{ 
+                width: 50, height: 50, background: 'rgba(220, 38, 38, 0.1)', 
+                borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                margin: '0 auto 12px auto', border: '1px solid rgba(220, 38, 38, 0.3)' 
+              }}>
+                <Sparkles size={24} color="#DC2626" />
+              </div>
+              <span style={{ 
+                fontSize: 13, fontWeight: 800, letterSpacing: '3px', textTransform: 'uppercase', 
+                color: '#DC2626', background: 'rgba(220, 38, 38, 0.1)', padding: '6px 14px', 
+                borderRadius: 20, border: '1px solid rgba(220, 38, 38, 0.2)' 
+              }}>
+                Área VIP
+              </span>
+            </div>
+
+            <div className="intro-step-2" style={{ position: 'absolute' }}>
+              <h1 style={{ fontSize: 32, fontWeight: 800, color: '#F0EFE9', margin: 0, letterSpacing: '-0.5px' }}>
+                Sejam Bem-Vindos
+              </h1>
+            </div>
+
+            <div className="intro-step-3" style={{ position: 'absolute' }}>
+              <h2 style={{ fontSize: 28, fontWeight: 800, color: '#DC2626', margin: 0, letterSpacing: '2px', textTransform: 'uppercase' }}>
+                BYSE PRO
+              </h2>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-        
-        {/* Cabeçalho da Loja com padrão unificado e Botão VIP garantido */}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12, background: '#1C1C1C', padding: 20, borderRadius: 16, border: '1px solid #2E2E2E' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#F0EFE9' }}>{data.storeName || 'Catálogo da Loja'}</h1>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#F0EFE9' }}>{data?.storeName || 'Catálogo da Loja'}</h1>
             <p style={{ color: '#8A8A82', margin: '4px 0 0 0', fontSize: 13 }}>Confira nossos produtos disponíveis em estoque</p>
           </div>
           
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button 
-              onClick={() => setShowVip(true)} 
-              style={{ 
-                display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 0, borderRadius: 10, 
-                background: vip ? '#10b981' : '#f59e0b', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.2)' 
-              }}
-            >
-              {vip ? <><CheckCircle2 size={15}/> VIP Ativo</> : <><Lock size={15}/> Desbloquear VIP</>}
-            </button>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button 
+                onClick={() => setShowVip(true)} 
+                style={{ 
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 0, borderRadius: 10, 
+                  background: vip ? '#10b981' : '#DC2626', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)' 
+                }}
+              >
+                {vip ? <><CheckCircle2 size={15}/> VIP Ativo</> : <><Lock size={15}/> Desbloquear VIP</>}
+              </button>
+
+              {vip && (
+                <button
+                  onClick={handleLogoutVip}
+                  title="Sair do modo VIP"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '9px 12px',
+                    borderRadius: 10, background: '#2E2E2E', color: '#ef4444', fontSize: 13, fontWeight: 600,
+                    border: '1px solid #3E3E3E', cursor: 'pointer'
+                  }}
+                >
+                  Sair
+                </button>
+              )}
+            </div>
 
             <button
               onClick={() => setIsCartOpen(true)}
               style={{
                 position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px',
-                borderRadius: 10, background: '#DC2626', color: '#fff', fontSize: 13, fontWeight: 600, border: 0, cursor: 'pointer'
+                borderRadius: 10, background: '#2E2E2E', color: '#fff', fontSize: 13, fontWeight: 600, border: '1px solid #3E3E3E', cursor: 'pointer'
               }}
             >
               <ShoppingBag size={15} /> Carrinho
               {cart.length > 0 && (
-                <span style={{ position: 'absolute', top: -6, right: -6, background: '#f43f5e', color: '#fff', fontSize: 10, fontWeight: 700, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #1C1C1C' }}>
+                <span style={{ position: 'absolute', top: -6, right: -6, background: '#DC2626', color: '#fff', fontSize: 10, fontWeight: 700, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #1C1C1C' }}>
                   {cart.reduce((sum, item) => sum + item.quantity, 0)}
                 </span>
               )}
@@ -159,7 +295,6 @@ export function PublicCatalog() {
           </div>
         </div>
 
-        {/* Barra de Pesquisa e Filtros */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
           <input 
             value={query} 
@@ -185,7 +320,6 @@ export function PublicCatalog() {
           </div>
         </div>
 
-        {/* Grid de Produtos */}
         {filteredProducts.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#8A8A82' }}>
             <ShoppingBag size={40} style={{ opacity: 0.3, marginBottom: 10 }} />
@@ -196,12 +330,13 @@ export function PublicCatalog() {
             {filteredProducts.map((p: any) => {
               const vipVal = p.vip_price !== undefined ? p.vip_price : p.vipPrice;
               const hasVipPrice = vip && vipVal !== undefined && vipVal !== null && Number(vipVal) > 0;
+              const imageUrl = p.image_url || p.imageUrl;
 
               return (
                 <div key={p.id} style={{ background: '#1C1C1C', border: '1px solid #2E2E2E', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    {p.image_url ? (
-                      <img src={p.image_url} alt={p.name} style={{ width: '100%', height: 150, objectFit: 'cover' }} />
+                    {imageUrl ? (
+                      <img src={imageUrl} alt={p.name} style={{ width: '100%', height: 150, objectFit: 'cover' }} />
                     ) : (
                       <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#141414', color: '#8A8A82' }}>
                         <Tag size={24} style={{ opacity: 0.3 }} />
@@ -247,12 +382,11 @@ export function PublicCatalog() {
           </div>
         )}
 
-        {/* Modal de Senha VIP */}
         {showVip && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100, backdropFilter: 'blur(2px)' }}>
             <div style={{ background: '#1C1C1C', padding: 24, borderRadius: 16, width: '100%', maxWidth: 360, border: '1px solid #2E2E2E' }}>
               <div style={{ textAlign: 'center', marginBottom: 16 }}>
-                <div style={{ width: 40, height: 40, background: '#78350f', color: '#f59e0b', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px auto' }}>
+                <div style={{ width: 40, height: 40, background: 'rgba(220, 38, 38, 0.15)', color: '#DC2626', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px auto' }}>
                   <Lock size={20} />
                 </div>
                 <h3 style={{ margin: 0, fontSize: 16, color: '#F0EFE9', fontWeight: 600 }}>Acesso VIP Exclusivo</h3>
@@ -268,13 +402,12 @@ export function PublicCatalog() {
               />
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => setShowVip(false)} style={{ flex: 1, padding: 10, border: '1px solid #2E2E2E', borderRadius: 9, background: 'transparent', color: '#8A8A82', fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-                <button onClick={verify} style={{ flex: 1, padding: 10, border: 0, borderRadius: 9, background: '#f59e0b', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Desbloquear</button>
+                <button onClick={verify} style={{ flex: 1, padding: 10, border: 0, borderRadius: 9, background: '#DC2626', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Desbloquear</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Carrinho Lateral */}
         {isCartOpen && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 100, overflow: 'hidden' }}>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(2px)' }} onClick={() => setIsCartOpen(false)} />
@@ -289,12 +422,13 @@ export function PublicCatalog() {
                   <div style={{ textAlign: 'center', padding: '40px 0', color: '#8A8A82', fontSize: 13 }}>Seu carrinho está vazio.</div>
                 ) : (
                   cart.map(item => {
-                    const vipVal = item.product.vip_price !== undefined ? item.product.vip_price : item.product.vipPrice;
-                    const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : item.product.price;
+                    const currentProduct = data?.products?.find((p: any) => p.id === item.product.id) || item.product;
+                    const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
+                    const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : currentProduct.price;
                     return (
                       <div key={item.product.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0C0C0C', padding: 12, borderRadius: 10, border: '1px solid #2E2E2E' }}>
                         <div>
-                          <b style={{ fontSize: 13, display: 'block', color: '#F0EFE9', fontWeight: 600 }}>{item.product.name}</b>
+                          <b style={{ fontSize: 13, display: 'block', color: '#F0EFE9', fontWeight: 600 }}>{currentProduct.name}</b>
                           <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>{Number(price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} un</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

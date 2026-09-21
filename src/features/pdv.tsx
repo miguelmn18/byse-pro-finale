@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Search, X, UserPlus, ShoppingCart, ArrowLeft, RotateCcw } from "lucide-react";
 import { inputStyle, lbl } from "../utils/helpers";
 import { SectionTitle } from "../components/common";
@@ -262,69 +262,14 @@ export function PDV({
   const total = Math.max(0, subtotal - Number(discount));
   const earnedCashbackCalc = selectedCustomer ? total * (cashbackPercent / 100) : 0;
 
-  const generateReceiptText = (saleData) => {
-    const itemsText = saleData.items
-      .map(i => `${i.qty}x ${i.name} - ${(Number(i.price) * i.qty).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`)
-      .join("\n");
-
-    return `
--- COMPROVANTE --
-Data: ${new Date(saleData.date).toLocaleString("pt-BR")}
-Cli: ${saleData.customer_name}
-Vend: ${saleData.seller}
---------------------------------
-ITENS:
-${itemsText}
---------------------------------
-Subtotal: ${saleData.subtotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-Desconto: ${saleData.discount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-TOTAL: ${saleData.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-Cashback da Compra: ${saleData.cashback_earned.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-Pagto: ${saleData.payment_method}
-Canal: ${saleData.sales_channel}
-Gênero: ${saleData.gender}
---------------------------------
-Obrigado pela preferência!
-    `.trim();
-  };
-
   const handlePrintReceipt = (saleData) => {
-    const receiptContent = generateReceiptText(saleData);
-    const printWindow = window.open("", "_blank", "width=320,height=500");
-    
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Comprovante</title>
-            <style>
-              body { 
-                font-family: monospace; 
-                white-space: pre-wrap; 
-                padding: 5px; 
-                margin: 0;
-                font-size: 11px; 
-                line-height: 1.2;
-              }
-            </style>
-          </head>
-          <body>
-            ${receiptContent}
-            <script>
-              window.onload = function() {
-                window.print();
-                window.close();
-              }
-            </script>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-    }
+    if (!saleData) return;
+    window.print();
   };
 
   const handleDownloadPDF = (saleData) => {
-    handlePrintReceipt(saleData);
+    if (!saleData) return;
+    window.print();
   };
 
   const finalizeSale = async () => {
@@ -479,6 +424,69 @@ Obrigado pela preferência!
 
   return (
     <div style={{ padding: device === "desktop" ? 20 : 10 }}>
+      {/* Estilo CSS dedicado para impressão oculta do comprovante */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-receipt, #printable-receipt * {
+            visibility: visible !important;
+          }
+          #printable-receipt {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            font-family: monospace !important;
+            padding: 10px !important;
+            color: #000 !important;
+            background: #fff !important;
+            font-size: 12px !important;
+            line-height: 1.4 !important;
+          }
+        }
+      `}</style>
+
+      {/* Bloco HTML invisível na tela normal, mas ativado e populado dinamicamente no print */}
+      <div id="printable-receipt" style={{ display: "none" }}>
+        <div style={{ textAlign: "center", fontWeight: "bold", fontSize: 15, marginBottom: 8 }}>BYSE PRO — COMPROVANTE</div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "5px 0" }}></div>
+        <div><strong>Data:</strong> {lastCompletedSale ? new Date(lastCompletedSale.date).toLocaleString("pt-BR") : ""}</div>
+        <div><strong>Cliente:</strong> {lastCompletedSale ? lastCompletedSale.customer_name : ""}</div>
+        <div><strong>Vendedor:</strong> {lastCompletedSale ? lastCompletedSale.seller : ""}</div>
+        <div><strong>Pagamento:</strong> {lastCompletedSale ? lastCompletedSale.payment_method : ""}</div>
+        <div><strong>Canal:</strong> {lastCompletedSale ? lastCompletedSale.sales_channel : ""}</div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "5px 0" }}></div>
+        <div style={{ fontWeight: "bold" }}>ITENS DA COMPRA:</div>
+        {lastCompletedSale && lastCompletedSale.items && lastCompletedSale.items.map((i, index) => (
+          <div key={index} style={{ display: "flex", justifyContent: "space-between", margin: "2px 0" }}>
+            <span>{i.qty}x {i.name}</span>
+            <span>{(Number(i.price) * i.qty).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+          </div>
+        ))}
+        <div style={{ borderBottom: "1px dashed #000", margin: "5px 0" }}></div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Subtotal:</span>
+          <span>{lastCompletedSale ? lastCompletedSale.subtotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Desconto:</span>
+          <span>{lastCompletedSale ? lastCompletedSale.discount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: 13, marginTop: 4 }}>
+          <span>TOTAL:</span>
+          <span>{lastCompletedSale ? lastCompletedSale.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+          <span>Cashback Gerado:</span>
+          <span>{lastCompletedSale ? lastCompletedSale.earned_cashback.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
+        </div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "8px 0" }}></div>
+        <div style={{ textAlign: "center", fontStyle: "italic", fontSize: 11 }}>Obrigado pela preferência! Volte sempre.</div>
+      </div>
+
       {step === "gate" && (
         <div>
           <SectionTitle

@@ -182,6 +182,7 @@ function SupplementSystem() {
         }
       }
 
+      // Removido o salvamento de sales no localStorage para evitar QuotaExceededError
       const resSales = await fetch(`${API_URL}/sales`, { headers });
       if (resSales.ok) {
         const data = await resSales.json();
@@ -195,10 +196,6 @@ function SupplementSystem() {
             gender: s.gender || s.genders || "Prefiro não informar",
           }));
           setSales([...normalizedSales]);
-          localStorage.setItem(
-            getStorageKey("sales", targetUser),
-            JSON.stringify(normalizedSales),
-          );
         }
       }
 
@@ -324,7 +321,6 @@ function SupplementSystem() {
         const uKey = parsedUser?.id || parsedUser?.email || "guest";
         const localCust = localStorage.getItem(`byse_customers_${uKey}`);
         const localProd = localStorage.getItem(`byse_products_${uKey}`);
-        const localSales = localStorage.getItem(`byse_sales_${uKey}`);
         const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
         const localFiados = localStorage.getItem(`byse_fiados_${uKey}`);
         const localPtRecs = localStorage.getItem(
@@ -339,7 +335,6 @@ function SupplementSystem() {
 
         if (localCust) setCustomers(JSON.parse(localCust));
         if (localProd) setProducts(JSON.parse(localProd));
-        if (localSales) setSales(JSON.parse(localSales));
         if (localSellers) setSellers(JSON.parse(localSellers));
         if (localFiados) setFiados(JSON.parse(localFiados));
         if (localPtRecs) setPreTreinoRecords(JSON.parse(localPtRecs));
@@ -377,7 +372,6 @@ function SupplementSystem() {
     const uKey = userData?.id || userData?.email || "guest";
     const localCust = localStorage.getItem(`byse_customers_${uKey}`);
     const localProd = localStorage.getItem(`byse_products_${uKey}`);
-    const localSales = localStorage.getItem(`byse_sales_${uKey}`);
     const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
     const localFiados = localStorage.getItem(`byse_fiados_${uKey}`);
     const localPtRecs = localStorage.getItem(`byse_pre_treino_records_${uKey}`);
@@ -390,7 +384,6 @@ function SupplementSystem() {
 
     if (localCust) setCustomers(JSON.parse(localCust));
     if (localProd) setProducts(JSON.parse(localProd));
-    if (localSales) setSales(JSON.parse(localSales));
     if (localSellers) setSellers(JSON.parse(localSellers));
     if (localFiados) setFiados(JSON.parse(localFiados));
     if (localPtRecs) setPreTreinoRecords(JSON.parse(localPtRecs));
@@ -463,43 +456,49 @@ function SupplementSystem() {
         productData.id && products.some((p) => p.id === productData.id),
       );
       const endpoint = isEditing
-        ? `/api/products/${productData.id}`
-        : "/api/products";
+        ? `${API_URL}/products/${productData.id}`
+        : `${API_URL}/products`;
       const method = isEditing ? "PUT" : "POST";
 
-      // Normalização completa dos campos para o backend PostgreSQL
+      const controlStockVal =
+        productData.controlStock ?? productData.control_stock ?? true;
+      const vipPriceVal =
+        productData.vipPrice !== undefined && productData.vipPrice !== ""
+          ? Number(productData.vipPrice)
+          : productData.vip_price !== undefined && productData.vip_price !== ""
+          ? Number(productData.vip_price)
+          : null;
+      const vipPrice3xVal =
+        productData.vipPrice3x !== undefined && productData.vipPrice3x !== ""
+          ? Number(productData.vipPrice3x)
+          : productData.vip_price_3x !== undefined && productData.vip_price_3x !== ""
+          ? Number(productData.vip_price_3x)
+          : null;
+      const imageUrlVal = productData.imageUrl || productData.image_url || null;
+      const costPriceVal =
+        productData.costPrice !== undefined && productData.costPrice !== ""
+          ? Number(productData.costPrice)
+          : productData.cost_price !== undefined && productData.cost_price !== ""
+          ? Number(productData.cost_price)
+          : null;
+
       const payload = {
         ...productData,
-        controlStock:
-          productData.controlStock ?? productData.control_stock ?? true,
-        control_stock:
-          productData.controlStock ?? productData.control_stock ?? true,
-        vipPrice:
-          productData.vipPrice !== undefined && productData.vipPrice !== ""
-            ? Number(productData.vipPrice)
-            : null,
-        vip_price:
-          productData.vipPrice !== undefined && productData.vipPrice !== ""
-            ? Number(productData.vipPrice)
-            : null,
-        vipPrice3x:
-          productData.vipPrice3x !== undefined && productData.vipPrice3x !== ""
-            ? Number(productData.vipPrice3x)
-            : null,
-        vip_price_3x:
-          productData.vipPrice3x !== undefined && productData.vipPrice3x !== ""
-            ? Number(productData.vipPrice3x)
-            : null,
-        imageUrl: productData.imageUrl || productData.image_url || null,
-        image_url: productData.imageUrl || productData.image_url || null,
+        controlStock: controlStockVal,
+        control_stock: controlStockVal,
+        vipPrice: vipPriceVal,
+        vip_price: vipPriceVal,
+        vipPrice3x: vipPrice3xVal,
+        vip_price_3x: vipPrice3xVal,
+        imageUrl: imageUrlVal,
+        image_url: imageUrlVal,
+        costPrice: costPriceVal,
+        cost_price: costPriceVal,
       };
 
       const response = await fetch(endpoint, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -509,17 +508,30 @@ function SupplementSystem() {
 
       const savedProduct = await response.json();
 
-      // Atualiza o estado local garantindo a consistência de ambos os padrões de nomenclatura
+      const normalizedSavedProduct = {
+        ...savedProduct,
+        controlStock:
+          savedProduct.controlStock ?? savedProduct.control_stock ?? true,
+        control_stock:
+          savedProduct.control_stock ?? savedProduct.controlStock ?? true,
+        vipPrice: savedProduct.vipPrice ?? savedProduct.vip_price ?? null,
+        vip_price: savedProduct.vip_price ?? savedProduct.vipPrice ?? null,
+        vipPrice3x: savedProduct.vipPrice3x ?? savedProduct.vip_price_3x ?? null,
+        vip_price_3x: savedProduct.vip_price_3x ?? savedProduct.vipPrice3x ?? null,
+        imageUrl: savedProduct.imageUrl ?? savedProduct.image_url ?? null,
+        image_url: savedProduct.image_url ?? savedProduct.imageUrl ?? null,
+      };
+
       setProducts((prevProducts) => {
         if (isEditing) {
           return prevProducts.map((p) =>
-            p.id === savedProduct.id ? savedProduct : p,
+            p.id === normalizedSavedProduct.id ? normalizedSavedProduct : p,
           );
         }
-        return [savedProduct, ...prevProducts];
+        return [normalizedSavedProduct, ...prevProducts];
       });
 
-      return { success: true, product: savedProduct };
+      return { success: true, product: normalizedSavedProduct };
     } catch (error) {
       console.error("Erro em handleUpdateProducts:", error);
       return { success: false, error: error.message };
@@ -638,7 +650,6 @@ function SupplementSystem() {
         : null;
 
     setSales([...newSales]);
-    localStorage.setItem(getStorageKey("sales"), JSON.stringify(newSales));
 
     if (latestSale) {
       try {
@@ -899,8 +910,8 @@ function SupplementSystem() {
     if (tab === "preTreino")
       return (
         <PreTreino
-          clientes={preTreinoCustomers}
-          setClientes={(newCusts) => {
+          clientesPreTreino={preTreinoCustomers}
+          setClientesPreTreino={(newCusts) => {
             setPreTreinoCustomers(newCusts);
             localStorage.setItem(
               getStorageKey("pre_treino_customers"),

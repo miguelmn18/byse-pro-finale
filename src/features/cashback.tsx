@@ -266,13 +266,15 @@ function Cashback({
   }, [customers, validityFilterDays]);
 
   const getRenderedMessage = (c) => {
+    const saldoValor = c.cashback !== undefined ? c.cashback : (c.cashback_balance || c.saldoCashback || c.saldo || 0);
+
     const vencimentoFormatado = (c.cashbackExpirationDate || c.cashback_expiration_date || c.cashbackExpiry || c.cashback_expiry) 
       ? new Date(c.cashbackExpirationDate || c.cashback_expiration_date || c.cashbackExpiry || c.cashback_expiry).toLocaleDateString('pt-BR') 
       : 'breve';
 
     return cashbackMessage
       .replace(/{nome}/g, c.name || 'Cliente')
-      .replace(/{saldo}/g, money(c.cashback || 0))
+      .replace(/{saldo}/g, money(saldoValor))
       .replace(/{vencimento}/g, vencimentoFormatado);
   };
 

@@ -38,7 +38,7 @@ export default function Catalogo({ products = [], userId, apiUrl, card, border, 
   const [saved, setSaved] = useState(false);
   const [query, setQuery] = useState('');
 
-  // Estados focados na vitrine interativa e simulação do link público
+  // Estados focados na vitrine interativa e simulação do link público (garantido como desativado por padrão)
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -46,7 +46,10 @@ export default function Catalogo({ products = [], userId, apiUrl, card, border, 
   const [vipPasswordInput, setVipPasswordInput] = useState<string>('');
   const [showVipModal, setShowVipModal] = useState<boolean>(false);
 
-  const base = (apiUrl || 'http://localhost:3333').replace(/\/$/, '');
+  // Correção aplicada: Garante que a URL base não duplique o prefixo /api
+  const cleanApiUrl = (apiUrl || 'http://localhost:3333').replace(/\/$/, '');
+  const base = cleanApiUrl.endsWith('/api') ? cleanApiUrl.slice(0, -4) : cleanApiUrl;
+
   const headers = () => ({ 
     'Content-Type': 'application/json', 
     'Authorization': `Bearer ${localStorage.getItem('byse_token') || ''}` 

@@ -27,9 +27,6 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ==========================================
-// CONFIGURAÇÃO DINÂMICA E SEGURA DE CORS
-// ==========================================
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3333',
@@ -187,11 +184,53 @@ app.put('/api/app-state/:key', authMiddleware, async (req, res) => {
 app.get('/api/public/catalogo/:userId', async (req, res) => {
   const userId = String(req.params.userId);
   if (!(await userExists(userId))) return res.status(404).json({ error: 'Loja não encontrada.' });
-  const u = await pool.query('SELECT id,name FROM users WHERE id=$1', [userId]);
-  const products = await pool.query(`SELECT * FROM products WHERE user_id=$1 AND (control_stock=false OR COALESCE((SELECT SUM((value)::numeric) FROM jsonb_each_text(stocks)),0)>0 OR stocks='{}'::jsonb) ORDER BY name`, [userId]);
-  const state = await pool.query('SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2', [userId, 'catalogo']);
+  
+  const u = await pool.query('SELECT id, name FROM users WHERE id=$1', [userId]);
+  
+  // Verifica se o acesso VIP está ativo via query param ou token
+  const isVipQuery = req.query.vip === 'true';
+  let isVipTokenValid = false;
+  
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  
+  if (token) {
+    try {
+      // Validação corrigida para aceitar o token VIP do catálogo
+      const payload = jwt.verify(token, JWT_SECRET, { issuer: 'byse-pro-catalog' });
+      if (payload && String(payload.sub) === userId && payload.scope === 'catalog-vip') {
+        isVipTokenValid = true;
+      }
+    } catch (err) {
+      console.error('[VIP TOKEN ERROR]', err.message);
+    }
+  }
+
+  const showAllProducts = isVipQuery || isVipTokenValid;
+
+  let productsQuery = `SELECT * FROM products WHERE user_id = $1`;
+  const queryParams = [userId];
+
+  // Se não for VIP, aplica filtros de estoque. Se for VIP, traz todos os produtos sem restrições.
+  if (!showAllProducts) {
+    productsQuery += ` AND (control_stock = false OR stocks IS NULL OR stocks::text = '{}' OR COALESCE((SELECT SUM((value)::numeric) FROM jsonb_each_text(stocks)), 0) > 0)`;
+  }
+  productsQuery += ` ORDER BY name`;
+
+  const products = await pool.query(productsQuery, queryParams);
+  const state = await pool.query('SELECT state FROM user_app_states WHERE user_id = $1 AND state_key = $2', [userId, 'catalogo']);
   const cfg = json(state.rows[0]?.state, {});
-  res.json({ storeName: u.rows[0].name, whatsapp: cfg.whatsapp || '', address: cfg.address || '', instagram: cfg.instagram || '', bannerUrl: cfg.bannerUrl || '', products: products.rows.map(normalizeProduct), vipEnabled: Boolean((await pool.query('SELECT vip_catalog_password_hash FROM users WHERE id=$1',[userId])).rows[0]?.vip_catalog_password_hash) });
+  
+  res.json({
+    storeName: u.rows[0]?.name || 'Loja',
+    whatsapp: cfg.whatsapp || '',
+    address: cfg.address || '',
+    instagram: cfg.instagram || '',
+    bannerUrl: cfg.bannerUrl || '',
+    isVip: showAllProducts,
+    products: (products.rows || []).map(normalizeProduct),
+    vipEnabled: Boolean((await pool.query('SELECT vip_catalog_password_hash FROM users WHERE id = $1', [userId])).rows[0]?.vip_catalog_password_hash)
+  });
 });
 
 app.post('/api/public/catalogo/:userId/vip/verify', async (req, res) => {
@@ -250,7 +289,7 @@ app.post('/api/clientes', authMiddleware, saveCustomer);
 app.delete('/api/customers/:id', authMiddleware, async(req,res)=>{ await pool.query('DELETE FROM customers WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]); res.json({success:true}); });
 app.delete('/api/clientes/:id', authMiddleware, async(req,res)=>{ await pool.query('DELETE FROM customers WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]); res.json({success:true}); });
 
-// ---------- Products / stock (Rotas unificadas e normalizadas) ----------
+// ---------- Products / stock ----------
 async function getProducts(req, res) {
   try {
     const r = await pool.query('SELECT * FROM products WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id]);
@@ -667,14 +706,68 @@ app.get('/api/whatsapp/qr',authMiddleware,async(req,res)=>{const s=await createW
 app.post('/api/whatsapp/reset',authMiddleware,async(req,res)=>{const uid=req.user.id,s=sessions.get(uid);try{if(s?.sock)await s.sock.logout().catch(()=>{});sessions.delete(uid);const dir=path.join(authRoot,crypto.createHash('sha256').update(uid).digest('hex'));fs.rmSync(dir,{recursive:true,force:true});await createWhatsAppSession(uid);res.json({success:true});}catch(e){console.error(e);res.status(500).json({error:'Não foi possível reiniciar a sessão.'});}});
 app.get('/api/whatsapp',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT schedules FROM user_whatsapp_schedules WHERE user_id=$1',[req.user.id]);res.json(json(r.rows[0]?.schedules,[]));});
 app.post('/api/whatsapp',authMiddleware,async(req,res)=>{const schedules=Array.isArray(req.body)?req.body:[];await pool.query(`INSERT INTO user_whatsapp_schedules(user_id,schedules,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(user_id) DO UPDATE SET schedules=$2,updated_at=NOW()`,[req.user.id,JSON.stringify(schedules)]);res.json({success:true});});
-app.post('/api/whatsapp/send-batch',authMiddleware,async(req,res)=>{const s=await createWhatsAppSession(req.user.id);if(s.status!=='connected')return res.status(409).json({error:'Conecte o WhatsApp deste usuário antes de enviar mensagens.'});const q=req.body||{};let sql='SELECT id,name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>\'\' AND whatsapp_opt_in=1 AND reminders_enabled=1';const params=[req.user.id];if(!q.sendToAll&&Array.isArray(q.customerIds)&&q.customerIds.length){sql+=' AND id=ANY($2)';params.push(q.customerIds);}const customers=await pool.query(sql,params);let sent=0;for(const c of customers.rows){const phone=String(c.phone).replace(/\D/g,'');if(!phone)continue;const msg=String(q.text||'').replaceAll('{nome}',c.name||'Cliente').replaceAll('{saldo}',`R$ ${Number(c.cashback||0).toFixed(2)}`);try{await s.sock.sendMessage(`${phone.startsWith('55')?phone:'55'+phone}@s.whatsapp.net`,{text:msg});sent++;await new Promise(r=>setTimeout(r,1500));}catch(e){console.error('[WA SEND]',e.message);}}res.json({success:true,message:`${sent} mensagem(ns) enviada(s).`,sent});});
+
+// Rota de disparo atualizada (removidas as travas de opt_in e reminders)
+app.post('/api/whatsapp/send-batch',authMiddleware,async(req,res)=>{
+  const s=await createWhatsAppSession(req.user.id);
+  if(s.status!=='connected') return res.status(409).json({error:'Conecte o WhatsApp deste usuário antes de enviar mensagens.'});
+  
+  let sql='SELECT id,name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>\'\'';
+  const params=[req.user.id];
+  
+  if(!req.body.sendToAll && Array.isArray(req.body.customerIds) && req.body.customerIds.length){
+    sql+=' AND id=ANY($2)';
+    params.push(req.body.customerIds);
+  }
+  
+  const customers=await pool.query(sql,params);
+  let sent=0;
+  
+  for(const c of customers.rows){
+    const phone=String(c.phone).replace(/\D/g,'');
+    if(!phone) continue;
+    const msg=String(req.body.text||'').replaceAll('{nome}',c.name||'Cliente').replaceAll('{saldo}',`R$ ${Number(c.cashback||0).toFixed(2)}`);
+    try{
+      await s.sock.sendMessage(`${phone.startsWith('55')?phone:'55'+phone}@s.whatsapp.net`,{text:msg});
+      sent++;
+      await new Promise(r=>setTimeout(r,1500));
+    }catch(e){console.error('[WA SEND]',e.message);}
+  }
+  res.json({success:true,message:`${sent} mensagem(ns) enviada(s).`,sent});
+});
 
 // ---------- Scheduler ----------
 cron.schedule('* * * * *',async()=>{
   try{
     const rows=await pool.query('SELECT user_id,schedules FROM user_whatsapp_schedules');
-    const now=new Date();const day=['domingo','segunda','terça','quarta','quinta','sexta','sábado'][now.getDay()];const time=now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Sao_Paulo'});
-    for(const row of rows.rows){for(const sch of json(row.schedules,[])){if(!sch.enabled||sch.time!==time||!Array.isArray(sch.days)||!sch.days.includes(day))continue;const s=sessions.get(row.user_id);if(!s||s.status!=='connected')continue;let sql='SELECT name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>\'\' AND whatsapp_opt_in=1 AND reminders_enabled=1';const params=[row.user_id];if(!sch.sendToAll&&Array.isArray(sch.customerIds)&&sch.customerIds.length){sql+=' AND id=ANY($2)';params.push(sch.customerIds);}const cs=await pool.query(sql,params);for(const c of cs.rows){const phone=String(c.phone).replace(/\D/g,'');if(!phone)continue;const msg=String(sch.text||'').replaceAll('{nome}',c.name||'Cliente').replaceAll('{saldo}',`R$ ${Number(c.cashback||0).toFixed(2)}`);await s.sock.sendMessage(`${phone.startsWith('55')?phone:'55'+phone}@s.whatsapp.net`,{text:msg}).catch(e=>console.error(e.message));await new Promise(r=>setTimeout(r,1200));}}}
+    const now=new Date();
+    const day=['domingo','segunda','terça','quarta','quinta','sexta','sábado'][now.getDay()];
+    const time=now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Sao_Paulo'});
+    
+    for(const row of rows.rows){
+      for(const sch of json(row.schedules,[])){
+        if(!sch.enabled||sch.time!==time||!Array.isArray(sch.days)||!sch.days.includes(day)) continue;
+        const s=sessions.get(row.user_id);
+        if(!s||s.status!=='connected') continue;
+        
+        let sql='SELECT name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>\'\'';
+        const params=[row.user_id];
+        
+        if(!sch.sendToAll&&Array.isArray(sch.customerIds)&&sch.customerIds.length){
+          sql+=' AND id=ANY($2)';
+          params.push(sch.customerIds);
+        }
+        
+        const cs=await pool.query(sql,params);
+        for(const c of cs.rows){
+          const phone=String(c.phone).replace(/\D/g,'');
+          if(!phone) continue;
+          const msg=String(sch.text||'').replaceAll('{nome}',c.name||'Cliente').replaceAll('{saldo}',`R$ ${Number(c.cashback||0).toFixed(2)}`);
+          await s.sock.sendMessage(`${phone.startsWith('55')?phone:'55'+phone}@s.whatsapp.net`,{text:msg}).catch(e=>console.error(e.message));
+          await new Promise(r=>setTimeout(r,1200));
+        }
+      }
+    }
   }catch(e){console.error('[WA CRON]',e);}
 },{timezone:'America/Sao_Paulo'});
 
