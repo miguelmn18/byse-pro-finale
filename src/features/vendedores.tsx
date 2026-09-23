@@ -43,7 +43,8 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
 
   const startEdit = (s) => {
     setEditingId(s.id);
-    setForm({ name: s.name, commissionPct: String(s.commissionPct ?? 5) });
+    const currentPct = s.commissionPct !== undefined ? s.commissionPct : (s.commission_pct !== undefined ? s.commission_pct : 5);
+    setForm({ name: s.name, commissionPct: String(currentPct) });
     setShowForm(true);
   };
 
@@ -56,11 +57,14 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
   const save = async () => {
     if (!form.name.trim()) return;
     
+    const parsedCommission = parseFloat(form.commissionPct);
+    const finalCommission = !isNaN(parsedCommission) ? parsedCommission : 5;
+
     const sellerPayload = {
       id: editingId || (`sel_${Date.now()}`),
       name: form.name.trim(),
-      commissionPct: parseFloat(form.commissionPct) || 0,
-      commission_pct: parseFloat(form.commissionPct) || 0
+      commissionPct: finalCommission,
+      commission_pct: finalCommission
     };
 
     try {
@@ -78,10 +82,22 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
         throw new Error(errorData.error || errorData.message || `Erro ao salvar no servidor (Status: ${response.status})`);
       }
 
+      // Lê a resposta real retornada pela API para garantir sincronia com o banco
+      const savedData = await response.json().catch(() => ({}));
+      
+      const savedPct = savedData.commissionPct !== undefined ? savedData.commissionPct : (savedData.commission_pct !== undefined ? savedData.commission_pct : finalCommission);
+
+      const finalSeller = {
+        id: savedData.id || sellerPayload.id,
+        name: savedData.name || sellerPayload.name,
+        commissionPct: Number(savedPct),
+        commission_pct: Number(savedPct)
+      };
+
       if (editingId) {
-        setSellers(sellers.map((s) => (s.id === editingId ? sellerPayload : s)));
+        setSellers(sellers.map((s) => (s.id === editingId ? finalSeller : s)));
       } else {
-        setSellers([...sellers, sellerPayload]);
+        setSellers([...sellers, finalSeller]);
       }
       cancel();
     } catch (error) {
@@ -163,7 +179,8 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
         {sellers.map((s, i) => {
           const sellerSales = sales.filter((v) => v.seller === s.name || v.seller === s.id);
           const total = sellerSales.reduce((a, v) => a + v.total, 0);
-          const commissionPct = Number(s.commissionPct || s.commission_pct || 0);
+          const rawPct = s.commissionPct !== undefined ? s.commissionPct : (s.commission_pct !== undefined ? s.commission_pct : 5);
+          const commissionPct = Number(rawPct);
           const commission = (total * commissionPct) / 100;
 
           return (

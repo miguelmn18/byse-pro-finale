@@ -59,30 +59,50 @@ const json = (value, fallback) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
 
-const normalizeCustomer = (c) => ({
-  id: c.id,
-  name: c.name,
-  phone: c.phone,
-  cpf: c.cpf || '',
-  birthDate: c.data_aniversario || '',
-  cashback: Number(c.cashback || 0),
-  cashbackExpirationDate: c.cashback_expiration_date || c.cashback_expiry || null,
-  cashback_expiration_date: c.cashback_expiration_date || c.cashback_expiry || null,
-  cashbackLost: Number(c.cashback_lost || 0),
-  status: c.status || 'Ativo',
-  whatsappOptIn: Boolean(c.whatsapp_opt_in),
-  remindersEnabled: c.reminders_enabled !== 0,
-  statusMensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
-  status_mensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
-  dataVencimento: c.data_vencimento || '',
-  data_vencimento: c.data_vencimento || '',
-  valorMensalidade: Number(c.valor_mensalidade || 0),
-  valor_mensalidade: Number(c.valor_mensalidade || 0),
-  preTreinoTipo: c.pre_treino_tipo || 'avulso',
-  preTreinoInicio: c.pre_treino_inicio || '',
-  preTreinoFim: c.pre_treino_fim || '',
-  preTreinoValorAvulso: Number(c.pre_treino_valor_avulso || 0),
-});
+// Função auxiliar para calcular dias entre a entrada e o dia 01
+const calculateDaysCounter = (createdAt, vencimentoDia01) => {
+  if (!createdAt) return 0;
+  const start = new Date(createdAt);
+  const end = new Date(vencimentoDia01);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+  const diffTime = end.getTime() - start.getTime();
+  return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+};
+
+const normalizeCustomer = (c) => {
+  // Força o dia de vencimento para todo dia 01 do mês atual/seguinte com base na criação
+  const createdAtDate = c.created_at ? new Date(c.created_at) : new Date();
+  const year = createdAtDate.getFullYear();
+  const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
+  const fixedVencimento = `${year}-${month}-01`;
+  const diasContador = calculateDaysCounter(c.created_at, fixedVencimento);
+
+  return {
+    id: c.id,
+    name: c.name,
+    phone: c.phone,
+    cpf: c.cpf || '',
+    birthDate: c.data_aniversario || '',
+    cashback: Number(c.cashback || 0),
+    cashbackExpirationDate: c.cashback_expiration_date || c.cashback_expiry || null,
+    cashback_expiration_date: c.cashback_expiration_date || c.cashback_expiry || null,
+    cashbackLost: Number(c.cashback_lost || 0),
+    status: c.status || 'Ativo',
+    whatsappOptIn: Boolean(c.whatsapp_opt_in),
+    remindersEnabled: c.reminders_enabled !== 0,
+    statusMensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
+    status_mensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
+    dataVencimento: fixedVencimento,
+    data_vencimento: fixedVencimento,
+    diasContadorVencimento: diasContador, // Contador adicionado
+    valorMensalidade: Number(c.valor_mensalidade || 0),
+    valor_mensalidade: Number(c.valor_mensalidade || 0),
+    preTreinoTipo: c.pre_treino_tipo || 'avulso',
+    preTreinoInicio: c.pre_treino_inicio || '',
+    preTreinoFim: c.pre_treino_fim || '',
+    preTreinoValorAvulso: Number(c.pre_treino_valor_avulso || 0),
+  };
+};
 
 const normalizeProduct = (p) => {
   const controlStockVal = p.control_stock !== undefined ? p.control_stock : (p.controlStock !== undefined ? p.controlStock : true);
@@ -187,7 +207,6 @@ app.get('/api/public/catalogo/:userId', async (req, res) => {
   
   const u = await pool.query('SELECT id, name FROM users WHERE id=$1', [userId]);
   
-  // Verifica se o acesso VIP está ativo via query param ou token
   const isVipQuery = req.query.vip === 'true';
   let isVipTokenValid = false;
   
@@ -196,7 +215,6 @@ app.get('/api/public/catalogo/:userId', async (req, res) => {
   
   if (token) {
     try {
-      // Validação corrigida para aceitar o token VIP do catálogo
       const payload = jwt.verify(token, JWT_SECRET, { issuer: 'byse-pro-catalog' });
       if (payload && String(payload.sub) === userId && payload.scope === 'catalog-vip') {
         isVipTokenValid = true;
@@ -211,7 +229,6 @@ app.get('/api/public/catalogo/:userId', async (req, res) => {
   let productsQuery = `SELECT * FROM products WHERE user_id = $1`;
   const queryParams = [userId];
 
-  // Se não for VIP, aplica filtros de estoque. Se for VIP, traz todos os produtos sem restrições.
   if (!showAllProducts) {
     productsQuery += ` AND (control_stock = false OR stocks IS NULL OR stocks::text = '{}' OR COALESCE((SELECT SUM((value)::numeric) FROM jsonb_each_text(stocks)), 0) > 0)`;
   }
@@ -275,8 +292,14 @@ async function saveCustomer(req, res){
     
     const cashbackExp = c.cashbackExpirationDate || c.cashback_expiration_date || c.cashback_expiry || null;
 
+    // Força o dia de vencimento fixo para todo dia 01
+    const currentDate = new Date();
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const fixedVencimento = `${year}-${month}-01`;
+
     await pool.query(`INSERT INTO customers(id,user_id,name,phone,cpf,data_aniversario,cashback,cashback_expiration_date,cashback_expiry,cashback_lost,status,whatsapp_opt_in,reminders_enabled,status_mensalidade,data_vencimento,valor_mensalidade,pre_treino_tipo,pre_treino_inicio,pre_treino_fim,pre_treino_valor_avulso) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(id,user_id) DO UPDATE SET name=$3,phone=$4,cpf=$5,data_aniversario=$6,cashback=$7,cashback_expiration_date=$8,cashback_expiry=$8,cashback_lost=$9,status=$10,whatsapp_opt_in=$11,reminders_enabled=$12,status_mensalidade=$13,data_vencimento=$14,valor_mensalidade=$15,pre_treino_tipo=$16,pre_treino_inicio=$17,pre_treino_fim=$18,pre_treino_valor_avulso=$19`,[
-      id, req.user.id, name, phone, c.cpf || null, c.birthDate || c.data_aniversario || null, Number(c.cashback || 0), cashbackExp, Number(c.cashbackLost || c.cashback_lost || 0), c.status || 'Ativo', c.whatsappOptIn ? 1 : Number(c.whatsapp_opt_in || 0), c.remindersEnabled === false ? 0 : 1, c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)', c.dataVencimento || c.data_vencimento || null, Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0), c.preTreinoTipo || c.pre_treino_tipo || 'avulso', c.preTreinoInicio || c.pre_treino_inicio || null, c.preTreinoFim || c.pre_treino_fim || c.dataVencimento || c.data_vencimento || null, Number(c.preTreinoValorAvulso ?? c.pre_treino_valor_avulso ?? 0)
+      id, req.user.id, name, phone, c.cpf || null, c.birthDate || c.data_aniversario || null, Number(c.cashback || 0), cashbackExp, Number(c.cashbackLost || c.cashback_lost || 0), c.status || 'Ativo', c.whatsappOptIn ? 1 : Number(c.whatsapp_opt_in || 0), c.remindersEnabled === false ? 0 : 1, c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)', fixedVencimento, Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0), c.preTreinoTipo || c.pre_treino_tipo || 'avulso', c.preTreinoInicio || c.pre_treino_inicio || null, c.preTreinoFim || c.pre_treino_fim || fixedVencimento, Number(c.preTreinoValorAvulso ?? c.pre_treino_valor_avulso ?? 0)
     ]);
     const r = await pool.query('SELECT * FROM customers WHERE id=$1 AND user_id=$2', [id, req.user.id]); 
     res.status(201).json(normalizeCustomer(r.rows[0]));
@@ -376,7 +399,7 @@ app.post('/api/sales',authMiddleware,async(req,res)=>{
 
     for(const item of items){const pid=item.productId||item.id||item.product_id;const qty=Number(item.quantity||item.qty||1);if(!pid||qty<=0)continue;const pr=await client.query('SELECT id,stocks,control_stock FROM products WHERE id=$1 AND user_id=$2 FOR UPDATE',[pid,req.user.id]);if(!pr.rows[0]||!pr.rows[0].control_stock)continue;const stocks=json(pr.rows[0].stocks,{});const loc=item.stockLocation||item.stock_location||Object.keys(stocks)[0];if(loc){stocks[loc]=Math.max(0,Number(stocks[loc]||0)-qty);await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3',[JSON.stringify(stocks),pid,req.user.id]);}}
     await client.query('COMMIT');res.status(201).json({success:true,saleId:id,customerPhone,earnedCashback:cashback});
-  } catch(e){await client.query('ROLLBACK');console.error('[SALE]',e);res.status(500).json({error:'Erro ao registrar venda.'});}finally{client.release();}
+  } catch(e){await client.query('ROLLBACK');console.error('[SALE]',e);res.status(500).json({error:'Erro ao registrar venda.'});}finally{client.release();id}
 });
 
 // ---------- Sellers / Vendedores ----------
@@ -396,7 +419,8 @@ async function saveOrUpdateSeller(req, res) {
     const name = String(s.name || 'Vendedor').trim();
     
     const rawCommission = s.commissionPct !== undefined ? s.commissionPct : s.commission_pct;
-    const commissionPct = rawCommission !== undefined && rawCommission !== '' ? Number(rawCommission) : 5;
+    const parsedCommission = parseFloat(rawCommission);
+    const commissionPct = !isNaN(parsedCommission) ? parsedCommission : 5;
 
     const existing = await pool.query('SELECT id FROM sellers WHERE id = $1 AND user_id = $2', [id, req.user.id]);
 
@@ -412,7 +436,7 @@ async function saveOrUpdateSeller(req, res) {
       );
     }
 
-    res.json({ success: true, id, commissionPct });
+    res.json({ success: true, id, name, commissionPct, commission_pct: commissionPct });
   } catch (e) {
     console.error('[SELLER SAVE ERROR]', e);
     res.status(500).json({ error: 'Erro ao salvar vendedor no banco de dados.', details: e.message });
@@ -611,16 +635,30 @@ app.get('/api/pre-treino/records', authMiddleware, async (req, res) => {
   res.json(r.rows.map(x => ({
     id: x.id,
     customerId: x.customer_id,
+    customer_id: x.customer_id,
     customerName: x.nome_cliente,
+    customer_name: x.nome_cliente,
+    nome_cliente: x.nome_cliente,
     customerPhone: x.telefone_cliente,
+    customer_phone: x.telefone_cliente,
+    telefone_cliente: x.telefone_cliente,
     productId: x.produto_id,
+    produto_id: x.produto_id,
     productName: x.nome_produto,
+    product_name: x.nome_produto,
+    nome_produto: x.nome_produto,
     cost: Number(x.custo || 0),
+    custo: Number(x.custo || 0),
     value: Number(x.valor || 0),
+    valor: Number(x.valor || 0),
     type: x.tipo_consumo || 'avulso',
+    tipo_consumo: x.tipo_consumo || 'avulso',
     date: x.data,
+    data: x.data,
     time: x.horario,
-    createdAt: x.created_at
+    horario: x.horario,
+    createdAt: x.created_at,
+    created_at: x.created_at
   })));
 });
 
@@ -666,15 +704,29 @@ app.delete('/api/pre-treino/records/:id', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/pre-treino/reports', authMiddleware, async (req, res) => {
-  const base = await pool.query('SELECT COUNT(*)::int AS total_consumos,COALESCE(SUM(valor),0) AS faturamento,COALESCE(SUM(custo),0) AS custo FROM pre_treino_registros WHERE user_id=$1', [req.user.id]);
+  const baseQuery = `
+    SELECT 
+      (SELECT COALESCE(SUM(valor),0) FROM pre_treino_registros WHERE user_id=$1) +
+      (SELECT COALESCE(SUM(valor_mensalidade),0) FROM pre_treino_clientes WHERE user_id=$1 AND status_mensalidade='Pago') AS faturamento,
+      
+      (SELECT COUNT(*)::int FROM pre_treino_registros WHERE user_id=$1) AS total_consumos,
+      
+      (SELECT COALESCE(SUM(custo),0) FROM pre_treino_registros WHERE user_id=$1) AS custo
+  `;
+  
+  const base = await pool.query(baseQuery, [req.user.id]);
   const clients = await pool.query(`SELECT nome_cliente,telefone_cliente,COUNT(*)::int AS consumos,COALESCE(SUM(valor),0) AS valor FROM pre_treino_registros WHERE user_id=$1 GROUP BY nome_cliente,telefone_cliente ORDER BY consumos DESC,valor DESC LIMIT 20`, [req.user.id]);
   const products = await pool.query(`SELECT produto_id,nome_produto,COUNT(*)::int AS consumos,COALESCE(SUM(valor),0) AS valor FROM pre_treino_registros WHERE user_id=$1 GROUP BY produto_id,nome_produto ORDER BY consumos DESC,valor DESC LIMIT 20`, [req.user.id]);
+  
+  const faturamentoTotal = Number(base.rows[0].faturamento || 0);
+  const custoTotal = Number(base.rows[0].custo || 0);
+
   res.json({
     summary: {
       totalConsumos: base.rows[0].total_consumos,
-      faturamento: Number(base.rows[0].faturamento || 0),
-      custo: Number(base.rows[0].custo || 0),
-      lucro: Number(base.rows[0].faturamento || 0) - Number(base.rows[0].custo || 0)
+      faturamento: faturamentoTotal,
+      custo: custoTotal,
+      lucro: faturamentoTotal - custoTotal
     },
     topClients: clients.rows,
     topProducts: products.rows
@@ -707,7 +759,6 @@ app.post('/api/whatsapp/reset',authMiddleware,async(req,res)=>{const uid=req.use
 app.get('/api/whatsapp',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT schedules FROM user_whatsapp_schedules WHERE user_id=$1',[req.user.id]);res.json(json(r.rows[0]?.schedules,[]));});
 app.post('/api/whatsapp',authMiddleware,async(req,res)=>{const schedules=Array.isArray(req.body)?req.body:[];await pool.query(`INSERT INTO user_whatsapp_schedules(user_id,schedules,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(user_id) DO UPDATE SET schedules=$2,updated_at=NOW()`,[req.user.id,JSON.stringify(schedules)]);res.json({success:true});});
 
-// Rota de disparo atualizada (removidas as travas de opt_in e reminders)
 app.post('/api/whatsapp/send-batch',authMiddleware,async(req,res)=>{
   const s=await createWhatsAppSession(req.user.id);
   if(s.status!=='connected') return res.status(409).json({error:'Conecte o WhatsApp deste usuário antes de enviar mensagens.'});

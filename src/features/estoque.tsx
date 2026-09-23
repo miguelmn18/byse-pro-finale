@@ -22,6 +22,9 @@ export function Estoque({
   const [newLocName, setNewLocName] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  
+  // Estado para armazenar a categoria selecionada no filtro
+  const [selectedCategory, setSelectedCategory] = useState("Todas");
 
   const blankForm = {
     name: "",
@@ -99,7 +102,6 @@ export function Estoque({
     return (v / c) * 100;
   };
 
-  // Função robusta que envia dados para o backend via fetch POST/PUT e atualiza o estado corretamente
   const saveProduct = async () => {
     if (!form.name || !form.price) return;
     
@@ -164,16 +166,13 @@ export function Estoque({
           }
         } else {
           if (setProducts) {
-            // Garante que o estado seja tratado como array e insere o novo item sem sobrescrevê-lo com um objeto puro
             if (typeof setProducts === "function") {
-              // Verifica se a função aceita callback de estado ou array direto
               const currentList = Array.isArray(products) ? products : [];
               setProducts([finalProduct, ...currentList]);
             }
           }
         }
       } else {
-        // Fallback local caso a API retorne erro na requisição
         if (editingId && onEditProduct) {
           await onEditProduct(built);
         } else if (!editingId && setProducts) {
@@ -183,7 +182,6 @@ export function Estoque({
       }
     } catch (err) {
       console.error("Erro ao salvar produto no backend:", err);
-      // Fallback offline/local
       if (editingId && onEditProduct) {
         await onEditProduct(built);
       } else if (!editingId && setProducts) {
@@ -201,6 +199,26 @@ export function Estoque({
       await onDeleteProduct(id);
     }
   };
+
+  // Criação dinâmica das categorias baseada nos produtos cadastrados
+  const categories = [
+    "Todas",
+    ...Array.from(
+      new Set(
+        (Array.isArray(products) ? products : []).map(
+          (p) => p.category || "Sem categoria"
+        )
+      )
+    )
+  ];
+
+  // Filtragem dos produtos com base na categoria selecionada
+  const filteredProducts = Array.isArray(products)
+    ? products.filter((p) => {
+        const cat = p.category || "Sem categoria";
+        return selectedCategory === "Todas" || cat === selectedCategory;
+      })
+    : [];
 
   const gridCols = `2fr 1fr 0.7fr 0.7fr 0.8fr 0.8fr ${stockLocations
     .map(() => "0.9fr")
@@ -585,6 +603,29 @@ export function Estoque({
         </div>
       )}
 
+      {/* Barra de Filtro por Categoria */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            style={{
+              background: selectedCategory === cat ? accent : card,
+              color: selectedCategory === cat ? "#fff" : text,
+              border: `1px solid ${selectedCategory === cat ? accent : border}`,
+              borderRadius: 8,
+              padding: "6px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
       <div
         style={{
           background: card,
@@ -618,7 +659,13 @@ export function Estoque({
           <div></div>
         </div>
 
-        {Array.isArray(products) && products.map((p, i) => {
+        {filteredProducts.length === 0 && (
+          <div style={{ padding: 20, textAlign: "center", color: subtext, fontSize: 13 }}>
+            Nenhum produto encontrado nesta categoria.
+          </div>
+        )}
+
+        {filteredProducts.map((p, i) => {
           const pVipPrice = p.vip_price !== undefined ? p.vip_price : p.vipPrice;
           const pVipPrice3x = p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
           const pControlStock = p.control_stock !== undefined ? p.control_stock : p.controlStock;
@@ -634,7 +681,7 @@ export function Estoque({
                 fontSize: 13,
                 alignItems: "center",
                 borderBottom:
-                  i < products.length - 1 ? `1px solid ${border}` : "none",
+                  i < filteredProducts.length - 1 ? `1px solid ${border}` : "none",
                 minWidth: 700
               }}
             >

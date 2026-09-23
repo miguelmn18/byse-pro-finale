@@ -424,9 +424,13 @@ export function PDV({
 
   return (
     <div style={{ padding: device === "desktop" ? 20 : 10 }}>
-      {/* Estilo CSS dedicado para impressão oculta do comprovante */}
+      {/* Estilo CSS dedicado para impressão térmica em bobina de PDV */}
       <style>{`
         @media print {
+          @page {
+            size: 58mm auto;
+            margin: 0;
+          }
           body * {
             visibility: hidden !important;
           }
@@ -438,27 +442,28 @@ export function PDV({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 100% !important;
+            width: 58mm !important;
+            max-width: 58mm !important;
             font-family: monospace !important;
-            padding: 10px !important;
+            padding: 4px !important;
             color: #000 !important;
             background: #fff !important;
-            font-size: 12px !important;
-            line-height: 1.4 !important;
+            font-size: 10px !important;
+            line-height: 1.2 !important;
           }
         }
       `}</style>
 
       {/* Bloco HTML invisível na tela normal, mas ativado e populado dinamicamente no print */}
       <div id="printable-receipt" style={{ display: "none" }}>
-        <div style={{ textAlign: "center", fontWeight: "bold", fontSize: 15, marginBottom: 8 }}>BYSE PRO — COMPROVANTE</div>
-        <div style={{ borderBottom: "1px dashed #000", margin: "5px 0" }}></div>
+        <div style={{ textAlign: "center", fontWeight: "bold", fontSize: 12, marginBottom: 6 }}>BYSE PRO — COMPROVANTE</div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "4px 0" }}></div>
         <div><strong>Data:</strong> {lastCompletedSale ? new Date(lastCompletedSale.date).toLocaleString("pt-BR") : ""}</div>
         <div><strong>Cliente:</strong> {lastCompletedSale ? lastCompletedSale.customer_name : ""}</div>
         <div><strong>Vendedor:</strong> {lastCompletedSale ? lastCompletedSale.seller : ""}</div>
         <div><strong>Pagamento:</strong> {lastCompletedSale ? lastCompletedSale.payment_method : ""}</div>
         <div><strong>Canal:</strong> {lastCompletedSale ? lastCompletedSale.sales_channel : ""}</div>
-        <div style={{ borderBottom: "1px dashed #000", margin: "5px 0" }}></div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "4px 0" }}></div>
         <div style={{ fontWeight: "bold" }}>ITENS DA COMPRA:</div>
         {lastCompletedSale && lastCompletedSale.items && lastCompletedSale.items.map((i, index) => (
           <div key={index} style={{ display: "flex", justifyContent: "space-between", margin: "2px 0" }}>
@@ -466,7 +471,7 @@ export function PDV({
             <span>{(Number(i.price) * i.qty).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
           </div>
         ))}
-        <div style={{ borderBottom: "1px dashed #000", margin: "5px 0" }}></div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "4px 0" }}></div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Subtotal:</span>
           <span>{lastCompletedSale ? lastCompletedSale.subtotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
@@ -475,7 +480,7 @@ export function PDV({
           <span>Desconto:</span>
           <span>{lastCompletedSale ? lastCompletedSale.discount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: 13, marginTop: 4 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: "bold", fontSize: 11, marginTop: 3 }}>
           <span>TOTAL:</span>
           <span>{lastCompletedSale ? lastCompletedSale.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
         </div>
@@ -483,8 +488,8 @@ export function PDV({
           <span>Cashback Gerado:</span>
           <span>{lastCompletedSale ? lastCompletedSale.earned_cashback.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : ""}</span>
         </div>
-        <div style={{ borderBottom: "1px dashed #000", margin: "8px 0" }}></div>
-        <div style={{ textAlign: "center", fontStyle: "italic", fontSize: 11 }}>Obrigado pela preferência! Volte sempre.</div>
+        <div style={{ borderBottom: "1px dashed #000", margin: "6px 0" }}></div>
+        <div style={{ textAlign: "center", fontStyle: "italic", fontSize: 9 }}>Obrigado pela preferência! Volte sempre.</div>
       </div>
 
       {step === "gate" && (

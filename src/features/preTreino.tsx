@@ -1,18 +1,40 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, Users, Package, BarChart3, Plus, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Calendar, Users, Package, BarChart3, Plus, Trash2, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Clock, Eye, EyeOff } from 'lucide-react';
 import { SectionTitle } from '../components/common';
 
 const money = (v:number) => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const today = () => new Date().toISOString().slice(0,10);
 const nextMonth = () => { const d=new Date(); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,10); };
 
+// Função auxiliar para calcular dias faltando para o próximo dia 01
+const calculateDaysCounter = (createdAt: any) => {
+  const start = createdAt ? new Date(createdAt) : new Date();
+  if (isNaN(start.getTime())) return 0;
+  
+  // Define o vencimento para o dia 01 do mês seguinte ao registro ou data atual
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  
+  const diffTime = end.getTime() - now.getTime();
+  return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+};
+
 export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,setClientesPreTreino,produtosPreTreino,setProdutosPreTreino,registros,setRegistros,API_URL,getAuthHeaders}:any){
  const [tab,setTab]=useState('consumo');
  const [loading,setLoading]=useState(false);
- const [customerForm,setCustomerForm]=useState({name:'',phone:'',tipo:'mensal',valorMensalidade:'90',inicio:today(),fim:nextMonth(),valorAvulso:'10'});
+ // Removidos inputs manuais de datas de vencimento do formulário inicial
+ const [customerForm,setCustomerForm]=useState({name:'',phone:'',tipo:'mensal',valorMensalidade:'90',valorAvulso:'10'});
  const [productForm,setProductForm]=useState({name:'',cost:'',price:'',stock:'0'});
  const [consumo,setConsumo]=useState({customerId:'',guestName:'',productId:'',type:'avulso',value:'',date:today()});
  const [report,setReport]=useState<any>(null);
+ const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
+
+ // Novos estados para controle de exibição e paginação de clientes
+ const [showAllCustomers, setShowAllCustomers] = useState(false);
+ const [customerPage, setCustomerPage] = useState(1);
+ const pageSize = 15;
+
  const headers=()=>typeof getAuthHeaders==='function'?getAuthHeaders():{'Content-Type':'application/json'};
 
  // Normaliza a API_URL para evitar duplicação de barras ou de "/api"
@@ -28,20 +50,31 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
 
  useEffect(()=>{refreshReport()},[registros]);
 
- // Carregar clientes de pré-treino com tratamento robusto e mapeamento duplo
+ // Carregar clientes de pré-treino com mapeamento ajustado para o vencimento automático no dia 01
  useEffect(()=>{
    const fetchPreTreinoCustomers = async () => {
      try {
        const r = await fetch(`${baseUrl}/pre-treino/customers`, { headers: headers() });
        if (r.ok) {
          const data = await r.json();
-         const normalized = Array.isArray(data) ? data.map((c: any) => ({
-           ...c,
-           tipo: c.tipo || c.preTreinoTipo || 'mensal',
-           valorMensalidade: Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0),
-           valorAvulso: Number(c.valorAvulso ?? c.valor_avulso ?? 0),
-           statusMensalidade: c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)'
-         })) : [];
+         const normalized = Array.isArray(data) ? data.map((c: any) => {
+           const createdAtDate = c.created_at ? new Date(c.created_at) : new Date();
+           const year = createdAtDate.getFullYear();
+           const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
+           const fixedVencimento = `${year}-${month}-01`;
+           const diasContador = calculateDaysCounter(c.created_at);
+
+           return {
+             ...c,
+             tipo: c.tipo || c.preTreinoTipo || 'mensal',
+             valorMensalidade: Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0),
+             valorAvulso: Number(c.valorAvulso ?? c.valor_avulso ?? 0),
+             statusMensalidade: c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)',
+             dataVencimento: fixedVencimento,
+             data_vencimento: fixedVencimento,
+             diasContadorVencimento: diasContador
+           };
+         }) : [];
          if (typeof setClientesPreTreino === 'function') setClientesPreTreino(normalized);
        }
      } catch (e) {
@@ -68,16 +101,36 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
  }, [API_URL]);
 
  const products=Array.isArray(produtosPreTreino)?produtosPreTreino:[];
- const customers=Array.isArray(clientesPreTreino)?clientesPreTreino.map((c:any)=>({
-   ...c,
-   tipo: c.tipo || c.preTreinoTipo || 'mensal',
-   valorMensalidade: Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0),
-   valorAvulso: Number(c.valorAvulso ?? c.valor_avulso ?? 0),
-   statusMensalidade: c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)'
- })):[];
+ const customers=Array.isArray(clientesPreTreino)?clientesPreTreino.map((c:any)=>{
+   const createdAtDate = c.created_at ? new Date(c.created_at) : new Date();
+   const year = createdAtDate.getFullYear();
+   const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
+   const fixedVencimento = `${year}-${month}-01`;
+   const diasContador = calculateDaysCounter(c.created_at);
+
+   return {
+     ...c,
+     tipo: c.tipo || c.preTreinoTipo || 'mensal',
+     valorMensalidade: Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0),
+     valorAvulso: Number(c.valorAvulso ?? c.valor_avulso ?? 0),
+     statusMensalidade: c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)',
+     dataVencimento: c.dataVencimento || c.data_vencimento || fixedVencimento,
+     data_vencimento: c.data_vencimento || c.dataVencimento || fixedVencimento,
+     diasContadorVencimento: diasContador
+   };
+ }):[];
+
+ // Ordenar clientes por maior número de consumos para exibir os top 3 inicialmente
+ const sortedCustomers = useMemo(() => {
+   return [...customers].sort((a: any, b: any) => {
+     const countA = registros.filter((r: any) => r.customerId === a.id || r.customerName === a.name).length;
+     const countB = registros.filter((r: any) => r.customerId === b.id || r.customerName === b.name).length;
+     return countB - countA;
+   });
+ }, [customers, registros]);
 
  const selectedProduct=products.find((p:any)=>p.id===consumo.productId);
- const selectedCustomer=customers.find((c:any)=>c.id===consumo.customerId || c.id===consumo.customerId);
+ const selectedCustomer=customers.find((c:any)=>c.id===consumo.customerId);
  const activeMonthly=customers.filter((c:any)=>c.tipo==='mensal' && c.statusMensalidade==='Pago').length;
  const totalConsumption=registros.reduce((s:number,r:any)=>s+Number(r.value||r.valor||0),0);
 
@@ -86,6 +139,10 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
    if(!customerForm.name||!customerForm.phone)return alert('Nome e telefone são obrigatórios.');
    setLoading(true);
    try{
+     // Calcula automaticamente o próximo dia 01 com base na data atual de registro
+     const now = new Date();
+     const nextVencimentoDate = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0,10);
+
      const payload={
        id:`ptc_${Date.now()}`,
        name:customerForm.name,
@@ -93,10 +150,10 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
        tipo:customerForm.tipo,
        valorMensalidade:customerForm.tipo==='mensal'?Number(customerForm.valorMensalidade):0,
        valor_mensalidade:customerForm.tipo==='mensal'?Number(customerForm.valorMensalidade):0,
-       dataInicio:customerForm.tipo==='mensal' && customerForm.inicio ? customerForm.inicio : null,
-       data_inicio:customerForm.tipo==='mensal' && customerForm.inicio ? customerForm.inicio : null,
-       dataFim:customerForm.tipo==='mensal' && customerForm.fim ? customerForm.fim : null,
-       data_fim:customerForm.tipo==='mensal' && customerForm.fim ? customerForm.fim : null,
+       dataInicio: nextVencimentoDate,
+       data_inicio: nextVencimentoDate,
+       dataFim: nextVencimentoDate,
+       data_fim: nextVencimentoDate,
        valorAvulso:customerForm.tipo==='avulso'?Number(customerForm.valorAvulso):0,
        valor_avulso:customerForm.tipo==='avulso'?Number(customerForm.valorAvulso):0,
        statusMensalidade:customerForm.tipo==='mensal'?'Pendente (Não Pago)':'Avulso',
@@ -108,15 +165,20 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
        throw new Error(errData.error || errData.message || 'Falha ao salvar o cliente no servidor.');
      }
      const saved=await r.json();
+     const diasContador = calculateDaysCounter(saved.created_at);
+
      const normalizedSaved = {
        ...saved,
        tipo: saved.tipo || saved.preTreinoTipo || 'mensal',
        valorMensalidade: Number(saved.valorMensalidade ?? saved.valor_mensalidade ?? 0),
        valorAvulso: Number(saved.valorAvulso ?? saved.valor_avulso ?? 0),
-       statusMensalidade: saved.statusMensalidade || saved.status_mensalidade || 'Pendente (Não Pago)'
+       statusMensalidade: saved.statusMensalidade || saved.status_mensalidade || 'Pendente (Não Pago)',
+       dataVencimento: nextVencimentoDate,
+       data_vencimento: nextVencimentoDate,
+       diasContadorVencimento: diasContador
      };
      if(typeof setClientesPreTreino==='function') setClientesPreTreino([...customers.filter((c:any)=>c.id!==normalizedSaved.id),normalizedSaved]);
-     setCustomerForm({name:'',phone:'',tipo:'mensal',valorMensalidade:'90',inicio:today(),fim:nextMonth(),valorAvulso:'10'});
+     setCustomerForm({name:'',phone:'',tipo:'mensal',valorMensalidade:'90',valorAvulso:'10'});
    }catch(e:any){
      console.error('[SAVE CUSTOMER ERROR]', e);
      alert(`Não foi possível salvar o cliente: ${e.message || 'Erro desconhecido'}`);
@@ -152,15 +214,19 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
    const foundCustomer = customers.find((c:any)=>c.id===consumo.customerId);
    const type=foundCustomer?.tipo==='mensal'&&foundCustomer?.statusMensalidade==='Pago'?'mensal':consumo.type;
    const value=type==='mensal'?0:Number(consumo.value||selectedProduct?.price||0);
+   
+   const nowTime = new Date();
+   const timeString = nowTime.toTimeString().slice(0, 5);
+
    try{
      const r=await fetch(`${baseUrl}/pre-treino/records`,{
        method:'POST',
        headers:headers(),
-       body:JSON.stringify({id:`ptr_${Date.now()}`,customerId:consumo.customerId||null,customerName:foundCustomer?.name||consumo.guestName,customerPhone:foundCustomer?.phone||'',productId:consumo.productId,productName:selectedProduct?.name||'',cost:selectedProduct?.cost||0,value,type,date:consumo.date})
+       body:JSON.stringify({id:`ptr_${Date.now()}`,customerId:consumo.customerId||null,customerName:foundCustomer?.name||consumo.guestName,customerPhone:foundCustomer?.phone||'',productId:consumo.productId,productName:selectedProduct?.name||'',cost:selectedProduct?.cost||0,value,type,date:consumo.date,time:timeString})
      });
      if(!r.ok)throw new Error('Falha ao registrar consumo.');
      const responseData=await r.json();
-     const saved={id:responseData.id||`ptr_${Date.now()}`,customerId:consumo.customerId||null,customerName:foundCustomer?.name||consumo.guestName,customerPhone:foundCustomer?.phone||'',productId:consumo.productId,productName:selectedProduct?.name||'',cost:selectedProduct?.cost||0,value,type,date:consumo.date};
+     const saved={id:responseData.id||`ptr_${Date.now()}`,customerId:consumo.customerId||null,customerName:foundCustomer?.name||consumo.guestName,customerPhone:foundCustomer?.phone||'',productId:consumo.productId,productName:selectedProduct?.name||'',cost:selectedProduct?.cost||0,value,type,date:consumo.date,time:responseData.time||timeString};
      setRegistros([saved,...registros]);
      setProdutosPreTreino(products.map((p:any)=>p.id===selectedProduct.id?{...p,stock:Math.max(0,Number(p.stock||0)-1)}:p));
      setConsumo({customerId:'',guestName:'',productId:'',type:'avulso',value:'',date:today()});
@@ -211,12 +277,15 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
      const r=await fetch(`${baseUrl}/pre-treino/customers`,{method:'POST',headers:headers(),body:JSON.stringify(payload)});
      if(r.ok){
        const saved=await r.json();
+       const diasContador = calculateDaysCounter(saved.created_at);
+
        const normalizedSaved = {
          ...saved,
          tipo: saved.tipo || saved.preTreinoTipo || 'mensal',
          valorMensalidade: Number(saved.valorMensalidade ?? saved.valor_mensalidade ?? 0),
          valorAvulso: Number(saved.valorAvulso ?? saved.valor_avulso ?? 0),
-         statusMensalidade: saved.statusMensalidade || saved.status_mensalidade || 'Pendente (Não Pago)'
+         statusMensalidade: saved.statusMensalidade || saved.status_mensalidade || 'Pendente (Não Pago)',
+         diasContadorVencimento: diasContador
        };
        if(typeof setClientesPreTreino==='function') setClientesPreTreino(customers.map((x:any)=>x.id===c.id?normalizedSaved:x));
      }
@@ -279,24 +348,133 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
            </div>
            {customerForm.tipo==='mensal'?<>
              <input type="number" step="0.01" placeholder="Mensalidade" value={customerForm.valorMensalidade} onChange={e=>setCustomerForm({...customerForm,valorMensalidade:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}/>
-             <input type="date" value={customerForm.inicio} onChange={e=>setCustomerForm({...customerForm,inicio:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}/>
-             <input type="date" value={customerForm.fim} onChange={e=>setCustomerForm({...customerForm,fim:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}/>
            </>:<input type="number" step="0.01" placeholder="Valor por consumo" value={customerForm.valorAvulso} onChange={e=>setCustomerForm({...customerForm,valorAvulso:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}/>}
            <button style={{width:'100%',padding:11,marginTop:8,border:0,borderRadius:9,background:accent,color:'#fff',fontWeight:800}}>Salvar cliente</button>
          </form>
          <div style={{background:card,border:`1px solid ${border}`,borderRadius:14,padding:18}}>
-           <h3>Clientes do pré-treino</h3>
-           {customers.length===0?<p style={{color:subtext}}>Nenhum cliente cadastrado.</p>:customers.map((c:any)=>(
-             <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${border}`}}>
-               <div>
-                 <b>{c.name}</b>
-                 <div style={{fontSize:12,color:subtext}}>{c.phone} · {c.tipo==='mensal'?`Mensal ${money(c.valorMensalidade)} · `: `Avulso · ${money(c.valorAvulso)}`}
-                   <button onClick={()=>toggleMonthly(c)} style={{marginLeft:8,background:'transparent',border:'none',color:accent,cursor:'pointer',textDecoration:'underline'}}>{c.statusMensalidade || 'Pendente'}</button>
-                 </div>
-               </div>
-               <button onClick={()=>deleteCustomer(c.id)} style={{border:0,background:'transparent',color:'#ef4444'}}><Trash2 size={15}/></button>
-             </div>
-           ))}
+           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
+             <h3 style={{margin:0}}>Clientes do pré-treino</h3>
+             {sortedCustomers.length > 3 && (
+               <button 
+                 onClick={() => { setShowAllCustomers(!showAllCustomers); setCustomerPage(1); }}
+                 style={{background:'transparent', border:`1px solid ${accent}`, color:accent, borderRadius:6, padding:'4px 8px', fontSize:12, fontWeight:700, cursor:'pointer'}}
+               >
+                 {showAllCustomers ? 'Ver apenas top 3' : 'Ver mais clientes'}
+               </button>
+             )}
+           </div>
+
+           {sortedCustomers.length===0 ? (
+             <p style={{color:subtext}}>Nenhum cliente cadastrado.</p>
+           ) : (
+             (() => {
+               let displayedList = sortedCustomers;
+               let totalPages = 1;
+
+               if (!showAllCustomers) {
+                 displayedList = sortedCustomers.slice(0, 3);
+               } else if (sortedCustomers.length > pageSize) {
+                 totalPages = Math.ceil(sortedCustomers.length / pageSize);
+                 const start = (customerPage - 1) * pageSize;
+                 displayedList = sortedCustomers.slice(start, start + pageSize);
+               }
+
+               return (
+                 <>
+                   {displayedList.map((c:any)=>{
+                     const isExpanded = expandedCustomerId === c.id;
+                     const clientRecords = registros.filter((r:any) => r.customerId === c.id || r.customerName === c.name);
+                     
+                     const recordsByDate = clientRecords.reduce((acc:any, r:any) => {
+                       const d = r.date || today();
+                       if (!acc[d]) acc[d] = [];
+                       acc[d].push(r);
+                       return acc;
+                     }, {});
+
+                     const sortedDates = Object.keys(recordsByDate).sort((a,b) => new Date(b).getTime() - new Date(a).getTime());
+
+                     return (
+                       <div key={c.id} style={{borderBottom:`1px solid ${border}`, padding:'10px 0'}}>
+                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                           <div style={{cursor:'pointer', flex:1}} onClick={()=>setExpandedCustomerId(isExpanded ? null : c.id)}>
+                             <div style={{display:'flex', alignItems:'center', gap:6}}>
+                               <b>{c.name}</b>
+                               {isExpanded ? <ChevronUp size={14} color={accent}/> : <ChevronDown size={14} color={subtext}/>}
+                             </div>
+                             <div style={{fontSize:12,color:subtext}}>{c.phone} · {c.tipo==='mensal'?`Mensal ${money(c.valorMensalidade)} · `: `Avulso · ${money(c.valorAvulso)}`}
+                               <button onClick={(e)=>{e.stopPropagation(); toggleMonthly(c);}} style={{marginLeft:8,background:'transparent',border:'none',color:accent,cursor:'pointer',textDecoration:'underline'}}>{c.statusMensalidade || 'Pendente'}</button>
+                             </div>
+                             {/* Exibição limpa do Contador de Dias Restantes */}
+                             {c.tipo==='mensal' && (
+                               <div style={{fontSize:11, color:accent, marginTop:3}}>
+                                 ⏳ Contador: <b>{c.diasContadorVencimento ?? 0}</b> dias restantes para o vencimento (Dia 01)
+                               </div>
+                             )}
+                           </div>
+                           <button onClick={()=>deleteCustomer(c.id)} style={{border:0,background:'transparent',color:'#ef4444', cursor:'pointer'}}><Trash2 size={15}/></button>
+                         </div>
+
+                         {isExpanded && (
+                           <div style={{marginTop:10, padding:10, background:`${accent}08`, borderRadius:8, border:`1px dashed ${border}`}}>
+                             <small style={{fontWeight:700, color:accent, display:'block', marginBottom:8}}>Histórico de Retiradas por Dia</small>
+                             {sortedDates.length === 0 ? (
+                               <p style={{fontSize:12, color:subtext, margin:0}}>Nenhum consumo registrado para este cliente.</p>
+                             ) : (
+                               sortedDates.map((dateStr)=>{
+                                 const dayItems = recordsByDate[dateStr];
+                                 const formattedDate = dateStr.split('-').reverse().join('/');
+                                 return (
+                                   <div key={dateStr} style={{marginBottom:8, fontSize:12}}>
+                                     <div style={{fontWeight:600, color:text, display:'flex', alignItems:'center', gap:4, marginBottom:4}}>
+                                       <Calendar size={12}/> {formattedDate}
+                                     </div>
+                                     <div style={{display:'flex', flexDirection:'column', gap:4, paddingLeft:16}}>
+                                       {dayItems.map((item:any, idx:number)=>(
+                                         <div key={item.id || idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:card, padding:'6px 8px', borderRadius:6, border:`1px solid ${border}`}}>
+                                           <span>📦 {item.productName || 'Produto'}</span>
+                                           <span style={{display:'flex', alignItems:'center', gap:4, color:subtext, fontSize:11}}>
+                                             <Clock size={11}/> {item.time || '00:00'}
+                                           </span>
+                                         </div>
+                                       ))}
+                                     </div>
+                                   </div>
+                                 );
+                               })
+                             )}
+                           </div>
+                         )}
+                       </div>
+                     );
+                   })}
+
+                   {showAllCustomers && totalPages > 1 && (
+                     <div style={{display:'flex', gap:6, justifyContent:'center', marginTop:14}}>
+                       {Array.from({length: totalPages}, (_, i) => i + 1).map((pageNum) => (
+                         <button
+                           key={pageNum}
+                           onClick={() => setCustomerPage(pageNum)}
+                           style={{
+                             padding:'5px 10px',
+                             borderRadius:6,
+                             border:`1px solid ${customerPage === pageNum ? accent : border}`,
+                             background: customerPage === pageNum ? accent : 'transparent',
+                             color: customerPage === pageNum ? '#fff' : text,
+                             fontWeight: 700,
+                             cursor:'pointer',
+                             fontSize: 12
+                           }}
+                         >
+                           {pageNum}
+                         </button>
+                       ))}
+                     </div>
+                   )}
+                 </>
+               );
+             })()
+           )}
          </div>
        </div>
      )}
@@ -310,7 +488,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
          <div style={{background:card,border:`1px solid ${border}`,borderRadius:14,padding:18}}>
            <h3>Estoque de pré-treino</h3>
            {products.map((p:any)=>(
-             <div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:`1px solid ${border}`}}>
+             <div key={p.id} style={{display:'flex',justifyContent:`space-between`,padding:'10px 0',borderBottom:`1px solid ${border}`}}>
                <span><b>{p.name}</b><small style={{display:'block',color:subtext}}>Custo {money(p.cost)} · Venda {money(p.price)}</small></span>
                <span><b>{p.stock??0}</b><button onClick={()=>deleteProduct(p.id)} style={{border:0,background:'transparent',color:'#ef4444',marginLeft:12}}><Trash2 size={15}/></button></span>
              </div>
