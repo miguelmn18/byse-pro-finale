@@ -463,11 +463,72 @@ app.post('/api/fiados',authMiddleware,async(req,res)=>{const f=req.body||{},id=f
 app.delete('/api/fiados/:id',authMiddleware,async(req,res)=>{await pool.query('DELETE FROM fiados WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]);res.json({success:true});});
 
 // ---------- PDV / cashback ----------
-const defaultPdv={messageTemplate:'Olá {nome}, você realizou uma compra e ganhou R$ {cashback} de cashback!',reminderDays1:1,reminderDays2:7,reminderDays3:15,cashbackPercentage:3,cashbackValidityDays:30,activeReminderButton:false};
-app.get('/api/pdv/config',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',[req.user.id]);res.json({...defaultPdv,...json(r.rows[0]?.pdv_config,{})});});
-app.post('/api/pdv/config',authMiddleware,async(req,res)=>{await pool.query(`INSERT INTO user_pdv_configs(user_id,pdv_config) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET pdv_config=$2`,[req.user.id,JSON.stringify(req.body||{})]);res.json({success:true});});
-app.get('/api/cashback-config',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',[req.user.id]);const c={...defaultPdv,...json(r.rows[0]?.pdv_config,{})};res.json({cashbackPercentage:c.cashbackPercentage,cashbackValidityDays:c.cashbackValidityDays,cashbackMessage:c.cashbackMessage||c.messageTemplate});});
-app.put('/api/cashback-config',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',[req.user.id]);const c={...json(r.rows[0]?.pdv_config,{}),...req.body};await pool.query(`INSERT INTO user_pdv_configs(user_id,pdv_config) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET pdv_config=$2`,[req.user.id,JSON.stringify(c)]);res.json({success:true});});
+const defaultPdv = {
+  messageTemplate: 'Olá {nome}, você realizou uma compra e ganhou R$ {cashback} de cashback!',
+  reminderDays1: 1,
+  reminderDays2: 7,
+  reminderDays3: 15,
+  cashbackPercentage: 3,
+  cashbackValidityDays: 30,
+  activeReminderButton: false
+};
+
+app.get('/api/pdv/config', authMiddleware, async (req, res) => {
+  const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
+  const c = { ...defaultPdv, ...json(r.rows[0]?.pdv_config, {}) };
+  res.json({
+    ...c,
+    cashbackPercentage: Number(c.cashbackPercentage ?? 3),
+    cashbackValidityDays: Number(c.cashbackValidityDays ?? 30)
+  });
+});
+
+app.post('/api/pdv/config', authMiddleware, async (req, res) => {
+  const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
+  const currentConfig = json(r.rows[0]?.pdv_config, {});
+  const updatedConfig = {
+    ...defaultPdv,
+    ...currentConfig,
+    ...req.body,
+    cashbackPercentage: Number(req.body.cashbackPercentage ?? currentConfig.cashbackPercentage ?? defaultPdv.cashbackPercentage),
+    cashbackValidityDays: Number(req.body.cashbackValidityDays ?? currentConfig.cashbackValidityDays ?? defaultPdv.cashbackValidityDays)
+  };
+  await pool.query(
+    `INSERT INTO user_pdv_configs(user_id,pdv_config) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET pdv_config=$2`,
+    [req.user.id, JSON.stringify(updatedConfig)]
+  );
+  res.json({ success: true });
+});
+
+app.get('/api/cashback-config', authMiddleware, async (req, res) => {
+  const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
+  const c = { ...defaultPdv, ...json(r.rows[0]?.pdv_config, {}) };
+  res.json({
+    cashbackPercentage: Number(c.cashbackPercentage ?? 3),
+    cashbackValidityDays: Number(c.cashbackValidityDays ?? 30),
+    cashbackMessage: c.cashbackMessage || c.messageTemplate || defaultPdv.messageTemplate
+  });
+});
+
+app.put('/api/cashback-config', authMiddleware, async (req, res) => {
+  const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
+  const currentConfig = json(r.rows[0]?.pdv_config, {});
+  
+  const updatedConfig = {
+    ...defaultPdv,
+    ...currentConfig,
+    ...req.body,
+    cashbackPercentage: Number(req.body.cashbackPercentage ?? currentConfig.cashbackPercentage ?? defaultPdv.cashbackPercentage),
+    cashbackValidityDays: Number(req.body.cashbackValidityDays ?? currentConfig.cashbackValidityDays ?? defaultPdv.cashbackValidityDays),
+    cashbackMessage: req.body.cashbackMessage || req.body.messageTemplate || currentConfig.cashbackMessage || currentConfig.messageTemplate || defaultPdv.messageTemplate
+  };
+
+  await pool.query(
+    `INSERT INTO user_pdv_configs(user_id,pdv_config) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET pdv_config=$2`,
+    [req.user.id, JSON.stringify(updatedConfig)]
+  );
+  res.json({ success: true });
+});
 
 // ---------- Pre-treino ----------
 app.get('/api/pre-treino/products', authMiddleware, async (req, res) => {

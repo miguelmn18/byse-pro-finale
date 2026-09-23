@@ -182,11 +182,16 @@ function Cashback({
     })
       .then(res => res.json())
       .then(data => {
-        if (data.cashbackPercentage !== undefined && data.cashbackPercentage !== null) {
-          setCashbackPct(Number(data.cashbackPercentage));
+        // Tratamento adequado caso o valor retorne nulo ou indefinido, garantindo o fallback correto
+        const fetchedPct = data.cashbackPercentage !== undefined && data.cashbackPercentage !== null ? Number(data.cashbackPercentage) : 0;
+        setCashbackPct(fetchedPct);
+
+        const fetchedValidity = data.cashbackValidityDays !== undefined && data.cashbackValidityDays !== null ? Number(data.cashbackValidityDays) : 30;
+        setCashbackValidityDays(fetchedValidity);
+
+        if (data.cashbackMessage) {
+          setCashbackMessage(data.cashbackMessage);
         }
-        if (data.cashbackValidityDays) setCashbackValidityDays(data.cashbackValidityDays);
-        if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
       })
       .catch(err => console.error("Erro ao carregar config de cashback", err));
   }, []);
