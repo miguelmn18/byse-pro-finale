@@ -23,7 +23,6 @@ const calculateDaysCounter = (createdAt: any) => {
 export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,setClientesPreTreino,produtosPreTreino,setProdutosPreTreino,registros,setRegistros,API_URL,getAuthHeaders}:any){
  const [tab,setTab]=useState('consumo');
  const [loading,setLoading]=useState(false);
- // Removidos inputs manuais de datas de vencimento do formulário inicial
  const [customerForm,setCustomerForm]=useState({name:'',phone:'',tipo:'mensal',valorMensalidade:'90',valorAvulso:'10'});
  const [productForm,setProductForm]=useState({name:'',cost:'',price:'',stock:'0'});
  const [consumo,setConsumo]=useState({customerId:'',guestName:'',productId:'',type:'avulso',value:'',date:today()});
@@ -132,14 +131,17 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
  const selectedProduct=products.find((p:any)=>p.id===consumo.productId);
  const selectedCustomer=customers.find((c:any)=>c.id===consumo.customerId);
  const activeMonthly=customers.filter((c:any)=>c.tipo==='mensal' && c.statusMensalidade==='Pago').length;
- const totalConsumption=registros.reduce((s:number,r:any)=>s+Number(r.value||r.valor||0),0);
+ const totalConsumption=registros.reduce((s:number,r:any)=>{
+   const prodMatch = products.find((p:any)=>p.id === r.productId || p.id === r.produto_id);
+   const itemVal = Number(r.value || r.valor || prodMatch?.price || 0);
+   return s + itemVal;
+ },0);
 
  const saveCustomer=async(e:any)=>{
    e.preventDefault();
    if(!customerForm.name||!customerForm.phone)return alert('Nome e telefone são obrigatórios.');
    setLoading(true);
    try{
-     // Calcula automaticamente o próximo dia 01 com base na data atual de registro
      const now = new Date();
      const nextVencimentoDate = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0,10);
 
@@ -213,7 +215,8 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
    if(selectedProduct&&Number(selectedProduct.stock||0)<=0)return alert('Produto sem estoque.');
    const foundCustomer = customers.find((c:any)=>c.id===consumo.customerId);
    const type=foundCustomer?.tipo==='mensal'&&foundCustomer?.statusMensalidade==='Pago'?'mensal':consumo.type;
-   const value=type==='mensal'?0:Number(consumo.value||selectedProduct?.price||0);
+   
+   const resolvedValue = type === 'mensal' ? 0 : Number(consumo.value || selectedProduct?.price || 0);
    
    const nowTime = new Date();
    const timeString = nowTime.toTimeString().slice(0, 5);
@@ -222,11 +225,37 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
      const r=await fetch(`${baseUrl}/pre-treino/records`,{
        method:'POST',
        headers:headers(),
-       body:JSON.stringify({id:`ptr_${Date.now()}`,customerId:consumo.customerId||null,customerName:foundCustomer?.name||consumo.guestName,customerPhone:foundCustomer?.phone||'',productId:consumo.productId,productName:selectedProduct?.name||'',cost:selectedProduct?.cost||0,value,type,date:consumo.date,time:timeString})
+       body:JSON.stringify({
+         id:`ptr_${Date.now()}`,
+         customerId:consumo.customerId||null,
+         customerName:foundCustomer?.name||consumo.guestName,
+         customerPhone:foundCustomer?.phone||'',
+         productId:consumo.productId,
+         productName:selectedProduct?.name||'',
+         cost:selectedProduct?.cost||0,
+         value:resolvedValue,
+         valor:resolvedValue,
+         type,
+         date:consumo.date,
+         time:timeString
+       })
      });
      if(!r.ok)throw new Error('Falha ao registrar consumo.');
      const responseData=await r.json();
-     const saved={id:responseData.id||`ptr_${Date.now()}`,customerId:consumo.customerId||null,customerName:foundCustomer?.name||consumo.guestName,customerPhone:foundCustomer?.phone||'',productId:consumo.productId,productName:selectedProduct?.name||'',cost:selectedProduct?.cost||0,value,type,date:consumo.date,time:responseData.time||timeString};
+     const saved={
+       id:responseData.id||`ptr_${Date.now()}`,
+       customerId:consumo.customerId||null,
+       customerName:foundCustomer?.name||consumo.guestName,
+       customerPhone:foundCustomer?.phone||'',
+       productId:consumo.productId,
+       productName:selectedProduct?.name||'',
+       cost:selectedProduct?.cost||0,
+       value:resolvedValue,
+       valor:resolvedValue,
+       type,
+       date:consumo.date,
+       time:responseData.time||timeString
+     };
      setRegistros([saved,...registros]);
      setProdutosPreTreino(products.map((p:any)=>p.id===selectedProduct.id?{...p,stock:Math.max(0,Number(p.stock||0)-1)}:p));
      setConsumo({customerId:'',guestName:'',productId:'',type:'avulso',value:'',date:today()});
@@ -329,11 +358,23 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
              <b>Clientes mensais ativos</b>
              <div style={{fontSize:28,fontWeight:900,color:accent}}>{activeMonthly}</div>
            </div>
-           <div style={{background:card,border:`1px solid ${border}`,borderRadius:14,padding:18}}>
-             <b>Consumo registrado</b>
-             <div style={{fontSize:28,fontWeight:900}}>{registros.length}</div>
-             <small style={{color:subtext}}>Receita avulsa: {money(totalConsumption)}</small>
-           </div>
+           
+           {(() => {
+             const avulsoRecords = registros.filter((r: any) => (r.type || r.tipo_consumo) === 'avulso');
+             const avulsoTotalConsumption = avulsoRecords.reduce((s: number, r: any) => {
+               const pMatch = products.find((p:any)=>p.id === r.productId || p.id === r.produto_id);
+               return s + Number(r.value || r.valor || pMatch?.price || 0);
+             }, 0);
+             
+             return (
+               <div style={{background:card,border:`1px solid ${border}`,borderRadius:14,padding:18}}>
+                 <b>Consumo registrado (Avulso)</b>
+                 <div style={{fontSize:28,fontWeight:900}}>{avulsoRecords.length}</div>
+                 <small style={{color:subtext}}>Receita avulsa: {money(avulsoTotalConsumption)}</small>
+               </div>
+             );
+           })()}
+
          </div>
        </div>
      )}
@@ -393,6 +434,12 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                      }, {});
 
                      const sortedDates = Object.keys(recordsByDate).sort((a,b) => new Date(b).getTime() - new Date(a).getTime());
+                     
+                     const clientTotalSpent = clientRecords.reduce((sum:number, r:any) => {
+                       const pMatch = products.find((p:any)=>p.id === r.productId || p.id === r.produto_id);
+                       const val = Number(r.value || r.valor || pMatch?.price || 0);
+                       return sum + val;
+                     }, 0);
 
                      return (
                        <div key={c.id} style={{borderBottom:`1px solid ${border}`, padding:'10px 0'}}>
@@ -405,7 +452,6 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                              <div style={{fontSize:12,color:subtext}}>{c.phone} · {c.tipo==='mensal'?`Mensal ${money(c.valorMensalidade)} · `: `Avulso · ${money(c.valorAvulso)}`}
                                <button onClick={(e)=>{e.stopPropagation(); toggleMonthly(c);}} style={{marginLeft:8,background:'transparent',border:'none',color:accent,cursor:'pointer',textDecoration:'underline'}}>{c.statusMensalidade || 'Pendente'}</button>
                              </div>
-                             {/* Exibição limpa do Contador de Dias Restantes */}
                              {c.tipo==='mensal' && (
                                <div style={{fontSize:11, color:accent, marginTop:3}}>
                                  ⏳ Contador: <b>{c.diasContadorVencimento ?? 0}</b> dias restantes para o vencimento (Dia 01)
@@ -417,27 +463,46 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
 
                          {isExpanded && (
                            <div style={{marginTop:10, padding:10, background:`${accent}08`, borderRadius:8, border:`1px dashed ${border}`}}>
-                             <small style={{fontWeight:700, color:accent, display:'block', marginBottom:8}}>Histórico de Retiradas por Dia</small>
+                             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+                               <small style={{fontWeight:700, color:accent}}>Histórico e Valores de Consumo</small>
+                               <small style={{fontWeight:700, color:text}}>Total Gasto: <span style={{color:accent}}>{money(clientTotalSpent)}</span></small>
+                             </div>
+
                              {sortedDates.length === 0 ? (
                                <p style={{fontSize:12, color:subtext, margin:0}}>Nenhum consumo registrado para este cliente.</p>
                              ) : (
                                sortedDates.map((dateStr)=>{
                                  const dayItems = recordsByDate[dateStr];
                                  const formattedDate = dateStr.split('-').reverse().join('/');
+                                 
+                                 const dayTotal = dayItems.reduce((accDay:number, item:any) => {
+                                   const pMatch = products.find((p:any)=>p.id === item.productId || p.id === item.produto_id);
+                                   return accDay + Number(item.value || item.valor || pMatch?.price || 0);
+                                 }, 0);
+
                                  return (
-                                   <div key={dateStr} style={{marginBottom:8, fontSize:12}}>
-                                     <div style={{fontWeight:600, color:text, display:'flex', alignItems:'center', gap:4, marginBottom:4}}>
-                                       <Calendar size={12}/> {formattedDate}
+                                   <div key={dateStr} style={{marginBottom:10, fontSize:12, background:card, padding:8, borderRadius:6, border:`1px solid ${border}`}}>
+                                     <div style={{fontWeight:600, color:text, display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4}}>
+                                       <span style={{display:'flex', alignItems:'center', gap:4}}><Calendar size={12}/> {formattedDate}</span>
+                                       <span style={{color:accent, fontSize:11}}>Total do dia: {money(dayTotal)}</span>
                                      </div>
-                                     <div style={{display:'flex', flexDirection:'column', gap:4, paddingLeft:16}}>
-                                       {dayItems.map((item:any, idx:number)=>(
-                                         <div key={item.id || idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:card, padding:'6px 8px', borderRadius:6, border:`1px solid ${border}`}}>
-                                           <span>📦 {item.productName || 'Produto'}</span>
-                                           <span style={{display:'flex', alignItems:'center', gap:4, color:subtext, fontSize:11}}>
-                                             <Clock size={11}/> {item.time || '00:00'}
-                                           </span>
-                                         </div>
-                                       ))}
+                                     <div style={{display:'flex', flexDirection:'column', gap:4}}>
+                                       {dayItems.map((item:any, idx:number)=>{
+                                         const pMatch = products.find((p:any)=>p.id === item.productId || p.id === item.produto_id);
+                                         const displayName = item.productName || item.product_name || item.nome_produto || pMatch?.name || 'Produto';
+
+                                         return (
+                                           <div key={item.id || idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 6px', borderBottom:`1px solid ${border}`}}>
+                                             {/* Exibe o nome do produto consumido */}
+                                             <span style={{fontWeight:600, color:text}}>📦 {displayName}</span>
+                                             <div style={{display:'flex', alignItems:'center', gap:8}}>
+                                               <span style={{display:'flex', alignItems:'center', gap:2, color:subtext, fontSize:11}}>
+                                                 <Clock size={11}/> {item.time || '00:00'}
+                                               </span>
+                                             </div>
+                                           </div>
+                                         );
+                                       })}
                                      </div>
                                    </div>
                                  );

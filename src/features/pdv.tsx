@@ -277,7 +277,6 @@ export function PDV({
     setDiscount(0);
   };
 
-  // Função disparada ao clicar no produto na grade
   const handleProductClick = (prod) => {
     const variationsList = prod.variations || prod.options || prod.variationList || [];
     if (Array.isArray(variationsList) && variationsList.length > 0) {
@@ -285,7 +284,6 @@ export function PDV({
       const firstOpt = typeof variationsList[0] === 'string' ? variationsList[0] : (variationsList[0].name || "");
       setSelectedVariationOption(firstOpt.trim());
     } else {
-      // Se não tem variações cadastradas, adiciona direto
       addToCartWithVariation(prod, "");
     }
   };
@@ -294,7 +292,6 @@ export function PDV({
     const cleanVariation = (chosenVariation || "").trim();
 
     setCart((prev) => {
-      // Verifica se já existe o mesmo produto E com a mesma variação no carrinho (comparando strings limpas)
       const existsIndex = prev.findIndex(
         (item) => String(item.id) === String(prod.id) && (item.variationName || item.variation || "").trim() === cleanVariation
       );
@@ -466,18 +463,30 @@ export function PDV({
                   if (typeof v === 'string') {
                     return v;
                   }
-                  const currentVarStock = Number(v.stock ?? v.qty ?? 0);
-                  const updatedVarStock = Math.max(0, currentVarStock - foundItem.qty);
-                  return { ...v, stock: updatedVarStock };
+                  
+                  let newVarStocks = v.stocks ? { ...v.stocks } : {};
+                  let currentVarStock = 0;
+
+                  if (newVarStocks[chaveAlvo] !== undefined) {
+                    currentVarStock = Number(newVarStocks[chaveAlvo]);
+                    newVarStocks[chaveAlvo] = Math.max(0, currentVarStock - foundItem.qty);
+                  } else {
+                    const fallbackKey = Object.keys(newVarStocks)[0] || chaveAlvo;
+                    currentVarStock = Number(newVarStocks[fallbackKey] ?? v.stock ?? v.qty ?? 0);
+                    newVarStocks[fallbackKey] = Math.max(0, currentVarStock - foundItem.qty);
+                  }
+
+                  const updatedVarStock = Math.max(0, Number(v.stock ?? v.qty ?? 0) - foundItem.qty);
+                  return { ...v, stock: updatedVarStock, stocks: newVarStocks };
                 }
                 return v;
               });
+            } else {
+              const currentQty = Number(newStocks[chaveAlvo] ?? newStockTotal);
+              const newQty = Math.max(0, currentQty - foundItem.qty);
+              newStocks[chaveAlvo] = newQty;
+              newStockTotal = newQty;
             }
-
-            const currentQty = Number(newStocks[chaveAlvo] ?? newStockTotal);
-            const newQty = Math.max(0, currentQty - foundItem.qty);
-            newStocks[chaveAlvo] = newQty;
-            newStockTotal = newQty;
           });
 
           const updatedProdObj = {

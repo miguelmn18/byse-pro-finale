@@ -384,32 +384,32 @@ app.post('/api/locais',authMiddleware,async(req,res)=>{const {id,name}=req.body|
 
 // ---------- Sales ----------
 app.get('/api/sales',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC',[req.user.id]);res.json(r.rows.map(s=>({...s,customerId:s.customer_id,customerName:s.customer_name,customerPhone:s.customer_phone,total:Number(s.total||0),subtotal:Number(s.subtotal||0),discount:Number(s.discount||0),cashbackEarned:Number(s.cashback_earned||s.earned_cashback||0),items:json(s.items,[])})));});
-app.post('/api/sales',authMiddleware,async(req,res)=>{
-  const client=await pool.connect();
+app.post('/api/sales', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
   try { 
     await client.query('BEGIN'); 
-    const s=req.body||{}; 
-    const id=s.id||`sale_${crypto.randomUUID()}`; 
-    const customerId=s.customerId||s.customer_id||null; 
-    let customerPhone=s.customerPhone||s.customer_phone||null; 
-    let customerName=s.customerName||s.customer_name||'Cliente Geral';
+    const s = req.body || {}; 
+    const id = s.id || `sale_${crypto.randomUUID()}`; 
+    const customerId = s.customerId || s.customer_id || null; 
+    let customerPhone = s.customerPhone || s.customer_phone || null; 
+    let customerName = s.customerName || s.customer_name || 'Cliente Geral';
 
-    if(customerId){
-      const cr=await client.query('SELECT name,phone FROM customers WHERE id=$1 AND user_id=$2',[customerId,req.user.id]);
-      if(cr.rows[0]){
-        customerName=cr.rows[0].name;
-        customerPhone=cr.rows[0].phone;
+    if (customerId) {
+      const cr = await client.query('SELECT name,phone FROM customers WHERE id=$1 AND user_id=$2', [customerId, req.user.id]);
+      if (cr.rows[0]) {
+        customerName = cr.rows[0].name;
+        customerPhone = cr.rows[0].phone;
       }
     }
 
-    const items=Array.isArray(s.items)?s.items:[]; 
-    const subtotal=Number(s.subtotal??s.total??0); 
-    const total=Number(s.total??0); 
-    const cashback=Number(s.cashbackEarned??s.earned_cashback??0);
+    const items = Array.isArray(s.items) ? s.items : []; 
+    const subtotal = Number(s.subtotal ?? s.total ?? 0); 
+    const total = Number(s.total ?? 0); 
+    const cashback = Number(s.cashbackEarned ?? s.earned_cashback ?? 0);
 
-    await client.query(`INSERT INTO sales(id,user_id,customer_id,customer_name,customer_phone,seller,payment_method,discount,subtotal,total,cashback_earned,earned_cashback,gender,sales_channel,delivery_type,items,date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16) ON CONFLICT(id,user_id) DO UPDATE SET customer_id=$3,customer_name=$4,customer_phone=$5,seller=$6,payment_method=$7,discount=$8,subtotal=$9,total=$10,cashback_earned=$11,earned_cashback=$11,gender=$12,sales_channel=$13,delivery_type=$14,items=$15,date=$16`,[id,req.user.id,customerId,customerName,customerPhone,s.seller||null,s.paymentMethod||s.payment_method||'Pix',Number(s.discount||0),subtotal,total,cashback,s.gender||'Prefiro não informar',s.salesChannel||s.sales_channel||'Loja física',s.deliveryType||s.delivery_type||'Retirada',JSON.stringify(items),s.date||new Date().toISOString()]);
+    await client.query(`INSERT INTO sales(id,user_id,customer_id,customer_name,customer_phone,seller,payment_method,discount,subtotal,total,cashback_earned,earned_cashback,gender,sales_channel,delivery_type,items,date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16) ON CONFLICT(id,user_id) DO UPDATE SET customer_id=$3,customer_name=$4,customer_phone=$5,seller=$6,payment_method=$7,discount=$8,subtotal=$9,total=$10,cashback_earned=$11,earned_cashback=$11,gender=$12,sales_channel=$13,delivery_type=$14,items=$15,date=$16`, [id, req.user.id, customerId, customerName, customerPhone, s.seller || null, s.paymentMethod || s.payment_method || 'Pix', Number(s.discount || 0), subtotal, total, cashback, s.gender || 'Prefiro não informar', s.salesChannel || s.sales_channel || 'Loja física', s.deliveryType || s.delivery_type || 'Retirada', JSON.stringify(items), s.date || new Date().toISOString()]);
     
-    if(customerId && cashback>0) {
+    if (customerId && cashback > 0) {
       const expDate = new Date();
       expDate.setDate(expDate.getDate() + 30);
       const expDateStr = expDate.toISOString().split('T')[0];
@@ -427,7 +427,7 @@ app.post('/api/sales',authMiddleware,async(req,res)=>{
       const variationName = String(item.variationName || item.variation || "").trim();
       const qty = Number(item.quantity || item.qty || 1);
       
-      const key = `${pid}_${variationName}`;
+      const key = `${pid}___${variationName}`;
       if (consolidatedItems[key]) {
         consolidatedItems[key].qty += qty;
       } else {
@@ -440,41 +440,52 @@ app.post('/api/sales',authMiddleware,async(req,res)=>{
       if (!pid || qty <= 0) continue;
 
       const pr = await client.query('SELECT id, stocks, variations, control_stock FROM products WHERE id=$1 AND user_id=$2 FOR UPDATE', [pid, req.user.id]);
-      if(!pr.rows[0] || !pr.rows[0].control_stock) continue;
+      if (!pr.rows[0] || !pr.rows[0].control_stock) continue;
 
       let stocks = json(pr.rows[0].stocks, {});
       let variations = json(pr.rows[0].variations, []);
-      const loc = item.stockLocation || item.stock_location || Object.keys(stocks)[0];
+      const loc = item.stockLocation || item.stock_location || Object.keys(stocks)[0] || 'loja-fisica';
 
-      if (variationName && variations.length > 0) {
-        let variationUpdated = false;
+      const cleanTargetVar = variationName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+      // Decrementa o estoque da variação específica e também o estoque global (stocks)
+      if (cleanTargetVar && Array.isArray(variations) && variations.length > 0) {
+        let variationMatched = false;
+
         variations = variations.map(v => {
-          const vName = typeof v === 'string' ? v.trim() : (v.name || "").trim();
-          if (vName === variationName && loc) {
-            const currentVarStock = Number(v.stocks?.[loc] || 0);
-            v.stocks = { ...v.stocks, [loc]: Math.max(0, currentVarStock - qty) };
-            variationUpdated = true;
+          const vObj = typeof v === 'string' ? { name: v, stocks: {} } : { ...v, stocks: v.stocks || {} };
+          const vNameRaw = (vObj.name || "").trim();
+          const cleanCurrentVar = vNameRaw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+          if (cleanCurrentVar === cleanTargetVar) {
+            const currentVarStock = Number(vObj.stocks[loc] ?? 0);
+            vObj.stocks[loc] = Math.max(0, currentVarStock - qty);
+            variationMatched = true;
           }
-          return v;
+          return typeof v === 'string' ? vObj.name : vObj;
         });
 
-        if (!variationUpdated && loc) {
+        if (variationMatched) {
+          // Atualiza tanto as variations quanto o estoque global (stocks)
           stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
+          await client.query('UPDATE products SET variations=$1, stocks=$2 WHERE id=$3 AND user_id=$4', [JSON.stringify(variations), JSON.stringify(stocks), pid, req.user.id]);
+        } else {
+          // Caso a variação informada não seja encontrada exatamente, decrementa o estoque global como fallback seguro
+          stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
+          await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(stocks), pid, req.user.id]);
         }
-
-        await client.query('UPDATE products SET variations=$1, stocks=$2 WHERE id=$3 AND user_id=$4', [JSON.stringify(variations), JSON.stringify(stocks), pid, req.user.id]);
-      } else if(loc) {
+      } else if (loc) {
         stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
         await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(stocks), pid, req.user.id]);
       }
     }
 
     await client.query('COMMIT');
-    res.status(201).json({success:true,saleId:id,customerPhone,earnedCashback:cashback});
-  } catch(e){
+    res.status(201).json({ success: true, saleId: id, customerPhone, earnedCashback: cashback });
+  } catch (e) {
     await client.query('ROLLBACK');
-    console.error('[SALE]',e);
-    res.status(500).json({error:'Erro ao registrar venda.'});
+    console.error('[SALE]', e);
+    res.status(500).json({ error: 'Erro ao registrar venda.' });
   } finally {
     client.release();
   }
@@ -573,7 +584,7 @@ const handleSaveConfig = async (req, res) => {
     cashbackPercentage: Number(req.body.cashbackPercentage ?? currentConfig.cashbackPercentage ?? defaultPdv.cashbackPercentage),
     cashbackValidityDays: Number(req.body.cashbackValidityDays ?? currentConfig.cashbackValidityDays ?? defaultPdv.cashbackValidityDays),
     cashbackMessage: req.body.cashbackMessage || req.body.messageTemplate || currentConfig.cashbackMessage || currentConfig.messageTemplate || defaultPdv.messageTemplate,
-    messageTemplate: req.body.messageTemplate || req.body.cashbackMessage || currentConfig.messageTemplate || currentConfig.cashbackMessage || defaultPdv.messageTemplate
+    messageTemplate: req.body.messageTemplate || req.body.cashbackMessage || currentConfig.messageTemplate || currentConfig.messageTemplate || defaultPdv.messageTemplate
   };
 
   await pool.query(
