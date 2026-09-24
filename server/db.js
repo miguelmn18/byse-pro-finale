@@ -94,6 +94,7 @@ export async function initDb() {
         control_stock BOOLEAN DEFAULT TRUE,
         image_url TEXT,
         stocks JSONB DEFAULT '{}',
+        variations JSONB DEFAULT '[]',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id, user_id)
       );

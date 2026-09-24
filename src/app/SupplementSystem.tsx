@@ -182,7 +182,6 @@ function SupplementSystem() {
         }
       }
 
-      // Removido o salvamento de sales no localStorage para evitar QuotaExceededError
       const resSales = await fetch(`${API_URL}/sales`, { headers });
       if (resSales.ok) {
         const data = await resSales.json();
@@ -745,12 +744,13 @@ function SupplementSystem() {
     }
   };
 
-  const bg = dark ? "#0C0C0C" : "#F5F3EE";
-  const card = dark ? "#1C1C1C" : "#FFFFFF";
-  const card2 = dark ? "#141414" : "#FBFAF7";
-  const text = dark ? "#F0EFE9" : "#1A1A1A";
-  const subtext = dark ? "#8A8A82" : "#6E6B62";
-  const border = dark ? "#2E2E2E" : "#E7E2D8";
+  // Padrões originais de cores preservados
+  const bg = dark ? "#121212" : "#F4F4F5";
+  const card = dark ? "#18181B" : "#FFFFFF";
+  const card2 = dark ? "#202024" : "#FAFAFA";
+  const text = dark ? "#F4F4F5" : "#18181B";
+  const subtext = dark ? "#A1A1AA" : "#71717A";
+  const border = dark ? "#27272A" : "#E4E4E7";
 
   if (loading) {
     return (

@@ -26,7 +26,7 @@ function DRE({ sales, card, border, subtext, accent, text }) {
 
   const isAllYear = selMonth === -1;
 
-  // Calculando o faturamento real direto das vendas reais do sistema[cite: 10]
+  // Calculando o faturamento real direto das vendas reais do sistema
   const realRevByMonth = Array(12).fill(0);
   sales.forEach((s) => {
     const d = new Date(s.date);
@@ -109,7 +109,7 @@ function DRE({ sales, card, border, subtext, accent, text }) {
       </div>
 
       <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 12, padding: 18 }}>
-        {/* Faturamento preenchido automaticamente pelas vendas do PDV[cite: 10] */}
+        {/* Faturamento preenchido automaticamente pelas vendas do PDV */}
         <div style={rowStyle}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>Faturamento (PDV)</span>
           <span style={{ fontSize: 15, fontWeight: 800, color: accent }}>{money(faturamento)}</span>
@@ -163,12 +163,19 @@ function Planos({ card, border, subtext, accent, text }) {
     <div>
       <SectionTitle title="Planos" sub="Modelo de assinatura" subtext={subtext} />
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {plans.link || plans.map((p) => (
+        {plans.map((p) => (
           <div key={p.name} style={{ background: card, border: p.best ? `2px solid ${accent}` : `1px solid ${border}`, borderRadius: 14, padding: 22, flex: 1, minWidth: 200, position: "relative" }}>
             {p.best && <div style={{ position: "absolute", top: -11, left: 16, background: accent, color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>MAIS ECONÔMICO</div>}
             <div style={{ fontWeight: 700, fontSize: 14, color: subtext }}>{p.name}</div>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 30, margin: "8px 0" }}>{money(p.price)}</div>
-            <button style={{ width: "100%", marginTop: 16, background: p.best ? accent : "transparent", color: p.best ? "#fff" : text, border: p.best ? "none" : `1px solid ${border}`, borderRadius: 8, padding: "10px", fontWeight: 700, cursor: "pointer" }}>Assinar</button>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 30, margin: "8px 0 2px 0" }}>{money(p.price)}</div>
+            {p.per ? (
+              <div style={{ fontSize: 12, color: DANGER, marginBottom: 16, fontWeight: 700 }}>
+                {p.note} {money(p.per)} /mês
+              </div>
+            ) : (
+              <div style={{ height: 26 }} />
+            )}
+            <button style={{ width: "100%", background: p.best ? accent : "transparent", color: p.best ? "#fff" : text, border: p.best ? "none" : `1px solid ${border}`, borderRadius: 8, padding: "10px", fontWeight: 700, cursor: "pointer" }}>Assinar</button>
           </div>
         ))}
       </div>

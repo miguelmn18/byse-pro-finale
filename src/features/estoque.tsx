@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2 } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Eye } from "lucide-react";
 import { FONT_BODY } from "../data/constants";
 import { money, inputStyle, ghostBtn } from "../utils/helpers";
 import { SectionTitle, HBar } from "../components/common";
@@ -26,6 +26,9 @@ export function Estoque({
   // Estado para armazenar a categoria selecionada no filtro
   const [selectedCategory, setSelectedCategory] = useState("Todas");
 
+  // Estado para o Modal/Gaveta de Detalhes do Produto
+  const [viewingProduct, setViewingProduct] = useState(null);
+
   const blankForm = {
     name: "",
     category: "",
@@ -40,6 +43,7 @@ export function Estoque({
     description: "",
     controlStock: true,
     stocks: {},
+    variations: [],
     imageUrl: null
   };
 
@@ -57,8 +61,58 @@ export function Estoque({
     setNewLocName("");
   };
 
+  const addVariation = () => {
+    setForm(f => ({
+      ...f,
+      variations: [
+        ...(f.variations || []),
+        { id: `var_${Date.now()}_${Math.random()}`, name: "", stocks: {} }
+      ]
+    }));
+  };
+
+  const updateVariationName = (varId, name) => {
+    setForm(f => ({
+      ...f,
+      variations: (f.variations || []).map(v => v.id === varId ? { ...v, name } : v)
+    }));
+  };
+
+  const updateVariationStock = (varId, locId, value) => {
+    setForm(f => ({
+      ...f,
+      variations: (f.variations || []).map(v => {
+        if (v.id === varId) {
+          return {
+            ...v,
+            stocks: { ...(v.stocks || {}), [locId]: value }
+          };
+        }
+        return v;
+      })
+    }));
+  };
+
+  const removeVariation = (varId) => {
+    setForm(f => ({
+      ...f,
+      variations: (f.variations || []).filter(v => v.id !== varId)
+    }));
+  };
+
   const startEdit = (p) => {
     setEditingId(p.id);
+    
+    // Normaliza as variações existentes para o formato do form garantindo leitura correta
+    const rawVariations = p.variations || p.subcategories || [];
+    const parsedVariations = rawVariations.map((v, idx) => ({
+      id: v.id || `var_${idx}_${Date.now()}`,
+      name: v.name || "",
+      stocks: Object.fromEntries(
+        Object.entries(v.stocks || {}).map(([k, val]) => [k, String(val)])
+      )
+    }));
+
     setForm({
       name: p.name || "",
       category: p.category || "",
@@ -75,6 +129,7 @@ export function Estoque({
       stocks: Object.fromEntries(
         Object.entries(p.stocks || {}).map(([k, v]) => [k, String(v)])
       ),
+      variations: parsedVariations,
       imageUrl: p.image_url || p.imageUrl || null
     });
     setShowForm(true);
@@ -114,6 +169,14 @@ export function Estoque({
         )
       : {};
 
+    const builtVariations = (form.variations || []).map(v => ({
+      id: v.id || `var_${Date.now()}`,
+      name: v.name || "Padrão",
+      stocks: Object.fromEntries(
+        stockLocations.map(l => [l.id, parseInt(v.stocks?.[l.id]) || 0])
+      )
+    }));
+
     const built = {
       id: editingId || `prod_${Date.now()}`,
       name: form.name,
@@ -133,7 +196,8 @@ export function Estoque({
       control_stock: Boolean(form.controlStock),
       imageUrl: form.imageUrl || null,
       image_url: form.imageUrl || null,
-      stocks: stocksObj
+      stocks: stocksObj,
+      variations: builtVariations
     };
 
     try {
@@ -155,7 +219,11 @@ export function Estoque({
 
       if (response.ok) {
         const savedData = await response.json();
-        const finalProduct = savedData.id ? savedData : built;
+        const finalProduct = {
+          ...built,
+          ...savedData,
+          variations: savedData.variations || savedData.subcategories || built.variations
+        };
 
         if (editingId) {
           if (onEditProduct) {
@@ -200,7 +268,6 @@ export function Estoque({
     }
   };
 
-  // Criação dinâmica das categorias baseada nos produtos cadastrados
   const categories = [
     "Todas",
     ...Array.from(
@@ -212,7 +279,6 @@ export function Estoque({
     )
   ];
 
-  // Filtragem dos produtos com base na categoria selecionada
   const filteredProducts = Array.isArray(products)
     ? products.filter((p) => {
         const cat = p.category || "Sem categoria";
@@ -537,32 +603,106 @@ export function Estoque({
           </div>
 
           {form.controlStock && (
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                flexWrap: "wrap",
-                marginBottom: 10
-              }}
-            >
-              {stockLocations.map((l) => (
-                <input
-                  key={l.id}
-                  placeholder={`Qtd. ${l.name}`}
-                  type="number"
-                  value={form.stocks[l.id] ?? ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      stocks: {
-                        ...form.stocks,
-                        [l.id]: e.target.value
-                      }
-                    })
-                  }
-                  style={inputStyle(border, text)}
-                />
-              ))}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: text, marginBottom: 6 }}>
+                Estoque Principal / Global:
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  marginBottom: 14
+                }}
+              >
+                {stockLocations.map((l) => (
+                  <input
+                    key={l.id}
+                    placeholder={`Qtd. ${l.name}`}
+                    type="number"
+                    value={form.stocks[l.id] ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        stocks: {
+                          ...form.stocks,
+                          [l.id]: e.target.value
+                        }
+                      })
+                    }
+                    style={inputStyle(border, text)}
+                  />
+                ))}
+              </div>
+
+              <div style={{ borderTop: `1px dashed ${border}`, paddingTop: 12, marginTop: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: text }}>
+                    Subcategorias / Variações (ex: Sabores, Cores, Tamanhos)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addVariation}
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${accent}`,
+                      color: accent,
+                      borderRadius: 6,
+                      padding: "4px 10px",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    + Adicionar Variação
+                  </button>
+                </div>
+
+                {(form.variations || []).map((v) => (
+                  <div
+                    key={v.id}
+                    style={{
+                      background: card,
+                      border: `1px solid ${border}`,
+                      borderRadius: 8,
+                      padding: 10,
+                      marginBottom: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        placeholder='Nome da variação (ex: "Chocolate")'
+                        value={v.name}
+                        onChange={(e) => updateVariationName(v.id, e.target.value)}
+                        style={{ ...inputStyle(border, text), flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeVariation(v.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
+                      >
+                        <Trash2 size={16} color="#ef4444" />
+                      </button>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {stockLocations.map((l) => (
+                        <input
+                          key={l.id}
+                          placeholder={`Qtd ${l.name} (${v.name || "Variação"})`}
+                          type="number"
+                          value={v.stocks?.[l.id] ?? ""}
+                          onChange={(e) => updateVariationStock(v.id, l.id, e.target.value)}
+                          style={{ ...inputStyle(border, text), flex: "1 1 120px" }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -670,10 +810,12 @@ export function Estoque({
           const pVipPrice3x = p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
           const pControlStock = p.control_stock !== undefined ? p.control_stock : p.controlStock;
           const pImageUrl = p.image_url || p.imageUrl;
+          const pVariations = Array.isArray(p.variations) ? p.variations : (p.subcategories || []);
           
           return (
             <div
               key={p.id}
+              onClick={() => setViewingProduct(p)}
               style={{
                 display: "grid",
                 gridTemplateColumns: gridCols,
@@ -682,8 +824,12 @@ export function Estoque({
                 alignItems: "center",
                 borderBottom:
                   i < filteredProducts.length - 1 ? `1px solid ${border}` : "none",
-                minWidth: 700
+                minWidth: 700,
+                cursor: "pointer",
+                transition: "background 0.15s ease"
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = `${accent}08`)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
                 {pImageUrl && (
@@ -714,6 +860,20 @@ export function Estoque({
                       {p.barcode}
                     </div>
                   )}
+
+                  {/* Exibição das subcategorias/variações e somatório automático na tabela */}
+                  {pVariations.length > 0 && (
+                    <div style={{ fontSize: 11, color: subtext, marginTop: 3, fontWeight: 400 }}>
+                      {pVariations.map((v, vIdx) => {
+                        const varTotal = Object.values(v.stocks || {}).reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+                        return (
+                          <span key={vIdx}>
+                            {v.name}: {varTotal}{vIdx < pVariations.length - 1 ? " | " : ""}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
               <div>{p.category}</div>
@@ -722,44 +882,51 @@ export function Estoque({
               <div style={{ fontWeight: 700, color: accent }}>{pVipPrice != null ? money(pVipPrice) : "—"}</div>
               <div style={{ fontWeight: 700, color: accent }}>{pVipPrice3x != null ? money(pVipPrice3x) : "—"}</div>
 
-              {stockLocations.map((l) => (
-                <div key={l.id}>
-                  {pControlStock !== false ? (
-                    <>
-                      <div>{p.stocks?.[l.id] ?? 0}</div>
-                      <div style={{ marginTop: 3 }}>
-                        <HBar
-                          pct={(((p.stocks?.[l.id] ?? 0)) / 50) * 100}
-                          color={accent}
-                          border={border}
-                          h={4}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <span style={{ color: subtext }}>—</span>
-                  )}
-                </div>
-              ))}
+              {stockLocations.map((l) => {
+                const globalLocStock = Number(p.stocks?.[l.id] || 0);
+                const variationsLocStock = pVariations.reduce((acc, v) => acc + (Number(v.stocks?.[l.id]) || 0), 0);
+                const totalLocStock = globalLocStock + variationsLocStock;
 
-              <div style={{ display: "flex", gap: 6 }}>
+                return (
+                  <div key={l.id}>
+                    {pControlStock !== false ? (
+                      <>
+                        <div>{totalLocStock}</div>
+                        <div style={{ marginTop: 3 }}>
+                          <HBar
+                            pct={(totalLocStock / 50) * 100}
+                            color={accent}
+                            border={border}
+                            h={4}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <span style={{ color: subtext }}>—</span>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setViewingProduct(p)}
+                  style={{ background: "none", border: "none", cursor: "pointer" }}
+                  title="Ver detalhes"
+                >
+                  <Eye size={14} color={subtext} />
+                </button>
                 <button
                   onClick={() => startEdit(p)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer"
-                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer" }}
+                  title="Editar"
                 >
                   <Edit2 size={14} color={subtext} />
                 </button>
                 <button
                   onClick={() => removeProduct(p.id)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer"
-                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer" }}
+                  title="Excluir"
                 >
                   <Trash2 size={14} color={subtext} />
                 </button>
@@ -768,6 +935,256 @@ export function Estoque({
           );
         })}
       </div>
+
+      {/* Modal / Gaveta de Detalhes Completos do Produto */}
+      {viewingProduct && (() => {
+        const vp = viewingProduct;
+        const vpVipPrice = vp.vip_price !== undefined ? vp.vip_price : vp.vipPrice;
+        const vpVipPrice3x = vp.vip_price_3x !== undefined ? vp.vip_price_3x : vp.vipPrice3x;
+        const vpControlStock = vp.control_stock !== undefined ? vp.control_stock : vp.controlStock;
+        const vpImageUrl = vp.image_url || vp.imageUrl;
+        const vpVariations = Array.isArray(vp.variations) ? vp.variations : (vp.subcategories || []);
+
+        return (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.6)",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 1000,
+              padding: 16
+            }}
+            onClick={() => setViewingProduct(null)}
+          >
+            <div
+              style={{
+                background: card,
+                border: `1px solid ${border}`,
+                borderRadius: 16,
+                width: "100%",
+                maxWidth: 700,
+                maxHeight: "90vh",
+                overflowY: "auto",
+                padding: 24,
+                boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.3)",
+                position: "relative"
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Botão Fechar */}
+              <button
+                onClick={() => setViewingProduct(null)}
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  right: 16,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: text,
+                  padding: 4
+                }}
+              >
+                <X size={20} />
+              </button>
+
+              {/* Cabeçalho do Modal */}
+              <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 20 }}>
+                {vpImageUrl ? (
+                  <img
+                    src={vpImageUrl}
+                    alt={vp.name}
+                    style={{
+                      width: 90,
+                      height: 90,
+                      objectFit: "cover",
+                      borderRadius: 10,
+                      border: `1px solid ${border}`
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 90,
+                      height: 90,
+                      background: `${accent}15`,
+                      borderRadius: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: accent,
+                      fontWeight: 700,
+                      fontSize: 12
+                    }}
+                  >
+                    Sem foto
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize: 12, color: accent, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
+                    {vp.category || "Sem categoria"}
+                  </div>
+                  <h2 style={{ fontSize: 20, fontWeight: 700, color: text, margin: "0 0 6px 0" }}>
+                    {vp.name}
+                  </h2>
+                  <div style={{ fontSize: 12, color: subtext, display: "flex", gap: 12 }}>
+                    {vp.code && <span>Cód. rápido: <strong>{vp.code}</strong></span>}
+                    {vp.barcode && <span>Cód. barras: <strong>{vp.barcode}</strong></span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Descrição */}
+              {vp.description && (
+                <div style={{ marginBottom: 20, background: `${border}20`, padding: 12, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: subtext, textTransform: "uppercase", marginBottom: 4 }}>
+                    Descrição
+                  </div>
+                  <div style={{ fontSize: 13, color: text, lineHeight: 1.4 }}>
+                    {vp.description}
+                  </div>
+                </div>
+              )}
+
+              {/* Grid de Preços e Custos */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
+                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Custo</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: text, marginTop: 2 }}>{money(vp.cost)}</div>
+                </div>
+                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Venda Padrão</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: text, marginTop: 2 }}>{money(vp.price)}</div>
+                </div>
+                <div style={{ background: `${accent}15`, border: `1px solid ${accent}40`, padding: 10, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: accent, fontWeight: 600 }}>VIP À Vista</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: accent, marginTop: 2 }}>
+                    {vpVipPrice != null ? money(vpVipPrice) : "—"}
+                  </div>
+                </div>
+                <div style={{ background: `${accent}15`, border: `1px solid ${accent}40`, padding: 10, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: accent, fontWeight: 600 }}>VIP 3x S/ Juros</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: accent, marginTop: 2 }}>
+                    {vpVipPrice3x != null ? money(vpVipPrice3x) : "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Imposto</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginTop: 2 }}>{money(vp.imposto)}</div>
+                </div>
+                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Frete</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginTop: 2 }}>{money(vp.frete)}</div>
+                </div>
+              </div>
+
+              {/* Distribuição de Estoque */}
+              <div style={{ borderTop: `1px solid ${border}`, paddingTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: text, marginBottom: 12 }}>
+                  Distribuição de Estoque por Local
+                </div>
+
+                {vpControlStock === false ? (
+                  <div style={{ fontSize: 12, color: subtext, fontStyle: "italic", marginBottom: 12 }}>
+                    Este produto está configurado para **não controlar estoque**.
+                  </div>
+                ) : (
+                  <>
+                    {/* Totais por Local */}
+                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${stockLocations.length}, 1fr)`, gap: 8, marginBottom: 16 }}>
+                      {stockLocations.map((l) => {
+                        const globalLocStock = Number(vp.stocks?.[l.id] || 0);
+                        const variationsLocStock = vpVariations.reduce((acc, v) => acc + (Number(v.stocks?.[l.id]) || 0), 0);
+                        const totalLocStock = globalLocStock + variationsLocStock;
+
+                        return (
+                          <div key={l.id} style={{ background: card, border: `1px solid ${border}`, padding: 10, borderRadius: 8, textAlign: "center" }}>
+                            <div style={{ fontSize: 11, color: subtext, marginBottom: 4 }}>{l.name}</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: accent }}>{totalLocStock}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Variações Detalhadas */}
+                    {vpVariations.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: subtext, marginBottom: 8 }}>
+                          Detalhamento por Variações / Subcategorias:
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {vpVariations.map((v, vIdx) => (
+                            <div key={vIdx} style={{ background: `${border}10`, padding: 8, borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontWeight: 600, fontSize: 12, color: text }}>{v.name}</span>
+                              <div style={{ display: "flex", gap: 12, fontSize: 12, color: subtext }}>
+                                {stockLocations.map((l) => (
+                                  <span key={l.id}>
+                                    {l.name}: <strong style={{ color: text }}>{v.stocks?.[l.id] || 0}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Ações no Rodapé do Modal */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24, borderTop: `1px solid ${border}`, paddingTop: 16 }}>
+                <button
+                  onClick={() => {
+                    const prodToEdit = viewingProduct;
+                    setViewingProduct(null);
+                    startEdit(prodToEdit);
+                  }}
+                  style={{
+                    background: accent,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  <Edit2 size={14} /> Editar Produto
+                </button>
+                <button
+                  onClick={() => setViewingProduct(null)}
+                  style={{
+                    background: "transparent",
+                    border: `1px solid ${border}`,
+                    color: text,
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

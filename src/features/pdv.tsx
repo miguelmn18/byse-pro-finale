@@ -23,21 +23,46 @@ export function PDV({
   text
 }) {
   const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
-  const [step, setStep] = useState("gate"); // "gate", "register", "order"
-  const [phoneQuery, setPhoneQuery] = useState("");
-  const [foundCustomer, setFoundCustomer] = useState(null);
+
+  // ==========================================
+  // CONTROLO DE TEMPO E PERSISTÊNCIA CONTÍNUA (localStorage)
+  // ==========================================
+  const STORAGE_KEY = "byse_pdv_persistent_data";
+  const TIMEOUT_DURATION = 10 * 60 * 1000; // 10 minutos
+
+  // Função auxiliar para recuperar dados salvos respeitando os 10 minutos
+  const getInitialState = (key, defaultValue) => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const elapsed = Date.now() - parsed.timestamp;
+        if (elapsed < TIMEOUT_DURATION) {
+          return parsed[key] !== undefined ? parsed[key] : defaultValue;
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao ler dados persistidos do PDV", e);
+    }
+    return defaultValue;
+  };
+
+  const [step, setStep] = useState(() => getInitialState("step", "gate"));
+  const [phoneQuery, setPhoneQuery] = useState(() => getInitialState("phoneQuery", ""));
+  const [foundCustomer, setFoundCustomer] = useState(() => getInitialState("foundCustomer", null));
+  const [selectedCustomer, setSelectedCustomer] = useState(() => getInitialState("selectedCustomer", null));
+  const [cart, setCart] = useState(() => getInitialState("cart", []));
+  const [discount, setDiscount] = useState(() => getInitialState("discount", 0));
   
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  
   const [lastCompletedSale, setLastCompletedSale] = useState(null);
 
   const [productQuery, setProductQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Todos produtos");
-  const [cart, setCart] = useState([]);
   const [seller, setSeller] = useState(sellers[0]?.name || "Juliana Costa");
   const [paymentMethod, setPaymentMethod] = useState("Pix");
-  const [discount, setDiscount] = useState(0);
   const [gender, setGender] = useState("Prefiro não informar");
   const [salesChannel, setSalesChannel] = useState("Loja física");
   const [deliveryType, setDeliveryType] = useState("Retirada");
@@ -46,6 +71,21 @@ export function PDV({
   const [cashbackValidityDays, setCashbackValidityDays] = useState(30);
   const [cashbackMessage, setCashbackMessage] = useState('Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁');
   const [activeReminderButton, setActiveReminderButton] = useState(false);
+
+  // Sempre que houver alteração nos dados do PDV, salvamos no localStorage com o timestamp atual
+  useEffect(() => {
+    const currentState = {
+      step,
+      phoneQuery,
+      foundCustomer,
+      selectedCustomer,
+      cart,
+      discount,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState));
+  }, [step, phoneQuery, foundCustomer, selectedCustomer, cart, discount]);
+  // ==========================================
 
   useEffect(() => {
     fetchUserSettings();
@@ -224,6 +264,7 @@ export function PDV({
   };
 
   const backToGate = () => {
+    localStorage.removeItem(STORAGE_KEY);
     setStep("gate");
     setPhoneQuery("");
     setFoundCustomer(null);
@@ -334,6 +375,8 @@ export function PDV({
       if (!response.ok) {
         throw new Error("Falha ao salvar a venda no servidor.");
       }
+
+      localStorage.removeItem(STORAGE_KEY);
 
       if (selectedCustomer && typeof setCustomers === "function") {
         const expirationDate = new Date();

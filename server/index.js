@@ -124,7 +124,8 @@ const normalizeProduct = (p) => {
     vip_price_3x: vipPrice3xVal == null ? null : Number(vipPrice3xVal),
     imageUrl: imageUrlVal,
     image_url: imageUrlVal,
-    stocks: json(p.stocks, {})
+    stocks: json(p.stocks, {}),
+    variations: json(p.variations, [])
   };
 };
 
@@ -334,10 +335,10 @@ async function saveProduct(req, res) {
     const imageUrlVal = p.imageUrl !== undefined ? p.imageUrl : (p.image_url !== undefined ? p.image_url : null);
 
     await pool.query(`
-      INSERT INTO products(id, user_id, name, category, barcode, code, cost, price, imposto, frete, vip_price, vip_price_3x, description, control_stock, image_url, stocks) 
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) 
+      INSERT INTO products(id, user_id, name, category, barcode, code, cost, price, imposto, frete, vip_price, vip_price_3x, description, control_stock, image_url, stocks, variations) 
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) 
       ON CONFLICT(id, user_id) DO UPDATE SET 
-        name=$3, category=$4, barcode=$5, code=$6, cost=$7, price=$8, imposto=$9, frete=$10, vip_price=$11, vip_price_3x=$12, description=$13, control_stock=$14, image_url=$15, stocks=$16
+        name=$3, category=$4, barcode=$5, code=$6, cost=$7, price=$8, imposto=$9, frete=$10, vip_price=$11, vip_price_3x=$12, description=$13, control_stock=$14, image_url=$15, stocks=$16, variations=$17
     `, [
       id,
       req.user.id,
@@ -354,7 +355,8 @@ async function saveProduct(req, res) {
       p.description || null,
       Boolean(controlStockVal),
       imageUrlVal,
-      JSON.stringify(p.stocks || {})
+      JSON.stringify(p.stocks || {}),
+      JSON.stringify(p.variations || [])
     ]);
 
     const r = await pool.query('SELECT * FROM products WHERE id=$1 AND user_id=$2', [id, req.user.id]);
@@ -397,9 +399,43 @@ app.post('/api/sales',authMiddleware,async(req,res)=>{
       );
     }
 
-    for(const item of items){const pid=item.productId||item.id||item.product_id;const qty=Number(item.quantity||item.qty||1);if(!pid||qty<=0)continue;const pr=await client.query('SELECT id,stocks,control_stock FROM products WHERE id=$1 AND user_id=$2 FOR UPDATE',[pid,req.user.id]);if(!pr.rows[0]||!pr.rows[0].control_stock)continue;const stocks=json(pr.rows[0].stocks,{});const loc=item.stockLocation||item.stock_location||Object.keys(stocks)[0];if(loc){stocks[loc]=Math.max(0,Number(stocks[loc]||0)-qty);await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3',[JSON.stringify(stocks),pid,req.user.id]);}}
+    for(const item of items){
+      const pid = item.productId || item.id || item.product_id;
+      const qty = Number(item.quantity || item.qty || 1);
+      const variationName = item.variationName || item.variation; // Sabor escolhido
+      if(!pid || qty <= 0) continue;
+
+      const pr = await client.query('SELECT id, stocks, variations, control_stock FROM products WHERE id=$1 AND user_id=$2 FOR UPDATE', [pid, req.user.id]);
+      if(!pr.rows[0] || !pr.rows[0].control_stock) continue;
+
+      let stocks = json(pr.rows[0].stocks, {});
+      let variations = json(pr.rows[0].variations, []);
+      const loc = item.stockLocation || item.stock_location || Object.keys(stocks)[0];
+
+      if (variationName && variations.length > 0) {
+        // Se o produto usa variações, abate na variação específica
+        variations = variations.map(v => {
+          if (v.name === variationName && loc) {
+            const currentVarStock = Number(v.stocks?.[loc] || 0);
+            v.stocks = { ...v.stocks, [loc]: Math.max(0, currentVarStock - qty) };
+          }
+          return v;
+        });
+        await client.query('UPDATE products SET variations=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(variations), pid, req.user.id]);
+      } else if(loc) {
+        // Comportamento normal se não usar variação
+        stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
+        await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(stocks), pid, req.user.id]);
+      }
+    }
     await client.query('COMMIT');res.status(201).json({success:true,saleId:id,customerPhone,earnedCashback:cashback});
-  } catch(e){await client.query('ROLLBACK');console.error('[SALE]',e);res.status(500).json({error:'Erro ao registrar venda.'});}finally{client.release();id}
+  } catch(e){
+    await client.query('ROLLBACK');
+    console.error('[SALE]',e);
+    res.status(500).json({error:'Erro ao registrar venda.'});
+  } finally {
+    client.release();
+  }
 });
 
 // ---------- Sellers / Vendedores ----------
@@ -462,7 +498,7 @@ app.get('/api/fiados',authMiddleware,async(req,res)=>{const r=await pool.query('
 app.post('/api/fiados',authMiddleware,async(req,res)=>{const f=req.body||{},id=f.id||`fiado_${crypto.randomUUID()}`;let phone=f.customerPhone||f.customer_phone||null;if(f.customerId||f.customer_id){const c=await pool.query('SELECT phone FROM customers WHERE id=$1 AND user_id=$2',[f.customerId||f.customer_id,req.user.id]);phone=c.rows[0]?.phone||phone;}await pool.query(`INSERT INTO fiados(id,user_id,customer_id,customer_name,customer_phone,products,origin,installments) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id,user_id) DO UPDATE SET customer_id=$3,customer_name=$4,customer_phone=$5,products=$6,origin=$7,installments=$8`,[id,req.user.id,f.customerId||f.customer_id||null,f.customerName||f.customer_name||'Cliente',phone,typeof f.products==='string'?f.products:JSON.stringify(f.products||[]),f.origin||'manual',JSON.stringify(f.installments||[])]);res.status(201).json({success:true,id});});
 app.delete('/api/fiados/:id',authMiddleware,async(req,res)=>{await pool.query('DELETE FROM fiados WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]);res.json({success:true});});
 
-// ---------- PDV / cashback ----------
+// ---------- PDV / cashback (Rotas Unificadas) ----------
 const defaultPdv = {
   messageTemplate: 'Olá {nome}, você realizou uma compra e ganhou R$ {cashback} de cashback!',
   reminderDays1: 1,
@@ -473,44 +509,18 @@ const defaultPdv = {
   activeReminderButton: false
 };
 
-app.get('/api/pdv/config', authMiddleware, async (req, res) => {
+const handleGetConfig = async (req, res) => {
   const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
   const c = { ...defaultPdv, ...json(r.rows[0]?.pdv_config, {}) };
   res.json({
     ...c,
     cashbackPercentage: Number(c.cashbackPercentage ?? 3),
-    cashbackValidityDays: Number(c.cashbackValidityDays ?? 30)
-  });
-});
-
-app.post('/api/pdv/config', authMiddleware, async (req, res) => {
-  const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
-  const currentConfig = json(r.rows[0]?.pdv_config, {});
-  const updatedConfig = {
-    ...defaultPdv,
-    ...currentConfig,
-    ...req.body,
-    cashbackPercentage: Number(req.body.cashbackPercentage ?? currentConfig.cashbackPercentage ?? defaultPdv.cashbackPercentage),
-    cashbackValidityDays: Number(req.body.cashbackValidityDays ?? currentConfig.cashbackValidityDays ?? defaultPdv.cashbackValidityDays)
-  };
-  await pool.query(
-    `INSERT INTO user_pdv_configs(user_id,pdv_config) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET pdv_config=$2`,
-    [req.user.id, JSON.stringify(updatedConfig)]
-  );
-  res.json({ success: true });
-});
-
-app.get('/api/cashback-config', authMiddleware, async (req, res) => {
-  const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
-  const c = { ...defaultPdv, ...json(r.rows[0]?.pdv_config, {}) };
-  res.json({
-    cashbackPercentage: Number(c.cashbackPercentage ?? 3),
     cashbackValidityDays: Number(c.cashbackValidityDays ?? 30),
     cashbackMessage: c.cashbackMessage || c.messageTemplate || defaultPdv.messageTemplate
   });
-});
+};
 
-app.put('/api/cashback-config', authMiddleware, async (req, res) => {
+const handleSaveConfig = async (req, res) => {
   const r = await pool.query('SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1', [req.user.id]);
   const currentConfig = json(r.rows[0]?.pdv_config, {});
   
@@ -520,7 +530,8 @@ app.put('/api/cashback-config', authMiddleware, async (req, res) => {
     ...req.body,
     cashbackPercentage: Number(req.body.cashbackPercentage ?? currentConfig.cashbackPercentage ?? defaultPdv.cashbackPercentage),
     cashbackValidityDays: Number(req.body.cashbackValidityDays ?? currentConfig.cashbackValidityDays ?? defaultPdv.cashbackValidityDays),
-    cashbackMessage: req.body.cashbackMessage || req.body.messageTemplate || currentConfig.cashbackMessage || currentConfig.messageTemplate || defaultPdv.messageTemplate
+    cashbackMessage: req.body.cashbackMessage || req.body.messageTemplate || currentConfig.cashbackMessage || currentConfig.messageTemplate || defaultPdv.messageTemplate,
+    messageTemplate: req.body.messageTemplate || req.body.cashbackMessage || currentConfig.messageTemplate || currentConfig.cashbackMessage || defaultPdv.messageTemplate
   };
 
   await pool.query(
@@ -528,7 +539,15 @@ app.put('/api/cashback-config', authMiddleware, async (req, res) => {
     [req.user.id, JSON.stringify(updatedConfig)]
   );
   res.json({ success: true });
-});
+};
+
+app.get('/api/pdv/config', authMiddleware, handleGetConfig);
+app.post('/api/pdv/config', authMiddleware, handleSaveConfig);
+app.put('/api/pdv/config', authMiddleware, handleSaveConfig);
+
+app.get('/api/cashback-config', authMiddleware, handleGetConfig);
+app.post('/api/cashback-config', authMiddleware, handleSaveConfig);
+app.put('/api/cashback-config', authMiddleware, handleSaveConfig);
 
 // ---------- Pre-treino ----------
 app.get('/api/pre-treino/products', authMiddleware, async (req, res) => {
