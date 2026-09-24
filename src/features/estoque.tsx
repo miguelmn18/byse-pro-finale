@@ -160,6 +160,14 @@ export function Estoque({
   const saveProduct = async () => {
     if (!form.name || !form.price) return;
     
+    const validatedVariations = (form.variations || []).map(v => ({
+      id: v.id || `var_${Date.now()}_${Math.random()}`,
+      name: (v.name || "").trim() || "Padrão",
+      stocks: Object.fromEntries(
+        stockLocations.map(l => [l.id, parseInt(v.stocks?.[l.id]) || 0])
+      )
+    }));
+    
     const stocksObj = form.controlStock
       ? Object.fromEntries(
           stockLocations.map((l) => [
@@ -168,14 +176,6 @@ export function Estoque({
           ])
         )
       : {};
-
-    const builtVariations = (form.variations || []).map(v => ({
-      id: v.id || `var_${Date.now()}`,
-      name: v.name || "Padrão",
-      stocks: Object.fromEntries(
-        stockLocations.map(l => [l.id, parseInt(v.stocks?.[l.id]) || 0])
-      )
-    }));
 
     const built = {
       id: editingId || `prod_${Date.now()}`,
@@ -197,7 +197,7 @@ export function Estoque({
       imageUrl: form.imageUrl || null,
       image_url: form.imageUrl || null,
       stocks: stocksObj,
-      variations: builtVariations
+      variations: validatedVariations
     };
 
     try {
@@ -861,7 +861,6 @@ export function Estoque({
                     </div>
                   )}
 
-                  {/* Exibição das subcategorias/variações e somatório automático na tabela */}
                   {pVariations.length > 0 && (
                     <div style={{ fontSize: 11, color: subtext, marginTop: 3, fontWeight: 400 }}>
                       {pVariations.map((v, vIdx) => {
@@ -1115,7 +1114,7 @@ export function Estoque({
                       })}
                     </div>
 
-                    {/* Variações Detalhadas */}
+                    {/* Variações Detalhadas com Quantidades */}
                     {vpVariations.length > 0 && (
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 700, color: subtext, marginBottom: 8 }}>

@@ -30,7 +30,6 @@ export function PDV({
   const STORAGE_KEY = "byse_pdv_persistent_data";
   const TIMEOUT_DURATION = 10 * 60 * 1000; // 10 minutos
 
-  // Função auxiliar para recuperar dados salvos respeitando os 10 minutos
   const getInitialState = (key, defaultValue) => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -67,12 +66,15 @@ export function PDV({
   const [salesChannel, setSalesChannel] = useState("Loja física");
   const [deliveryType, setDeliveryType] = useState("Retirada");
 
+  // Estado para modal/seleção de variação de um produto clicado
+  const [activeProductForVariation, setActiveProductForVariation] = useState(null);
+  const [selectedVariationOption, setSelectedVariationOption] = useState("");
+
   const [cashbackPercent, setCashbackPercent] = useState(3);
   const [cashbackValidityDays, setCashbackValidityDays] = useState(30);
   const [cashbackMessage, setCashbackMessage] = useState('Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁');
   const [activeReminderButton, setActiveReminderButton] = useState(false);
 
-  // Sempre que houver alteração nos dados do PDV, salvamos no localStorage com o timestamp atual
   useEffect(() => {
     const currentState = {
       step,
@@ -85,7 +87,6 @@ export function PDV({
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState));
   }, [step, phoneQuery, foundCustomer, selectedCustomer, cart, discount]);
-  // ==========================================
 
   useEffect(() => {
     fetchUserSettings();
@@ -276,16 +277,46 @@ export function PDV({
     setDiscount(0);
   };
 
-  const addToCart = (prod) => {
+  // Função disparada ao clicar no produto na grade
+  const handleProductClick = (prod) => {
+    const variationsList = prod.variations || prod.options || prod.variationList || [];
+    if (Array.isArray(variationsList) && variationsList.length > 0) {
+      setActiveProductForVariation(prod);
+      const firstOpt = typeof variationsList[0] === 'string' ? variationsList[0] : (variationsList[0].name || "");
+      setSelectedVariationOption(firstOpt.trim());
+    } else {
+      // Se não tem variações cadastradas, adiciona direto
+      addToCartWithVariation(prod, "");
+    }
+  };
+
+  const addToCartWithVariation = (prod, chosenVariation) => {
+    const cleanVariation = (chosenVariation || "").trim();
+
     setCart((prev) => {
-      const exists = prev.find((item) => String(item.id) === String(prod.id));
-      if (exists) {
-        return prev.map((item) =>
-          String(item.id) === String(prod.id) ? { ...item, qty: item.qty + 1 } : item
+      // Verifica se já existe o mesmo produto E com a mesma variação no carrinho (comparando strings limpas)
+      const existsIndex = prev.findIndex(
+        (item) => String(item.id) === String(prod.id) && (item.variationName || item.variation || "").trim() === cleanVariation
+      );
+
+      if (existsIndex > -1) {
+        return prev.map((item, idx) =>
+          idx === existsIndex ? { ...item, qty: item.qty + 1 } : item
         );
       }
-      return [...prev, { ...prod, qty: 1 }];
+
+      return [
+        ...prev,
+        {
+          ...prod,
+          qty: 1,
+          variationName: cleanVariation,
+          variation: cleanVariation
+        }
+      ];
     });
+    setActiveProductForVariation(null);
+    setSelectedVariationOption("");
   };
 
   const filteredProducts = products.filter((p) => {
@@ -327,15 +358,20 @@ export function PDV({
     const currentLocObj = availableStockLocations.find(l => l.id === selectedStockLoc);
     const localName = currentLocObj ? currentLocObj.name : "Estoque Principal";
 
-    const formattedItems = cart.map(item => ({
-      ...item,
-      productId: item.id,
-      price: Number(item.price || 0),
-      qty: Number(item.qty || 1),
-      quantity: Number(item.qty || 1),
-      local: localName,
-      location: localName
-    }));
+    const formattedItems = cart.map(item => {
+      const varName = (item.variationName || item.variation || "").trim();
+      return {
+        ...item,
+        productId: item.id,
+        price: Number(item.price || 0),
+        qty: Number(item.qty || 1),
+        quantity: Number(item.qty || 1),
+        local: localName,
+        location: localName,
+        variationName: varName,
+        variation: varName
+      };
+    });
 
     const cashbackEarnedVal = earnedCashbackCalc;
     
@@ -396,14 +432,16 @@ export function PDV({
 
       if (typeof setProducts === "function" && products.length > 0) {
         const updatedProducts = products.map((prod) => {
-          const foundItem = cart.find((i) => String(i.id) === String(prod.id));
-          if (!foundItem) return prod;
+          const cartItemsForThisProd = cart.filter((i) => String(i.id) === String(prod.id));
+          if (cartItemsForThisProd.length === 0) return prod;
 
           const isControlled = prod.control_stock ?? prod.controlStock ?? true;
           if (!isControlled) return prod;
 
-          const newStocks = { ...(prod.stocks || {}) };
-          
+          let newStocks = { ...(prod.stocks || {}) };
+          let newVariations = prod.variations ? JSON.parse(JSON.stringify(prod.variations)) : null;
+          let newStockTotal = Number(prod.stock ?? 0);
+
           let chaveAlvo = null;
           if (selectedStockLoc && newStocks[selectedStockLoc] !== undefined) {
             chaveAlvo = selectedStockLoc;
@@ -418,15 +456,41 @@ export function PDV({
             chaveAlvo = chavesExistentes.length > 0 ? chavesExistentes[0] : 'Estoque Principal';
           }
 
-          const currentQty = Number(newStocks[chaveAlvo] ?? prod.stock ?? 0);
-          const newQty = Math.max(0, currentQty - foundItem.qty);
-          newStocks[chaveAlvo] = newQty;
+          cartItemsForThisProd.forEach((foundItem) => {
+            const varName = (foundItem.variationName || foundItem.variation || "").trim();
 
-          return {
+            if (newVariations && Array.isArray(newVariations) && newVariations.length > 0) {
+              newVariations = newVariations.map((v) => {
+                const vName = (typeof v === 'string' ? v : (v.name || "")).trim();
+                if (vName === varName) {
+                  if (typeof v === 'string') {
+                    return v;
+                  }
+                  const currentVarStock = Number(v.stock ?? v.qty ?? 0);
+                  const updatedVarStock = Math.max(0, currentVarStock - foundItem.qty);
+                  return { ...v, stock: updatedVarStock };
+                }
+                return v;
+              });
+            }
+
+            const currentQty = Number(newStocks[chaveAlvo] ?? newStockTotal);
+            const newQty = Math.max(0, currentQty - foundItem.qty);
+            newStocks[chaveAlvo] = newQty;
+            newStockTotal = newQty;
+          });
+
+          const updatedProdObj = {
             ...prod,
-            stock: newQty,
+            stock: newStockTotal,
             stocks: newStocks
           };
+
+          if (newVariations) {
+            updatedProdObj.variations = newVariations;
+          }
+
+          return updatedProdObj;
         });
 
         setProducts(updatedProducts);
@@ -467,7 +531,6 @@ export function PDV({
 
   return (
     <div style={{ padding: device === "desktop" ? 20 : 10 }}>
-      {/* Estilo CSS dedicado para impressão térmica em bobina de PDV */}
       <style>{`
         @media print {
           @page {
@@ -497,7 +560,95 @@ export function PDV({
         }
       `}</style>
 
-      {/* Bloco HTML invisível na tela normal, mas ativado e populado dinamicamente no print */}
+      {/* Modal de seleção de Variações (Sabor/Cor/etc) */}
+      {activeProductForVariation && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: 16
+        }}>
+          <div style={{
+            background: card,
+            border: `1px solid ${border}`,
+            borderRadius: 14,
+            padding: 24,
+            width: "100%",
+            maxWidth: 400,
+            boxShadow: "0 10px 25px rgba(0,0,0,0.3)"
+          }}>
+            <h3 style={{ color: text, margin: "0 0 8px 0", fontSize: 18 }}>Escolha a Variação</h3>
+            <p style={{ color: subtext, fontSize: 13, marginBottom: 16 }}>
+              Produto: <strong>{activeProductForVariation.name}</strong>
+            </p>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={lbl(subtext)}>Selecione a opção desejada (ex: Chocolate, Morango):</label>
+              <select
+                value={selectedVariationOption}
+                onChange={(e) => setSelectedVariationOption(e.target.value)}
+                style={{
+                  ...inputStyle(border, text),
+                  backgroundColor: card,
+                  color: text,
+                  width: "100%",
+                  marginTop: 6
+                }}
+              >
+                {(activeProductForVariation.variations || activeProductForVariation.options || activeProductForVariation.variationList || []).map((opt, idx) => {
+                  const optName = (typeof opt === 'string' ? opt : (opt.name || String(opt))).trim();
+                  return (
+                    <option key={idx} value={optName} style={{ backgroundColor: card, color: text }}>
+                      {optName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setActiveProductForVariation(null)}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  color: text,
+                  border: `1px solid ${border}`,
+                  padding: 10,
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => addToCartWithVariation(activeProductForVariation, selectedVariationOption)}
+                style={{
+                  flex: 1,
+                  background: accent,
+                  color: "#fff",
+                  border: "none",
+                  padding: 10,
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+              >
+                Adicionar ao Carrinho
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div id="printable-receipt" style={{ display: "none" }}>
         <div style={{ textAlign: "center", fontWeight: "bold", fontSize: 12, marginBottom: 6 }}>BYSE PRO — COMPROVANTE</div>
         <div style={{ borderBottom: "1px dashed #000", margin: "4px 0" }}></div>
@@ -510,7 +661,7 @@ export function PDV({
         <div style={{ fontWeight: "bold" }}>ITENS DA COMPRA:</div>
         {lastCompletedSale && lastCompletedSale.items && lastCompletedSale.items.map((i, index) => (
           <div key={index} style={{ display: "flex", justifyContent: "space-between", margin: "2px 0" }}>
-            <span>{i.qty}x {i.name}</span>
+            <span>{i.qty}x {i.name} {i.variationName ? `(${i.variationName})` : ""}</span>
             <span>{(Number(i.price) * i.qty).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
           </div>
         ))}
@@ -974,7 +1125,7 @@ export function PDV({
                 filteredProducts.map((prod) => (
                   <div
                     key={prod.id}
-                    onClick={() => addToCart(prod)}
+                    onClick={() => handleProductClick(prod)}
                     style={{
                       background: card,
                       border: `1px solid ${border}`,
@@ -1071,7 +1222,7 @@ export function PDV({
                     }}
                   >
                     <span>
-                      {item.qty}x {item.name}
+                      {item.qty}x {item.name} {item.variationName ? <strong style={{ color: accent }}>({item.variationName})</strong> : ""}
                     </span>
                     <span style={{ fontWeight: 500 }}>
                       {((Number(item.price) || 0) * item.qty).toLocaleString("pt-BR", {

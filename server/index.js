@@ -333,6 +333,9 @@ async function saveProduct(req, res) {
     const vipPriceVal = p.vipPrice !== undefined ? p.vipPrice : (p.vip_price !== undefined ? p.vip_price : null);
     const vipPrice3xVal = p.vipPrice3x !== undefined ? p.vipPrice3x : (p.vip_price_3x !== undefined ? p.vip_price_3x : null);
     const imageUrlVal = p.imageUrl !== undefined ? p.imageUrl : (p.image_url !== undefined ? p.image_url : null);
+    
+    // Garante o mapeamento completo e seguro do JSON de variations recebido do frontend
+    const variationsArray = Array.isArray(p.variations) ? p.variations : [];
 
     await pool.query(`
       INSERT INTO products(id, user_id, name, category, barcode, code, cost, price, imposto, frete, vip_price, vip_price_3x, description, control_stock, image_url, stocks, variations) 
@@ -356,7 +359,7 @@ async function saveProduct(req, res) {
       Boolean(controlStockVal),
       imageUrlVal,
       JSON.stringify(p.stocks || {}),
-      JSON.stringify(p.variations || [])
+      JSON.stringify(variationsArray)
     ]);
 
     const r = await pool.query('SELECT * FROM products WHERE id=$1 AND user_id=$2', [id, req.user.id]);
@@ -383,9 +386,27 @@ app.post('/api/locais',authMiddleware,async(req,res)=>{const {id,name}=req.body|
 app.get('/api/sales',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC',[req.user.id]);res.json(r.rows.map(s=>({...s,customerId:s.customer_id,customerName:s.customer_name,customerPhone:s.customer_phone,total:Number(s.total||0),subtotal:Number(s.subtotal||0),discount:Number(s.discount||0),cashbackEarned:Number(s.cashback_earned||s.earned_cashback||0),items:json(s.items,[])})));});
 app.post('/api/sales',authMiddleware,async(req,res)=>{
   const client=await pool.connect();
-  try { await client.query('BEGIN'); const s=req.body||{}, id=s.id||`sale_${crypto.randomUUID()}`; const customerId=s.customerId||s.customer_id||null; let customerPhone=s.customerPhone||s.customer_phone||null; let customerName=s.customerName||s.customer_name||'Cliente Geral';
-    if(customerId){const cr=await client.query('SELECT name,phone FROM customers WHERE id=$1 AND user_id=$2',[customerId,req.user.id]);if(cr.rows[0]){customerName=cr.rows[0].name;customerPhone=cr.rows[0].phone;}}
-    const items=Array.isArray(s.items)?s.items:[]; const subtotal=Number(s.subtotal??s.total??0); const total=Number(s.total??0); const cashback=Number(s.cashbackEarned??s.earned_cashback??0);
+  try { 
+    await client.query('BEGIN'); 
+    const s=req.body||{}; 
+    const id=s.id||`sale_${crypto.randomUUID()}`; 
+    const customerId=s.customerId||s.customer_id||null; 
+    let customerPhone=s.customerPhone||s.customer_phone||null; 
+    let customerName=s.customerName||s.customer_name||'Cliente Geral';
+
+    if(customerId){
+      const cr=await client.query('SELECT name,phone FROM customers WHERE id=$1 AND user_id=$2',[customerId,req.user.id]);
+      if(cr.rows[0]){
+        customerName=cr.rows[0].name;
+        customerPhone=cr.rows[0].phone;
+      }
+    }
+
+    const items=Array.isArray(s.items)?s.items:[]; 
+    const subtotal=Number(s.subtotal??s.total??0); 
+    const total=Number(s.total??0); 
+    const cashback=Number(s.cashbackEarned??s.earned_cashback??0);
+
     await client.query(`INSERT INTO sales(id,user_id,customer_id,customer_name,customer_phone,seller,payment_method,discount,subtotal,total,cashback_earned,earned_cashback,gender,sales_channel,delivery_type,items,date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16) ON CONFLICT(id,user_id) DO UPDATE SET customer_id=$3,customer_name=$4,customer_phone=$5,seller=$6,payment_method=$7,discount=$8,subtotal=$9,total=$10,cashback_earned=$11,earned_cashback=$11,gender=$12,sales_channel=$13,delivery_type=$14,items=$15,date=$16`,[id,req.user.id,customerId,customerName,customerPhone,s.seller||null,s.paymentMethod||s.payment_method||'Pix',Number(s.discount||0),subtotal,total,cashback,s.gender||'Prefiro não informar',s.salesChannel||s.sales_channel||'Loja física',s.deliveryType||s.delivery_type||'Retirada',JSON.stringify(items),s.date||new Date().toISOString()]);
     
     if(customerId && cashback>0) {
@@ -399,11 +420,24 @@ app.post('/api/sales',authMiddleware,async(req,res)=>{
       );
     }
 
-    for(const item of items){
+    // Consolida os itens por ID e Variação para evitar duplicidade no loop de estoque
+    const consolidatedItems = {};
+    for (const item of items) {
       const pid = item.productId || item.id || item.product_id;
+      const variationName = String(item.variationName || item.variation || "").trim();
       const qty = Number(item.quantity || item.qty || 1);
-      const variationName = item.variationName || item.variation; // Sabor escolhido
-      if(!pid || qty <= 0) continue;
+      
+      const key = `${pid}_${variationName}`;
+      if (consolidatedItems[key]) {
+        consolidatedItems[key].qty += qty;
+      } else {
+        consolidatedItems[key] = { pid, variationName, qty, item };
+      }
+    }
+
+    for (const key in consolidatedItems) {
+      const { pid, variationName, qty, item } = consolidatedItems[key];
+      if (!pid || qty <= 0) continue;
 
       const pr = await client.query('SELECT id, stocks, variations, control_stock FROM products WHERE id=$1 AND user_id=$2 FOR UPDATE', [pid, req.user.id]);
       if(!pr.rows[0] || !pr.rows[0].control_stock) continue;
@@ -413,22 +447,30 @@ app.post('/api/sales',authMiddleware,async(req,res)=>{
       const loc = item.stockLocation || item.stock_location || Object.keys(stocks)[0];
 
       if (variationName && variations.length > 0) {
-        // Se o produto usa variações, abate na variação específica
+        let variationUpdated = false;
         variations = variations.map(v => {
-          if (v.name === variationName && loc) {
+          const vName = typeof v === 'string' ? v.trim() : (v.name || "").trim();
+          if (vName === variationName && loc) {
             const currentVarStock = Number(v.stocks?.[loc] || 0);
             v.stocks = { ...v.stocks, [loc]: Math.max(0, currentVarStock - qty) };
+            variationUpdated = true;
           }
           return v;
         });
-        await client.query('UPDATE products SET variations=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(variations), pid, req.user.id]);
+
+        if (!variationUpdated && loc) {
+          stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
+        }
+
+        await client.query('UPDATE products SET variations=$1, stocks=$2 WHERE id=$3 AND user_id=$4', [JSON.stringify(variations), JSON.stringify(stocks), pid, req.user.id]);
       } else if(loc) {
-        // Comportamento normal se não usar variação
         stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
         await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(stocks), pid, req.user.id]);
       }
     }
-    await client.query('COMMIT');res.status(201).json({success:true,saleId:id,customerPhone,earnedCashback:cashback});
+
+    await client.query('COMMIT');
+    res.status(201).json({success:true,saleId:id,customerPhone,earnedCashback:cashback});
   } catch(e){
     await client.query('ROLLBACK');
     console.error('[SALE]',e);
