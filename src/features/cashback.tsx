@@ -172,12 +172,13 @@ function Cashback({
   const [validityFilterDays, setValidityFilterDays] = useState("30");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
+  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
   useEffect(() => {
     if (!cashbackValidityDays) {
       setCashbackValidityDays(30);
     }
 
-    fetch('/api/cashback-config', {
+    fetch('/api/pdv/config', {
       headers: { 'Authorization': 'Bearer ' + localStorage.getItem('byse_token') }
     })
       .then(res => res.json())
@@ -199,7 +200,7 @@ function Cashback({
   const saveConfigToBackend = async () => {
     setIsSavingConfig(true);
     try {
-      await fetch('/api/cashback-config', {
+      await fetch('/api/pdv/config', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
