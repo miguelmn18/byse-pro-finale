@@ -101,6 +101,10 @@ export function PDV({
       const res = await fetch(`${API_URL}/api/pdv/config`, { headers });
       if (res.ok) {
         const data = await res.json();
+        
+        const fetchedPct = data.cashbackPercentage !== undefined && data.cashbackPercentage !== null ? Number(data.cashbackPercentage) : 3;
+        setCashbackPercent(fetchedPct);
+
         if (data.cashbackPercentage !== undefined) setCashbackPercent(Number(data.cashbackPercentage));
         if (data.cashbackValidityDays !== undefined) setCashbackValidityDays(Number(data.cashbackValidityDays));
         if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
