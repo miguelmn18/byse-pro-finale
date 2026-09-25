@@ -18,7 +18,7 @@ import {
   RefreshCw,
   QrCode
 } from "lucide-react";
-import { FONT_BODY, SUCCESS } from "../data/constants";
+import { FONT_BODY, SUCCESS, DANGER } from "../data/constants";
 import { inputStyle } from "../utils/helpers";
 import { SectionTitle, Pill, SLabel } from "../components/common";
 
@@ -62,6 +62,7 @@ function WhatsApp({
   const cleanApiUrl = API_URL.replace(/\/+$/, "");
 
   const [localCustomers, setLocalCustomers] = useState(customers);
+  const [sales, setSales] = useState([]); // Estado para armazenar as vendas e calcular os dias sem comprar
   const [sendingNowId, setSendingNowId] = useState(null);
   const [sendStatusMessage, setSendStatusMessage] = useState(null);
 
@@ -120,6 +121,16 @@ function WhatsApp({
           }
         }
 
+        // Busca as vendas para permitir o cálculo dos dias sem comprar de cada cliente
+        const resSales = await fetch(`${cleanApiUrl}/api/sales`, { headers });
+        const contentTypeSales = resSales.headers.get("content-type");
+        if (resSales.ok && contentTypeSales && contentTypeSales.includes("application/json")) {
+          const salesData = await resSales.json();
+          if (Array.isArray(salesData)) {
+            setSales(salesData);
+          }
+        }
+
         const response = await fetch(`${cleanApiUrl}/api/whatsapp`, { headers });
         const contentTypeWa = response.headers.get("content-type");
         if (response.ok && contentTypeWa && contentTypeWa.includes("application/json")) {
@@ -141,6 +152,22 @@ function WhatsApp({
     const interval = setInterval(checkWhatsAppStatus, 5000);
     return () => clearInterval(interval);
   }, [setWaSchedule, cleanApiUrl]);
+
+  // Função auxiliar para calcular os dias desde a última compra (idêntica à utilizada em Clientes)
+  const daysSince = (customer) => {
+    const custSales = sales.filter((s) => 
+      s.customer === customer.id || 
+      s.customer === customer.name || 
+      s.customer_id === customer.id ||
+      s.customerId === customer.id
+    );
+    if (custSales.length === 0) return null;
+    const last = custSales.reduce(
+      (max, s) => (new Date(s.date) > max ? new Date(s.date) : max),
+      new Date(0)
+    );
+    return Math.floor((Date.now() - last.getTime()) / 86400000);
+  };
 
   const fetchQrCode = async () => {
     setLoadingQr(true);
@@ -300,6 +327,7 @@ function WhatsApp({
   const [editSendToAll, setEditSendToAll] = useState(true);
   const [editCustomerIds, setEditCustomerIds] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [daysFilter, setDaysFilter] = useState("all"); // Novo estado para o filtro de dias sem comprar
 
   const getUsedDays = (currentId) =>
     normalizedSchedule
@@ -322,6 +350,7 @@ function WhatsApp({
     setEditSendToAll(schedule.sendToAll !== false);
     setEditCustomerIds(Array.isArray(schedule.customerIds) ? [...schedule.customerIds] : []);
     setCustomerSearch("");
+    setDaysFilter("all");
   };
 
   const cancelEdit = () => {
@@ -332,6 +361,7 @@ function WhatsApp({
     setEditSendToAll(true);
     setEditCustomerIds([]);
     setCustomerSearch("");
+    setDaysFilter("all");
   };
 
   const saveEdit = (id) => {
@@ -386,15 +416,42 @@ function WhatsApp({
     );
   };
 
+  // Botão para selecionar todos os clientes atualmente filtrados
+  const handleSelectFiltered = () => {
+    const filteredIds = filteredCustomers.map(c => c.id);
+    const allSelected = filteredIds.every(id => editCustomerIds.includes(id));
+    
+    if (allSelected) {
+      // Remove os filtrados da seleção
+      setEditCustomerIds(current => current.filter(id => !filteredIds.includes(id)));
+    } else {
+      // Adiciona os filtrados que ainda não estão selecionados
+      setEditCustomerIds(current => Array.from(new Set([...current, ...filteredIds])));
+    }
+  };
+
   const filteredCustomers = useMemo(() => {
     const search = customerSearch.toLowerCase().trim();
-    if (!search) return localCustomers;
+    
     return localCustomers.filter((c) => {
+      // Filtro de texto (nome ou telefone)
       const name = String(c.name || "").toLowerCase();
       const phone = String(c.phone || "").toLowerCase();
-      return name.includes(search) || phone.includes(search);
+      const matchesSearch = !search || name.includes(search) || phone.includes(search);
+      
+      if (!matchesSearch) return false;
+
+      // Filtro de dias sem comprar
+      if (daysFilter === "all") return true;
+      
+      const d = daysSince(c);
+      if (d === null) return false; // Se nunca comprou, não entra nos filtros baseados em dias transcorridos
+
+      const daysNum = parseInt(daysFilter, 10);
+      // Aqui consideramos clientes cuja última compra ocorreu exatamente ou até dentro do período selecionado (ex: últimos 3 dias, últimos 15 dias, etc.)
+      return d <= daysNum;
     });
-  }, [localCustomers, customerSearch]);
+  }, [localCustomers, customerSearch, daysFilter, sales]);
 
   const getDaysLabel = (days) => {
     if (!Array.isArray(days) || days.length === 0) return "Nenhum dia selecionado";
@@ -655,23 +712,55 @@ function WhatsApp({
 
                       {!editSendToAll && (
                         <div style={{ border: `1px solid ${border}`, borderRadius: 8, padding: 10, background: `${card}aa` }}>
-                          <div style={{ position: "relative", marginBottom: 8 }}>
-                            <Search size={14} color={subtext} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
-                            <input
-                              type="text"
-                              placeholder="Buscar cliente por nome ou telefone..."
-                              value={customerSearch}
-                              onChange={(e) => setCustomerSearch(e.target.value)}
-                              style={{ ...inputStyle(border, text), width: "100%", paddingLeft: 30, fontSize: 11.5 }}
-                            />
+                          
+                          {/* Campo de Busca e Filtro por Dias sem Comprar */}
+                          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                            <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
+                              <Search size={14} color={subtext} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+                              <input
+                                type="text"
+                                placeholder="Buscar por nome ou telefone..."
+                                value={customerSearch}
+                                onChange={(e) => setCustomerSearch(e.target.value)}
+                                style={{ ...inputStyle(border, text), width: "100%", paddingLeft: 30, fontSize: 11.5 }}
+                              />
+                            </div>
+
+                            {/* Seletor de filtro por intervalo de dias da última compra */}
+                            <select
+                              value={daysFilter}
+                              onChange={(e) => setDaysFilter(e.target.value)}
+                              style={{ ...inputStyle(border, text), fontSize: 11.5, padding: "6px 10px", width: "auto" }}
+                            >
+                              <option value="all">Todas as compras (Histórico)</option>
+                              <option value="3">Últimos 3 dias</option>
+                              <option value="15">Últimos 15 dias</option>
+                              <option value="30">Últimos 30 dias</option>
+                              <option value="60">Últimos 60 dias</option>
+                              <option value="90">Últimos 90 dias</option>
+                            </select>
                           </div>
 
-                          <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+                          {/* Botão de Atalho para Selecionar os Filtrados */}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 11, color: subtext }}>
+                            <span>Exibindo {filteredCustomers.length} cliente(s)</span>
+                            <button
+                              type="button"
+                              onClick={handleSelectFiltered}
+                              style={{ background: "transparent", border: `1px solid ${border}`, color: accent, borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 10.5, fontWeight: 600 }}
+                            >
+                              Selecionar/Desmarcar filtrados
+                            </button>
+                          </div>
+
+                          <div style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
                             {filteredCustomers.length === 0 ? (
-                              <div style={{ fontSize: 11.5, color: subtext, textAlign: "center", padding: 10 }}>Nenhum cliente encontrado.</div>
+                              <div style={{ fontSize: 11.5, color: subtext, textAlign: "center", padding: 10 }}>Nenhum cliente encontrado para este filtro.</div>
                             ) : (
                               filteredCustomers.map((c) => {
                                 const isSelected = editCustomerIds.includes(c.id);
+                                const days = daysSince(c); // Calcula os dias desde a última compra
+                                
                                 return (
                                   <div
                                     key={c.id}
@@ -687,9 +776,23 @@ function WhatsApp({
                                       fontSize: 11.5
                                     }}
                                   >
-                                    <div>
-                                      <span style={{ fontWeight: 600 }}>{c.name}</span>
-                                      <span style={{ color: subtext, marginLeft: 8 }}>{c.phone || "Sem telefone"}</span>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <span style={{ fontWeight: 600 }}>{c.name}</span>
+                                        <span style={{ color: subtext }}>{c.phone || "Sem telefone"}</span>
+                                      </div>
+                                      {/* Exibe a tag com a quantidade de dias da última compra */}
+                                      <div style={{ fontSize: 10.5 }}>
+                                        {days === null ? (
+                                          <span style={{ color: DANGER, fontWeight: 600 }}>Nunca comprou</span>
+                                        ) : days === 0 ? (
+                                          <span style={{ color: SUCCESS, fontWeight: 600 }}>Comprou hoje</span>
+                                        ) : (
+                                          <span style={{ color: days >= 30 ? DANGER : subtext }}>
+                                            Última compra há {days} dia{days > 1 ? "s" : ""}
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                     <input
                                       type="checkbox"

@@ -74,7 +74,7 @@ const normalizeCustomer = (c) => {
   const createdAtDate = c.created_at ? new Date(c.created_at) : new Date();
   const year = createdAtDate.getFullYear();
   const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
-  const fixedVencimento = `${year}-${month}-01`;
+  const fixedVencimento = `\({year}-\){month}-01`;
   const diasContador = calculateDaysCounter(c.created_at, fixedVencimento);
 
   return {
@@ -225,15 +225,12 @@ app.get('/api/public/catalogo/:userId', async (req, res) => {
     }
   }
 
-  const showAllProducts = isVipQuery || isVipTokenValid;
+  // O modo VIP serve apenas para revelar os preços VIP, e não para filtrar/ocultar produtos.
+  const isVip = isVipQuery || isVipTokenValid;
 
-  let productsQuery = `SELECT * FROM products WHERE user_id = $1`;
+  // Busca todos os produtos ativos por padrão, ordenados por nome, sem filtros agressivos de estoque.
+  let productsQuery = `SELECT * FROM products WHERE user_id = $1 ORDER BY name`;
   const queryParams = [userId];
-
-  if (!showAllProducts) {
-    productsQuery += ` AND (control_stock = false OR stocks IS NULL OR stocks::text = '{}' OR COALESCE((SELECT SUM((value)::numeric) FROM jsonb_each_text(stocks)), 0) > 0)`;
-  }
-  productsQuery += ` ORDER BY name`;
 
   const products = await pool.query(productsQuery, queryParams);
   const state = await pool.query('SELECT state FROM user_app_states WHERE user_id = $1 AND state_key = $2', [userId, 'catalogo']);
@@ -245,7 +242,7 @@ app.get('/api/public/catalogo/:userId', async (req, res) => {
     address: cfg.address || '',
     instagram: cfg.instagram || '',
     bannerUrl: cfg.bannerUrl || '',
-    isVip: showAllProducts,
+    isVip: isVip,
     products: (products.rows || []).map(normalizeProduct),
     vipEnabled: Boolean((await pool.query('SELECT vip_catalog_password_hash FROM users WHERE id = $1', [userId])).rows[0]?.vip_catalog_password_hash)
   });
@@ -265,7 +262,7 @@ app.get('/api/catalogo/config', authMiddleware, async (req,res)=>{
   const r=await pool.query('SELECT vip_catalog_password_hash FROM users WHERE id=$1',[req.user.id]);
   const state=await pool.query('SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',[req.user.id,'catalogo']);
   const cfg=json(state.rows[0]?.state,{});
-  res.json({ ...cfg, vipConfigured:Boolean(r.rows[0]?.vip_catalog_password_hash), publicUrl:`${FRONTEND_URL.replace(/\/$/,'')}/catalogo/${req.user.id}` });
+  res.json({ ...cfg, vipConfigured:Boolean(r.rows[0]?.vip_catalog_password_hash), publicUrl:`\({FRONTEND_URL.replace(/\/\)/,'')}/catalogo/${req.user.id}` });
 });
 app.put('/api/catalogo/config', authMiddleware, async (req,res)=>{
   const { vipPassword, ...cfg }=req.body || {};
@@ -274,7 +271,7 @@ app.put('/api/catalogo/config', authMiddleware, async (req,res)=>{
     if (!String(vipPassword).trim()) await pool.query('UPDATE users SET vip_catalog_password_hash=NULL WHERE id=$1',[req.user.id]);
     else await pool.query('UPDATE users SET vip_catalog_password_hash=$1 WHERE id=$2',[await bcrypt.hash(String(vipPassword),12),req.user.id]);
   }
-  res.json({success:true, publicUrl:`${FRONTEND_URL.replace(/\/$/,'')}/catalogo/${req.user.id}`});
+  res.json({success:true, publicUrl:`\({FRONTEND_URL.replace(/\/\)/,'')}/catalogo/${req.user.id}`});
 });
 
 // ---------- Customers ----------
@@ -297,7 +294,7 @@ async function saveCustomer(req, res){
     const currentDate = new Date();
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const fixedVencimento = `${year}-${month}-01`;
+    const fixedVencimento = `\({year}-\){month}-01`;
 
     await pool.query(`INSERT INTO customers(id,user_id,name,phone,cpf,data_aniversario,cashback,cashback_expiration_date,cashback_expiry,cashback_lost,status,whatsapp_opt_in,reminders_enabled,status_mensalidade,data_vencimento,valor_mensalidade,pre_treino_tipo,pre_treino_inicio,pre_treino_fim,pre_treino_valor_avulso) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(id,user_id) DO UPDATE SET name=$3,phone=$4,cpf=$5,data_aniversario=$6,cashback=$7,cashback_expiration_date=$8,cashback_expiry=$8,cashback_lost=$9,status=$10,whatsapp_opt_in=$11,reminders_enabled=$12,status_mensalidade=$13,data_vencimento=$14,valor_mensalidade=$15,pre_treino_tipo=$16,pre_treino_inicio=$17,pre_treino_fim=$18,pre_treino_valor_avulso=$19`,[
       id, req.user.id, name, phone, c.cpf || null, c.birthDate || c.data_aniversario || null, Number(c.cashback || 0), cashbackExp, Number(c.cashbackLost || c.cashback_lost || 0), c.status || 'Ativo', c.whatsappOptIn ? 1 : Number(c.whatsapp_opt_in || 0), c.remindersEnabled === false ? 0 : 1, c.statusMensalidade || c.status_mensalidade || 'Pendente (Não Pago)', fixedVencimento, Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0), c.preTreinoTipo || c.pre_treino_tipo || 'avulso', c.preTreinoInicio || c.pre_treino_inicio || null, c.preTreinoFim || c.pre_treino_fim || fixedVencimento, Number(c.preTreinoValorAvulso ?? c.pre_treino_valor_avulso ?? 0)
@@ -334,7 +331,6 @@ async function saveProduct(req, res) {
     const vipPrice3xVal = p.vipPrice3x !== undefined ? p.vipPrice3x : (p.vip_price_3x !== undefined ? p.vip_price_3x : null);
     const imageUrlVal = p.imageUrl !== undefined ? p.imageUrl : (p.image_url !== undefined ? p.image_url : null);
     
-    // Garante o mapeamento completo e seguro do JSON de variations recebido do frontend
     const variationsArray = Array.isArray(p.variations) ? p.variations : [];
 
     await pool.query(`
@@ -379,17 +375,33 @@ app.put('/api/produtos/:id', authMiddleware, saveProduct);
 app.delete('/api/products/:id', authMiddleware, async(req,res)=>{ await pool.query('DELETE FROM products WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]); res.json({success:true}); });
 app.delete('/api/produtos/:id', authMiddleware, async(req,res)=>{ await pool.query('DELETE FROM products WHERE id=$1 AND user_id=$2',[req.params.id,req.user.id]); res.json({success:true}); });
 
-app.get('/api/locais',authMiddleware,async(req,res)=>{let r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',[req.user.id]); if(!r.rows.length){const id=`loc_${req.user.id}`;await pool.query('INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[id,req.user.id,'Loja Física']);r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1',[req.user.id]);}res.json(r.rows);});
-app.post('/api/locais',authMiddleware,async(req,res)=>{const {id,name}=req.body||{};if(!name)return res.status(400).json({error:'Nome obrigatório.'});if(id)await pool.query('UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3',[name,id,req.user.id]);else await pool.query('INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3)',[`loc_${crypto.randomUUID()}`,req.user.id,name]);const r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',[req.user.id]);res.json(r.rows);});
+app.get('/api/locais',authMiddleware,async(req,res)=>{let r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=\(1 ORDER BY name',[req.user.id]); if(!r.rows.length){const id=`loc_\){req.user.id}`;await pool.query('INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[id,req.user.id,'Loja Física']);r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1',[req.user.id]);}res.json(r.rows);});
+app.post('/api/locais',authMiddleware,async(req,res)=>{const {id,name}=req.body||{};if(!name)return res.status(400).json({error:'Nome obrigatório.'});if(id)await pool.query('UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3',[name,id,req.user.id]);else await pool.query('INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,\(3)',[`loc_\){crypto.randomUUID()}`,req.user.id,name]);const r=await pool.query('SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',[req.user.id]);res.json(r.rows);});
 
 // ---------- Sales ----------
 app.get('/api/sales',authMiddleware,async(req,res)=>{const r=await pool.query('SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC',[req.user.id]);res.json(r.rows.map(s=>({...s,customerId:s.customer_id,customerName:s.customer_name,customerPhone:s.customer_phone,total:Number(s.total||0),subtotal:Number(s.subtotal||0),discount:Number(s.discount||0),cashbackEarned:Number(s.cashback_earned||s.earned_cashback||0),items:json(s.items,[])})));});
+
 app.post('/api/sales', authMiddleware, async (req, res) => {
   const client = await pool.connect();
   try { 
     await client.query('BEGIN'); 
     const s = req.body || {}; 
     const id = s.id || `sale_${crypto.randomUUID()}`; 
+
+    // 1. TRAVA DE IDEMPOTÊNCIA: Verifica se esta venda já foi processada recentemente
+    const existingSale = await client.query('SELECT id, customer_phone, cashback_earned FROM sales WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (existingSale.rows.length > 0) {
+      await client.query('ROLLBACK');
+      const sold = existingSale.rows[0];
+      return res.status(201).json({ 
+        success: true, 
+        saleId: id, 
+        customerPhone: sold.customer_phone, 
+        earnedCashback: Number(sold.cashback_earned || 0),
+        message: 'Venda já processada anteriormente.' 
+      });
+    }
+
     const customerId = s.customerId || s.customer_id || null; 
     let customerPhone = s.customerPhone || s.customer_phone || null; 
     let customerName = s.customerName || s.customer_name || 'Cliente Geral';
@@ -407,7 +419,7 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
     const total = Number(s.total ?? 0); 
     const cashback = Number(s.cashbackEarned ?? s.earned_cashback ?? 0);
 
-    await client.query(`INSERT INTO sales(id,user_id,customer_id,customer_name,customer_phone,seller,payment_method,discount,subtotal,total,cashback_earned,earned_cashback,gender,sales_channel,delivery_type,items,date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16) ON CONFLICT(id,user_id) DO UPDATE SET customer_id=$3,customer_name=$4,customer_phone=$5,seller=$6,payment_method=$7,discount=$8,subtotal=$9,total=$10,cashback_earned=$11,earned_cashback=$11,gender=$12,sales_channel=$13,delivery_type=$14,items=$15,date=$16`, [id, req.user.id, customerId, customerName, customerPhone, s.seller || null, s.paymentMethod || s.payment_method || 'Pix', Number(s.discount || 0), subtotal, total, cashback, s.gender || 'Prefiro não informar', s.salesChannel || s.sales_channel || 'Loja física', s.deliveryType || s.delivery_type || 'Retirada', JSON.stringify(items), s.date || new Date().toISOString()]);
+    await client.query(`INSERT INTO sales(id,user_id,customer_id,customer_name,customer_phone,seller,payment_method,discount,subtotal,total,cashback_earned,earned_cashback,gender,sales_channel,delivery_type,items,date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16) ON CONFLICT(id,user_id) DO NOTHING`, [id, req.user.id, customerId, customerName, customerPhone, s.seller || null, s.paymentMethod || s.payment_method || 'Pix', Number(s.discount || 0), subtotal, total, cashback, s.gender || 'Prefiro não informar', s.salesChannel || s.sales_channel || 'Loja física', s.deliveryType || s.delivery_type || 'Retirada', JSON.stringify(items), s.date || new Date().toISOString()]);
     
     if (customerId && cashback > 0) {
       const expDate = new Date();
@@ -420,14 +432,14 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
       );
     }
 
-    // Consolida os itens por ID e Variação para evitar duplicidade no loop de estoque
+    // Consolidação de itens por ID e Variação para garantir contagem correta e única por requisição
     const consolidatedItems = {};
     for (const item of items) {
       const pid = item.productId || item.id || item.product_id;
       const variationName = String(item.variationName || item.variation || "").trim();
       const qty = Number(item.quantity || item.qty || 1);
       
-      const key = `${pid}___${variationName}`;
+      const key = `\({pid}___\){variationName}`;
       if (consolidatedItems[key]) {
         consolidatedItems[key].qty += qty;
       } else {
@@ -435,6 +447,7 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
       }
     }
 
+    // 2. ATUALIZAÇÃO ATÔMICA E SEGURA DO ESTOQUE
     for (const key in consolidatedItems) {
       const { pid, variationName, qty, item } = consolidatedItems[key];
       if (!pid || qty <= 0) continue;
@@ -448,7 +461,6 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
 
       const cleanTargetVar = variationName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-      // Decrementa o estoque da variação específica e também o estoque global (stocks)
       if (cleanTargetVar && Array.isArray(variations) && variations.length > 0) {
         let variationMatched = false;
 
@@ -466,11 +478,9 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
         });
 
         if (variationMatched) {
-          // Atualiza tanto as variations quanto o estoque global (stocks)
-          stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
-          await client.query('UPDATE products SET variations=$1, stocks=$2 WHERE id=$3 AND user_id=$4', [JSON.stringify(variations), JSON.stringify(stocks), pid, req.user.id]);
+          // Atualiza apenas a variação encontrada, sem duplicar com o estoque geral
+          await client.query('UPDATE products SET variations=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(variations), pid, req.user.id]);
         } else {
-          // Caso a variação informada não seja encontrada exatamente, decrementa o estoque global como fallback seguro
           stocks[loc] = Math.max(0, Number(stocks[loc] || 0) - qty);
           await client.query('UPDATE products SET stocks=$1 WHERE id=$2 AND user_id=$3', [JSON.stringify(stocks), pid, req.user.id]);
         }
@@ -962,7 +972,7 @@ try {
 }
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`BYSE PRO API em http://0.0.0.0:${PORT} | frontend esperado: ${FRONTEND_URL}`);
+  console.log(`BYSE PRO API em http://0.0.0.0:\({PORT} | frontend esperado:\){FRONTEND_URL}`);
 });
 
 const shutdown = async (signal) => { 

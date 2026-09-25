@@ -57,6 +57,9 @@ export function PDV({
   
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [lastCompletedSale, setLastCompletedSale] = useState(null);
+  // Impede duas finalizações simultâneas da mesma venda (duplo clique/reenvio).
+  const finalizingSaleRef = useRef(false);
+  const [isFinalizingSale, setIsFinalizingSale] = useState(false);
 
   const [productQuery, setProductQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Todos produtos");
@@ -342,6 +345,10 @@ export function PDV({
   };
 
   const finalizeSale = async () => {
+    // O estoque é alterado pelo backend. Este bloqueio evita dois POSTs
+    // quando o usuário clica duas vezes rapidamente.
+    if (finalizingSaleRef.current) return;
+
     if (cart.length === 0) {
       alert("O carrinho está vazio!");
       return;
@@ -352,28 +359,38 @@ export function PDV({
       return;
     }
 
+    finalizingSaleRef.current = true;
+    setIsFinalizingSale(true);
+
     const currentLocObj = availableStockLocations.find(l => l.id === selectedStockLoc);
     const localName = currentLocObj ? currentLocObj.name : "Estoque Principal";
 
     const formattedItems = cart.map(item => {
       const varName = (item.variationName || item.variation || "").trim();
+      const itemQty = Math.max(1, Number(item.qty || 1));
+
       return {
         ...item,
         productId: item.id,
         price: Number(item.price || 0),
-        qty: Number(item.qty || 1),
-        quantity: Number(item.qty || 1),
+        qty: itemQty,
+        quantity: itemQty,
         local: localName,
         location: localName,
+        stockLocation: selectedStockLoc,
+        stock_location: selectedStockLoc,
         variationName: varName,
         variation: varName
       };
     });
 
     const cashbackEarnedVal = earnedCashbackCalc;
-    
+    const saleId = `pur_${typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+
     const newSale = {
-      id: `pur_${Date.now()}`,
+      id: saleId,
       customerId: selectedCustomer ? selectedCustomer.id : null,
       customer_id: selectedCustomer ? selectedCustomer.id : null,
       customer_name: selectedCustomer ? selectedCustomer.name : "Cliente Geral",
@@ -383,8 +400,9 @@ export function PDV({
       total: total,
       subtotal: subtotal,
       earned_cashback: cashbackEarnedVal,
-      gender: gender,               
-      sales_channel: salesChannel,  
+      cashbackEarned: cashbackEarnedVal,
+      gender: gender,
+      sales_channel: salesChannel,
       delivery_type: deliveryType,
       items: formattedItems,
       date: new Date().toISOString()
@@ -405,108 +423,74 @@ export function PDV({
         body: JSON.stringify(newSale)
       });
 
-      if (!response.ok) {
-        throw new Error("Falha ao salvar a venda no servidor.");
+      let result = {};
+      try {
+        result = await response.json();
+      } catch {
+        result = {};
       }
 
+      if (!response.ok) {
+        throw new Error(result?.error || "Falha ao salvar a venda no servidor.");
+      }
+
+      const duplicateRequest = Boolean(result?.duplicate);
       localStorage.removeItem(STORAGE_KEY);
 
-      if (selectedCustomer && typeof setCustomers === "function") {
+      if (!duplicateRequest && selectedCustomer && typeof setCustomers === "function") {
         const expirationDate = new Date();
-        expirationDate.setDate(expirationDate.getDate() + Number(cashbackValidityDays || 30));
+        expirationDate.setDate(
+          expirationDate.getDate() + Number(cashbackValidityDays || 30)
+        );
 
-        const updatedCustomersList = customers.map(c => 
-          c.id === selectedCustomer.id 
-            ? { 
-                ...c, 
+        const updatedCustomersList = customers.map(c =>
+          c.id === selectedCustomer.id
+            ? {
+                ...c,
                 cashback: Number(c.cashback || 0) + cashbackEarnedVal,
-                cashback_expiration_date: expirationDate.toISOString().split('T')[0]
+                cashback_expiration_date: expirationDate.toISOString().split("T")[0]
               }
             : c
         );
+
         setCustomers(updatedCustomersList);
       }
 
-      if (typeof setProducts === "function" && products.length > 0) {
-        const updatedProducts = products.map((prod) => {
-          const cartItemsForThisProd = cart.filter((i) => String(i.id) === String(prod.id));
-          if (cartItemsForThisProd.length === 0) return prod;
+      // O frontend não faz mais um segundo decremento. O backend é a única
+      // fonte que altera estoque; aqui somente sincronizamos os valores salvos.
+      if (
+        !duplicateRequest &&
+        typeof setProducts === "function" &&
+        Array.isArray(result?.stockUpdates) &&
+        result.stockUpdates.length > 0
+      ) {
+        setProducts(prevProducts =>
+          prevProducts.map(prod => {
+            const update = result.stockUpdates.find(
+              u => String(u.productId) === String(prod.id)
+            );
 
-          const isControlled = prod.control_stock ?? prod.controlStock ?? true;
-          if (!isControlled) return prod;
+            if (!update) return prod;
 
-          let newStocks = { ...(prod.stocks || {}) };
-          let newVariations = prod.variations ? JSON.parse(JSON.stringify(prod.variations)) : null;
-          let newStockTotal = Number(prod.stock ?? 0);
-
-          let chaveAlvo = null;
-          if (selectedStockLoc && newStocks[selectedStockLoc] !== undefined) {
-            chaveAlvo = selectedStockLoc;
-          } else if (localName && newStocks[localName] !== undefined) {
-            chaveAlvo = localName;
-          } else if (selectedStockLoc) {
-            chaveAlvo = selectedStockLoc;
-          } else if (localName) {
-            chaveAlvo = localName;
-          } else {
-            const chavesExistentes = Object.keys(newStocks);
-            chaveAlvo = chavesExistentes.length > 0 ? chavesExistentes[0] : 'Estoque Principal';
-          }
-
-          cartItemsForThisProd.forEach((foundItem) => {
-            const varName = (foundItem.variationName || foundItem.variation || "").trim();
-
-            if (newVariations && Array.isArray(newVariations) && newVariations.length > 0) {
-              newVariations = newVariations.map((v) => {
-                const vName = (typeof v === 'string' ? v : (v.name || "")).trim();
-                if (vName === varName) {
-                  if (typeof v === 'string') {
-                    return v;
-                  }
-                  
-                  let newVarStocks = v.stocks ? { ...v.stocks } : {};
-                  let currentVarStock = 0;
-
-                  if (newVarStocks[chaveAlvo] !== undefined) {
-                    currentVarStock = Number(newVarStocks[chaveAlvo]);
-                    newVarStocks[chaveAlvo] = Math.max(0, currentVarStock - foundItem.qty);
-                  } else {
-                    const fallbackKey = Object.keys(newVarStocks)[0] || chaveAlvo;
-                    currentVarStock = Number(newVarStocks[fallbackKey] ?? v.stock ?? v.qty ?? 0);
-                    newVarStocks[fallbackKey] = Math.max(0, currentVarStock - foundItem.qty);
-                  }
-
-                  const updatedVarStock = Math.max(0, Number(v.stock ?? v.qty ?? 0) - foundItem.qty);
-                  return { ...v, stock: updatedVarStock, stocks: newVarStocks };
-                }
-                return v;
-              });
-            } else {
-              const currentQty = Number(newStocks[chaveAlvo] ?? newStockTotal);
-              const newQty = Math.max(0, currentQty - foundItem.qty);
-              newStocks[chaveAlvo] = newQty;
-              newStockTotal = newQty;
-            }
-          });
-
-          const updatedProdObj = {
-            ...prod,
-            stock: newStockTotal,
-            stocks: newStocks
-          };
-
-          if (newVariations) {
-            updatedProdObj.variations = newVariations;
-          }
-
-          return updatedProdObj;
-        });
-
-        setProducts(updatedProducts);
+            return {
+              ...prod,
+              ...(update.stocks !== undefined ? { stocks: update.stocks } : {}),
+              ...(update.variations !== undefined
+                ? { variations: update.variations }
+                : {})
+            };
+          })
+        );
       }
 
-      if (typeof setSales === "function") {
-        setSales([...sales, newSale]);
+      if (!duplicateRequest && typeof setSales === "function") {
+        setSales(prevSales => {
+          const current = Array.isArray(prevSales) ? prevSales : [];
+          if (current.some(s => String(s.id) === String(newSale.id))) {
+            return current;
+          }
+          return [...current, newSale];
+        });
       }
 
       if (typeof onSaleCompleted === "function") {
@@ -515,26 +499,45 @@ export function PDV({
 
       setLastCompletedSale(newSale);
 
-      if (selectedCustomer && selectedCustomer.phone) {
-        const telefoneLimpo = selectedCustomer.phone.replace(/\D/g, '');
+      if (!duplicateRequest && selectedCustomer && selectedCustomer.phone) {
+        const telefoneLimpo = selectedCustomer.phone.replace(/\D/g, "");
+
         if (telefoneLimpo.length >= 10) {
           const nomeCliente = selectedCustomer.name || "Cliente";
-          const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-          const vencimentoFormatado = new Date(Date.now() + Number(cashbackValidityDays || 30) * 86400000).toLocaleDateString('pt-BR');
-          
+          const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString(
+            "pt-BR",
+            { style: "currency", currency: "BRL" }
+          );
+          const vencimentoFormatado = new Date(
+            Date.now() + Number(cashbackValidityDays || 30) * 86400000
+          ).toLocaleDateString("pt-BR");
+
           const mensagemPronta = cashbackMessage
             .replace(/{nome}/g, nomeCliente)
             .replace(/{saldo}/g, cashbackGanhoFormatado)
             .replace(/{vencimento}/g, vencimentoFormatado);
-          
-          window.open(`https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagemPronta)}`, '_blank');
+
+          window.open(
+            `https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagemPronta)}`,
+            "_blank"
+          );
         }
       }
 
-      alert("Venda finalizada com sucesso! O cashback foi creditado a partir de hoje e o estoque atualizado.");
+      alert(
+        duplicateRequest
+          ? "Esta venda já havia sido processada. O estoque não foi abatido novamente."
+          : "Venda finalizada com sucesso! O cashback foi creditado a partir de hoje e o estoque atualizado."
+      );
     } catch (error) {
       console.error("❌ Erro ao finalizar venda:", error);
-      alert("Erro ao conectar com o servidor para salvar a venda. Verifique se a API está rodando.");
+      alert(
+        error?.message ||
+          "Erro ao conectar com o servidor para salvar a venda. Verifique se a API está rodando."
+      );
+    } finally {
+      finalizingSaleRef.current = false;
+      setIsFinalizingSale(false);
     }
   };
 
@@ -1458,6 +1461,7 @@ export function PDV({
 
             <button
               onClick={finalizeSale}
+              disabled={isFinalizingSale}
               style={{
                 background: accent,
                 color: "#fff",
@@ -1465,12 +1469,15 @@ export function PDV({
                 borderRadius: 8,
                 padding: 12,
                 fontWeight: "bold",
-                cursor: "pointer",
+                cursor: isFinalizingSale ? "not-allowed" : "pointer",
+                opacity: isFinalizingSale ? 0.7 : 1,
                 textAlign: "center",
                 marginTop: 6
               }}
             >
-              Finalizar Venda & Gerar Cashback Imediato
+              {isFinalizingSale
+                ? "Finalizando venda..."
+                : "Finalizar Venda & Gerar Cashback Imediato"}
             </button>
 
             {lastCompletedSale && (

@@ -20,91 +20,88 @@ export function PublicCatalog() {
   const base = (import.meta.env.VITE_API_URL || 'http://localhost:3333').replace(/\/$/, '');
   const id = window.location.pathname.split('/')[2];
 
-  // Carregamento inicial robusto do catálogo
   useEffect(() => {
-    const token = localStorage.getItem(`vip_token_${id}`);
-    const headers: HeadersInit = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    let cancelled = false;
 
-    fetch(`${base}/api/public/catalogo/${id}`, { headers })
-      .then(async r => {
+    const loadCatalog = async () => {
+      try {
+        const token = localStorage.getItem(`vip_token_${id}`);
+        const headers: HeadersInit = token
+          ? { Authorization: `Bearer ${token}` }
+          : {};
+
+        const r = await fetch(`${base}/api/public/catalogo/${id}`, { headers });
         if (!r.ok) throw new Error();
-        return r.json();
-      })
-      .then(resData => {
+
+        const resData = await r.json();
+        if (cancelled) return;
+
+        // O catálogo é carregado uma única vez. O modo VIP altera somente
+        // o preço exibido, nunca a lista de produtos.
         setData(resData);
-        setVip(resData.isVip || Boolean(token));
-      })
-      .catch(() => setError('Catálogo não encontrado.'))
-      .finally(() => setLoading(false));
+        setVip(Boolean(resData?.isVip));
+
+        // Se o token salvo estiver inválido/expirado, não mantemos o VIP local.
+        if (token && !resData?.isVip) {
+          localStorage.removeItem(`vip_token_${id}`);
+        }
+      } catch (e) {
+        if (!cancelled) setError('Catálogo não encontrado.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadCatalog();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, base]);
 
   const verify = async () => {
+    const cleanPassword = String(password || '').trim();
+
+    if (!cleanPassword) {
+      alert('Digite a senha VIP.');
+      return;
+    }
+
     try {
       const r = await fetch(`${base}/api/public/catalogo/${id}/vip/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ password: cleanPassword })
       });
+
       const resData = await r.json();
-      if (!r.ok) {
-        alert(resData.error || 'Senha VIP inválida.');
+
+      if (!r.ok || !resData?.accessToken) {
+        alert(resData?.error || 'Senha VIP inválida.');
         return;
       }
 
-      if (resData.accessToken) {
-        localStorage.setItem(`vip_token_${id}`, resData.accessToken);
-      }
+      // O token é o único comprovante de acesso VIP.
+      localStorage.setItem(`vip_token_${id}`, resData.accessToken);
 
+      // IMPORTANTE: não fazemos novo GET do catálogo aqui.
+      // Isso evita substituir/zerar data.products após o desbloqueio.
+      setVip(true);
       setShowVip(false);
       setPassword('');
-      setVip(true); 
-
-      // Mantém os produtos atuais intactos e apenas tenta atualizar dados complementares em segundo plano de forma segura
-      const token = resData.accessToken || localStorage.getItem(`vip_token_${id}`);
-      if (token) {
-        fetch(`${base}/api/public/catalogo/${id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-          .then(res => res.ok ? res.json() : null)
-          .then(freshData => {
-            if (freshData && Array.isArray(freshData.products) && freshData.products.length > 0) {
-              setData(freshData);
-            }
-          })
-          .catch(() => {});
-      }
-
-      // Exibe a introdução festiva
       setShowIntro(true);
-      const timer = setTimeout(() => {
-        setShowIntro(false);
-      }, 4000);
 
-      return () => clearTimeout(timer);
-
+      window.setTimeout(() => setShowIntro(false), 4000);
     } catch (e) {
       alert('Erro ao validar senha VIP.');
     }
   };
 
-  const handleLogoutVip = async () => {
+  const handleLogoutVip = () => {
+    // Sair do VIP muda somente a condição de preço.
+    // A lista de produtos já carregada permanece intacta.
     localStorage.removeItem(`vip_token_${id}`);
     setVip(false);
-
-    try {
-      const res = await fetch(`${base}/api/public/catalogo/${id}`);
-      if (res.ok) {
-        const freshData = await res.json();
-        if (freshData && Array.isArray(freshData.products)) {
-          setData(freshData);
-        }
-      }
-    } catch (e) {
-      console.error('Erro ao atualizar catálogo ao sair do VIP', e);
-    }
   };
 
   const addToCart = (product: any) => {
@@ -128,11 +125,12 @@ export function PublicCatalog() {
   };
 
   const calculateTotal = () => {
+    const activeProducts = Array.isArray(data?.products) ? data.products : [];
     return cart.reduce((total, item) => {
-      const currentProduct = data?.products?.find((p: any) => p.id === item.product.id) || item.product;
+      const currentProduct = activeProducts?.find((p: any) => p.id === item.product.id) || item.product;
       const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
-      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : currentProduct.price;
-      return total + (Number(price || 0) * item.quantity);
+      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? Number(vipVal) : Number(currentProduct.price || 0);
+      return total + (price * item.quantity);
     }, 0);
   };
 
@@ -143,15 +141,16 @@ export function PublicCatalog() {
     }
 
     const cleanPhone = String(data.whatsapp).replace(/\D/g, '');
+    const activeProducts = Array.isArray(data?.products) ? data.products : [];
 
     let message = `*Pedido via Catálogo Online - ${data?.storeName || 'Loja'}*\n\n`;
     if (vip) message += `🔓 _Condição de Preço VIP Ativa_\n\n`;
 
     cart.forEach(item => {
-      const currentProduct = data?.products?.find((p: any) => p.id === item.product.id) || item.product;
+      const currentProduct = activeProducts?.find((p: any) => p.id === item.product.id) || item.product;
       const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
-      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : currentProduct.price;
-      message += `• ${item.quantity}x ${currentProduct.name} - R$ ${(Number(price || 0) * item.quantity).toFixed(2)}\n`;
+      const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? Number(vipVal) : Number(currentProduct.price || 0);
+      message += `• ${item.quantity}x ${currentProduct.name} - R$ ${(price * item.quantity).toFixed(2)}\n`;
     });
     message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
 
@@ -211,18 +210,10 @@ export function PublicCatalog() {
 
           <div style={{ textAlign: 'center', padding: 20, minHeight: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <div className="intro-step-1" style={{ position: 'absolute' }}>
-              <div style={{ 
-                width: 50, height: 50, background: 'rgba(220, 38, 38, 0.1)', 
-                borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                margin: '0 auto 12px auto', border: '1px solid rgba(220, 38, 38, 0.3)' 
-              }}>
+              <div style={{ width: 50, height: 50, background: 'rgba(220, 38, 38, 0.1)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto', border: '1px solid rgba(220, 38, 38, 0.3)' }}>
                 <Sparkles size={24} color="#DC2626" />
               </div>
-              <span style={{ 
-                fontSize: 13, fontWeight: 800, letterSpacing: '3px', textTransform: 'uppercase', 
-                color: '#DC2626', background: 'rgba(220, 38, 38, 0.1)', padding: '6px 14px', 
-                borderRadius: 20, border: '1px solid rgba(220, 38, 38, 0.2)' 
-              }}>
+              <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '3px', textTransform: 'uppercase', color: '#DC2626', background: 'rgba(220, 38, 38, 0.1)', padding: '6px 14px', borderRadius: 20, border: '1px solid rgba(220, 38, 38, 0.2)' }}>
                 Área VIP
               </span>
             </div>
@@ -254,11 +245,7 @@ export function PublicCatalog() {
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button 
                 onClick={() => setShowVip(true)} 
-                style={{ 
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 0, borderRadius: 10, 
-                  background: vip ? '#10b981' : '#DC2626', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)' 
-                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', border: 0, borderRadius: 10, background: vip ? '#10b981' : '#DC2626', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)' }}
               >
                 {vip ? <><CheckCircle2 size={15}/> VIP Ativo</> : <><Lock size={15}/> Desbloquear VIP</>}
               </button>
@@ -267,11 +254,7 @@ export function PublicCatalog() {
                 <button
                   onClick={handleLogoutVip}
                   title="Sair do modo VIP"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '9px 12px',
-                    borderRadius: 10, background: '#2E2E2E', color: '#ef4444', fontSize: 13, fontWeight: 600,
-                    border: '1px solid #3E3E3E', cursor: 'pointer'
-                  }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '9px 12px', borderRadius: 10, background: '#2E2E2E', color: '#ef4444', fontSize: 13, fontWeight: 600, border: '1px solid #3E3E3E', cursor: 'pointer' }}
                 >
                   Sair
                 </button>
@@ -280,10 +263,7 @@ export function PublicCatalog() {
 
             <button
               onClick={() => setIsCartOpen(true)}
-              style={{
-                position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px',
-                borderRadius: 10, background: '#2E2E2E', color: '#fff', fontSize: 13, fontWeight: 600, border: '1px solid #3E3E3E', cursor: 'pointer'
-              }}
+              style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 10, background: '#2E2E2E', color: '#fff', fontSize: 13, fontWeight: 600, border: '1px solid #3E3E3E', cursor: 'pointer' }}
             >
               <ShoppingBag size={15} /> Carrinho
               {cart.length > 0 && (
@@ -307,12 +287,7 @@ export function PublicCatalog() {
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                style={{
-                  padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer',
-                  border: selectedCategory === cat ? 0 : '1px solid #2E2E2E',
-                  background: selectedCategory === cat ? '#DC2626' : '#1C1C1C',
-                  color: selectedCategory === cat ? '#fff' : '#8A8A82'
-                }}
+                style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', border: selectedCategory === cat ? 0 : '1px solid #2E2E2E', background: selectedCategory === cat ? '#DC2626' : '#1C1C1C', color: selectedCategory === cat ? '#fff' : '#8A8A82' }}
               >
                 {cat}
               </button>
@@ -422,14 +397,15 @@ export function PublicCatalog() {
                   <div style={{ textAlign: 'center', padding: '40px 0', color: '#8A8A82', fontSize: 13 }}>Seu carrinho está vazio.</div>
                 ) : (
                   cart.map(item => {
-                    const currentProduct = data?.products?.find((p: any) => p.id === item.product.id) || item.product;
+                    const activeProducts = Array.isArray(data?.products) ? data.products : [];
+                    const currentProduct = activeProducts?.find((p: any) => p.id === item.product.id) || item.product;
                     const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
-                    const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? vipVal : currentProduct.price;
+                    const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? Number(vipVal) : Number(currentProduct.price || 0);
                     return (
                       <div key={item.product.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0C0C0C', padding: 12, borderRadius: 10, border: '1px solid #2E2E2E' }}>
                         <div>
                           <b style={{ fontSize: 13, display: 'block', color: '#F0EFE9', fontWeight: 600 }}>{currentProduct.name}</b>
-                          <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>{Number(price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} un</span>
+                          <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>{price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} un</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <button onClick={() => updateQuantity(item.product.id, -1)} style={{ width: 26, height: 26, border: '1px solid #2E2E2E', borderRadius: 8, background: 'transparent', color: '#F0EFE9', cursor: 'pointer' }}><Minus size={12} /></button>

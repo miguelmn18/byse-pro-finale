@@ -461,13 +461,35 @@ export default function Catalogo({ products = [], userId, apiUrl, card, border, 
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setShowVipModal(false)} style={{ flex: 1, padding: 10, borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', color: text, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={() => {
-                if (vipPasswordInput.trim().length > 0) {
+              <button onClick={async () => {
+                const password = vipPasswordInput.trim();
+
+                if (!password) {
+                  alert('Insira a senha VIP.');
+                  return;
+                }
+
+                try {
+                  const r = await fetch(`${base}/api/public/catalogo/${userId}/vip/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                  });
+
+                  const result = await r.json();
+
+                  if (!r.ok || !result?.accessToken) {
+                    alert(result?.error || 'Senha VIP inválida.');
+                    return;
+                  }
+
+                  // A pré-visualização usa exatamente a mesma validação
+                  // do catálogo público. Nenhuma senha é aceita localmente.
                   setIsVipUnlocked(true);
                   setShowVipModal(false);
                   setVipPasswordInput('');
-                } else {
-                  alert('Insira uma senha válida.');
+                } catch (e) {
+                  alert('Não foi possível validar a senha VIP.');
                 }
               }} style={{ flex: 1, padding: 10, borderRadius: 10, border: 0, background: '#f59e0b', color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Desbloquear</button>
             </div>
