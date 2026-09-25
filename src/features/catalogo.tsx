@@ -94,7 +94,13 @@ export default function Catalogo({
         });
 
         if (r.ok) {
-          setCfg(await r.json());
+          const loaded = await r.json();
+          setCfg(loaded);
+
+          // Sincroniza o botão de visibilidade com o que está salvo no servidor
+          if (loaded.catalogVisible !== undefined) {
+            setIsCatalogVisible(Boolean(loaded.catalogVisible));
+          }
         }
       } catch (e) {
         console.error(e);
@@ -116,6 +122,7 @@ export default function Catalogo({
         headers: headers(),
         body: JSON.stringify({
           ...cfg,
+          catalogVisible: isCatalogVisible,
           vipPassword
         })
       });
@@ -315,8 +322,39 @@ export default function Catalogo({
    * FUNÇÃO DE ALTERAÇÃO DA VISIBILIDADE
    * ============================================================
    */
-  const toggleCatalogVisibility = () => {
-    setIsCatalogVisible(prev => !prev);
+  /*
+   * ============================================================
+   * VISIBILIDADE DO CATÁLOGO (ADMIN + VITRINE PÚBLICA)
+   * ============================================================
+   *
+   * O botão agora grava o campo catalogVisible no servidor,
+   * portanto ele controla também o que o cliente vê no
+   * PublicCatalog (vitrine pública).
+   */
+  const toggleCatalogVisibility = async () => {
+    const next = !isCatalogVisible;
+
+    // Atualização otimista da interface
+    setIsCatalogVisible(next);
+    setCfg((prev: any) => ({ ...prev, catalogVisible: next }));
+
+    try {
+      const r = await fetch(`${base}/api/catalogo/config`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify({
+          ...cfg,
+          catalogVisible: next
+        })
+      });
+
+      if (!r.ok) throw new Error();
+    } catch (e) {
+      // Reverte caso o servidor recuse a alteração
+      setIsCatalogVisible(!next);
+      setCfg((prev: any) => ({ ...prev, catalogVisible: !next }));
+      alert('Não foi possível atualizar a visibilidade do catálogo.');
+    }
   };
 
   return (
@@ -980,6 +1018,17 @@ export default function Catalogo({
                 vipVal !== null &&
                 Number(vipVal) > 0;
 
+              const vip3xVal =
+                p.vip_price_3x !== undefined
+                  ? p.vip_price_3x
+                  : p.vipPrice3x;
+
+              const hasVip3xPrice =
+                isVipUnlocked &&
+                vip3xVal !== undefined &&
+                vip3xVal !== null &&
+                Number(vip3xVal) > 0;
+
               const imgUrl =
                 p.image_url || p.imageUrl;
 
@@ -1283,6 +1332,34 @@ export default function Catalogo({
                                 VIP
                               </span>
                             </p>
+
+                            {hasVip3xPrice && (
+                              <span
+                                style={{
+                                  display: 'block',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: subtext,
+                                  marginTop: 2
+                                }}
+                              >
+                                ou 3x de{' '}
+                                {(
+                                  Number(vip3xVal) / 3
+                                ).toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                })}{' '}
+                                (VIP 3x:{' '}
+                                {Number(
+                                  vip3xVal
+                                ).toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                })}
+                                )
+                              </span>
+                            )}
 
                           </div>
 

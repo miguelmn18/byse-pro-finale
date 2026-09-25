@@ -1191,6 +1191,20 @@ export function PublicCatalog() {
                       Number(vipVal) >
                         0;
 
+                    const vip3xVal =
+                      p.vip_price_3x !==
+                      undefined
+                        ? p.vip_price_3x
+                        : p.vipPrice3x;
+
+                    const hasVip3xPrice =
+                      vip &&
+                      vip3xVal !==
+                        undefined &&
+                      vip3xVal !== null &&
+                      Number(vip3xVal) >
+                        0;
+
                     const imageUrl =
                       p.image_url ||
                       p.imageUrl;
@@ -1393,6 +1407,46 @@ export function PublicCatalog() {
                                     VIP
                                   </span>
                                 </div>
+
+                                {hasVip3xPrice && (
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color:
+                                        '#A3A39B',
+                                      marginTop: 2
+                                    }}
+                                  >
+                                    ou 3x de{' '}
+                                    {(
+                                      Number(
+                                        vip3xVal
+                                      ) / 3
+                                    ).toLocaleString(
+                                      'pt-BR',
+                                      {
+                                        style:
+                                          'currency',
+                                        currency:
+                                          'BRL'
+                                      }
+                                    )}{' '}
+                                    (VIP 3x:{' '}
+                                    {Number(
+                                      vip3xVal
+                                    ).toLocaleString(
+                                      'pt-BR',
+                                      {
+                                        style:
+                                          'currency',
+                                        currency:
+                                          'BRL'
+                                      }
+                                    )}
+                                    )
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <div
