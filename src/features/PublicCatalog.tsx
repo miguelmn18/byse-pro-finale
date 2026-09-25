@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Lock, ShoppingBag, MessageCircle, CheckCircle2, Tag, X, Plus, Minus, Sparkles } from 'lucide-react';
 
 export function PublicCatalog() {
@@ -17,91 +17,115 @@ export function PublicCatalog() {
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [query, setQuery] = useState('');
 
+  // Fallback de segurança para nunca perder os produtos carregados inicialmente
+  const fallbackProductsRef = useRef<any[]>([]);
+
   const base = (import.meta.env.VITE_API_URL || 'http://localhost:3333').replace(/\/$/, '');
   const id = window.location.pathname.split('/')[2];
 
   useEffect(() => {
-    let cancelled = false;
+    const token = localStorage.getItem(`vip_token_${id}`);
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
-    const loadCatalog = async () => {
-      try {
-        const token = localStorage.getItem(`vip_token_${id}`);
-        const headers: HeadersInit = token
-          ? { Authorization: `Bearer ${token}` }
-          : {};
-
-        const r = await fetch(`${base}/api/public/catalogo/${id}`, { headers });
+    fetch(`${base}/api/public/catalogo/${id}`, { headers })
+      .then(async r => {
         if (!r.ok) throw new Error();
-
-        const resData = await r.json();
-        if (cancelled) return;
-
-        // O catálogo é carregado uma única vez. O modo VIP altera somente
-        // o preço exibido, nunca a lista de produtos.
-        setData(resData);
-        setVip(Boolean(resData?.isVip));
-
-        // Se o token salvo estiver inválido/expirado, não mantemos o VIP local.
-        if (token && !resData?.isVip) {
-          localStorage.removeItem(`vip_token_${id}`);
+        return r.json();
+      })
+      .then(resData => {
+        if (resData && Array.isArray(resData.products)) {
+          fallbackProductsRef.current = resData.products;
         }
-      } catch (e) {
-        if (!cancelled) setError('Catálogo não encontrado.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadCatalog();
-
-    return () => {
-      cancelled = true;
-    };
+        setData(resData);
+        setVip(Boolean(resData.isVip || token));
+      })
+      .catch(() => setError('Catálogo não encontrado.'))
+      .finally(() => setLoading(false));
   }, [id, base]);
 
   const verify = async () => {
-    const cleanPassword = String(password || '').trim();
-
-    if (!cleanPassword) {
-      alert('Digite a senha VIP.');
-      return;
-    }
-
     try {
       const r = await fetch(`${base}/api/public/catalogo/${id}/vip/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: cleanPassword })
+        body: JSON.stringify({ password })
       });
-
       const resData = await r.json();
-
-      if (!r.ok || !resData?.accessToken) {
-        alert(resData?.error || 'Senha VIP inválida.');
+      if (!r.ok) {
+        alert(resData.error || 'Senha VIP inválida.');
         return;
       }
 
-      // O token é o único comprovante de acesso VIP.
-      localStorage.setItem(`vip_token_${id}`, resData.accessToken);
+      const newToken = resData.accessToken;
+      if (newToken) {
+        localStorage.setItem(`vip_token_${id}`, newToken);
+      }
 
-      // IMPORTANTE: não fazemos novo GET do catálogo aqui.
-      // Isso evita substituir/zerar data.products após o desbloqueio.
-      setVip(true);
       setShowVip(false);
       setPassword('');
-      setShowIntro(true);
+      setVip(true); 
 
-      window.setTimeout(() => setShowIntro(false), 4000);
+      const activeToken = newToken || localStorage.getItem(`vip_token_${id}`);
+      const headers: HeadersInit = activeToken ? { 'Authorization': `Bearer ${activeToken}` } : {};
+
+      const catalogRes = await fetch(`${base}/api/public/catalogo/${id}`, { headers });
+      if (catalogRes.ok) {
+        const freshData = await catalogRes.json();
+        // Blindagem de estado: só atualiza se os produtos existirem; caso contrário, mantém os anteriores ou usa o fallback
+        if (freshData && Array.isArray(freshData.products) && freshData.products.length > 0) {
+          fallbackProductsRef.current = freshData.products;
+          setData(freshData);
+        } else if (freshData) {
+          setData({
+            ...freshData,
+            products: freshData.products || fallbackProductsRef.current
+          });
+        }
+        if (freshData && freshData.isVip !== undefined) {
+          setVip(Boolean(freshData.isVip));
+        }
+      }
+
+      setShowIntro(true);
+      const timer = setTimeout(() => {
+        setShowIntro(false);
+      }, 4000);
+
+      return () => clearTimeout(timer);
+
     } catch (e) {
       alert('Erro ao validar senha VIP.');
     }
   };
 
-  const handleLogoutVip = () => {
-    // Sair do VIP muda somente a condição de preço.
-    // A lista de produtos já carregada permanece intacta.
+  const handleLogoutVip = async () => {
     localStorage.removeItem(`vip_token_${id}`);
     setVip(false);
+
+    try {
+      const res = await fetch(`${base}/api/public/catalogo/${id}`);
+      if (res.ok) {
+        const freshData = await res.json();
+        if (freshData && Array.isArray(freshData.products) && freshData.products.length > 0) {
+          fallbackProductsRef.current = freshData.products;
+          setData(freshData);
+        } else if (freshData) {
+          setData({
+            ...freshData,
+            products: freshData.products || fallbackProductsRef.current
+          });
+        }
+      } else {
+        // Se a requisição falhar ao sair, garante que os dados atuais mantenham os produtos do fallback
+        setData((prev: any) => prev ? { ...prev, products: fallbackProductsRef.current } : { products: fallbackProductsRef.current });
+      }
+    } catch (e) {
+      console.error('Erro ao atualizar catálogo ao sair do VIP', e);
+      setData((prev: any) => prev ? { ...prev, products: fallbackProductsRef.current } : { products: fallbackProductsRef.current });
+    }
   };
 
   const addToCart = (product: any) => {
@@ -125,7 +149,7 @@ export function PublicCatalog() {
   };
 
   const calculateTotal = () => {
-    const activeProducts = Array.isArray(data?.products) ? data.products : [];
+    const activeProducts = data?.products || fallbackProductsRef.current;
     return cart.reduce((total, item) => {
       const currentProduct = activeProducts?.find((p: any) => p.id === item.product.id) || item.product;
       const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
@@ -141,7 +165,7 @@ export function PublicCatalog() {
     }
 
     const cleanPhone = String(data.whatsapp).replace(/\D/g, '');
-    const activeProducts = Array.isArray(data?.products) ? data.products : [];
+    const activeProducts = data?.products || fallbackProductsRef.current;
 
     let message = `*Pedido via Catálogo Online - ${data?.storeName || 'Loja'}*\n\n`;
     if (vip) message += `🔓 _Condição de Preço VIP Ativa_\n\n`;
@@ -174,7 +198,7 @@ export function PublicCatalog() {
     );
   }
 
-  const productsList = Array.isArray(data?.products) ? data.products : [];
+  const productsList = Array.isArray(data?.products) && data.products.length > 0 ? data.products : fallbackProductsRef.current;
   const categories = ['Todos', ...Array.from(new Set(productsList.map((p: any) => p.category || 'Geral')))];
   
   const filteredProducts = productsList.filter((product: any) => {
@@ -397,7 +421,7 @@ export function PublicCatalog() {
                   <div style={{ textAlign: 'center', padding: '40px 0', color: '#8A8A82', fontSize: 13 }}>Seu carrinho está vazio.</div>
                 ) : (
                   cart.map(item => {
-                    const activeProducts = Array.isArray(data?.products) ? data.products : [];
+                    const activeProducts = data?.products || fallbackProductsRef.current;
                     const currentProduct = activeProducts?.find((p: any) => p.id === item.product.id) || item.product;
                     const vipVal = currentProduct.vip_price !== undefined ? currentProduct.vip_price : currentProduct.vipPrice;
                     const price = (vip && vipVal !== null && vipVal !== undefined && Number(vipVal) > 0) ? Number(vipVal) : Number(currentProduct.price || 0);

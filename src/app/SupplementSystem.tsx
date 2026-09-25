@@ -72,6 +72,7 @@ import { Estoque } from "../features/estoque";
 import { PDV } from "../features/pdv";
 import { Vendedores } from "../features/vendedores";
 import Catalogo from "../features/catalogo";
+import CatalogoPublico from "../features/catalogo";
 import { Cashback } from "../features/cashback";
 import { WhatsApp } from "../features/whatsapp";
 import { TrafegoPago, CanaisDeVenda } from "../features/marketing";

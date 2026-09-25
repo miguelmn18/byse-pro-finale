@@ -16,13 +16,13 @@ export function Estoque({
   border,
   subtext,
   accent,
-  text
+  text,
 }) {
   const [showLocations, setShowLocations] = useState(false);
   const [newLocName, setNewLocName] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  
+
   // Estado para armazenar a categoria selecionada no filtro
   const [selectedCategory, setSelectedCategory] = useState("Todas");
 
@@ -44,73 +44,80 @@ export function Estoque({
     controlStock: true,
     stocks: {},
     variations: [],
-    imageUrl: null
+    imageUrl: null,
   };
 
   const [form, setForm] = useState(blankForm);
 
   const renameLoc = async (id, name) => {
-    const updatedLocs = stockLocations.map((l) => (l.id === id ? { ...l, name } : l));
+    const updatedLocs = stockLocations.map((l) =>
+      l.id === id ? { ...l, name } : l,
+    );
     setStockLocations(updatedLocs);
   };
 
   const addLoc = () => {
     if (!newLocName.trim()) return;
-    const newLocs = [...stockLocations, { id: `loc_${Date.now()}`, name: newLocName.trim() }];
+    const newLocs = [
+      ...stockLocations,
+      { id: `loc_${Date.now()}`, name: newLocName.trim() },
+    ];
     setStockLocations(newLocs);
     setNewLocName("");
   };
 
   const addVariation = () => {
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
       variations: [
         ...(f.variations || []),
-        { id: `var_${Date.now()}_${Math.random()}`, name: "", stocks: {} }
-      ]
+        { id: `var_${Date.now()}_${Math.random()}`, name: "", stocks: {} },
+      ],
     }));
   };
 
   const updateVariationName = (varId, name) => {
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
-      variations: (f.variations || []).map(v => v.id === varId ? { ...v, name } : v)
+      variations: (f.variations || []).map((v) =>
+        v.id === varId ? { ...v, name } : v,
+      ),
     }));
   };
 
   const updateVariationStock = (varId, locId, value) => {
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
-      variations: (f.variations || []).map(v => {
+      variations: (f.variations || []).map((v) => {
         if (v.id === varId) {
           return {
             ...v,
-            stocks: { ...(v.stocks || {}), [locId]: value }
+            stocks: { ...(v.stocks || {}), [locId]: value },
           };
         }
         return v;
-      })
+      }),
     }));
   };
 
   const removeVariation = (varId) => {
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
-      variations: (f.variations || []).filter(v => v.id !== varId)
+      variations: (f.variations || []).filter((v) => v.id !== varId),
     }));
   };
 
   const startEdit = (p) => {
     setEditingId(p.id);
-    
+
     // Normaliza as variações existentes para o formato do form garantindo leitura correta
     const rawVariations = p.variations || p.subcategories || [];
     const parsedVariations = rawVariations.map((v, idx) => ({
       id: v.id || `var_${idx}_${Date.now()}`,
       name: v.name || "",
       stocks: Object.fromEntries(
-        Object.entries(v.stocks || {}).map(([k, val]) => [k, String(val)])
-      )
+        Object.entries(v.stocks || {}).map(([k, val]) => [k, String(val)]),
+      ),
     }));
 
     setForm({
@@ -120,17 +127,27 @@ export function Estoque({
       price: p.price != null ? String(p.price) : "",
       imposto: p.imposto != null ? String(p.imposto) : "",
       frete: p.frete != null ? String(p.frete) : "",
-      vipPrice: p.vip_price != null ? String(p.vip_price) : (p.vipPrice != null ? String(p.vipPrice) : ""),
-      vipPrice3x: p.vip_price_3x != null ? String(p.vip_price_3x) : (p.vipPrice3x != null ? String(p.vipPrice3x) : ""),
+      vipPrice:
+        p.vip_price != null
+          ? String(p.vip_price)
+          : p.vipPrice != null
+            ? String(p.vipPrice)
+            : "",
+      vipPrice3x:
+        p.vip_price_3x != null
+          ? String(p.vip_price_3x)
+          : p.vipPrice3x != null
+            ? String(p.vipPrice3x)
+            : "",
       barcode: p.barcode || "",
       code: p.code || "",
       description: p.description || "",
-      controlStock: p.control_stock ?? (p.controlStock ?? true),
+      controlStock: p.control_stock ?? p.controlStock ?? true,
       stocks: Object.fromEntries(
-        Object.entries(p.stocks || {}).map(([k, v]) => [k, String(v)])
+        Object.entries(p.stocks || {}).map(([k, v]) => [k, String(v)]),
       ),
       variations: parsedVariations,
-      imageUrl: p.image_url || p.imageUrl || null
+      imageUrl: p.image_url || p.imageUrl || null,
     });
     setShowForm(true);
   };
@@ -145,8 +162,7 @@ export function Estoque({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () =>
-      setForm((f) => ({ ...f, imageUrl: reader.result }));
+    reader.onload = () => setForm((f) => ({ ...f, imageUrl: reader.result }));
     reader.readAsDataURL(file);
   };
 
@@ -159,21 +175,18 @@ export function Estoque({
 
   const saveProduct = async () => {
     if (!form.name || !form.price) return;
-    
-    const validatedVariations = (form.variations || []).map(v => ({
+
+    const validatedVariations = (form.variations || []).map((v) => ({
       id: v.id || `var_${Date.now()}_${Math.random()}`,
       name: (v.name || "").trim() || "Padrão",
       stocks: Object.fromEntries(
-        stockLocations.map(l => [l.id, parseInt(v.stocks?.[l.id]) || 0])
-      )
+        stockLocations.map((l) => [l.id, parseInt(v.stocks?.[l.id]) || 0]),
+      ),
     }));
-    
+
     const stocksObj = form.controlStock
       ? Object.fromEntries(
-          stockLocations.map((l) => [
-            l.id,
-            parseInt(form.stocks[l.id]) || 0
-          ])
+          stockLocations.map((l) => [l.id, parseInt(form.stocks[l.id]) || 0]),
         )
       : {};
 
@@ -187,34 +200,54 @@ export function Estoque({
       price: parseFloat(form.price) || 0,
       imposto: form.imposto ? parseFloat(form.imposto) : 0,
       frete: form.frete ? parseFloat(form.frete) : 0,
-      vipPrice: form.vipPrice !== "" && form.vipPrice != null ? parseFloat(form.vipPrice) : null,
-      vip_price: form.vipPrice !== "" && form.vipPrice != null ? parseFloat(form.vipPrice) : null,
-      vipPrice3x: form.vipPrice3x !== "" && form.vipPrice3x != null ? parseFloat(form.vipPrice3x) : null,
-      vip_price_3x: form.vipPrice3x !== "" && form.vipPrice3x != null ? parseFloat(form.vipPrice3x) : null,
+      vipPrice:
+        form.vipPrice !== "" && form.vipPrice != null
+          ? parseFloat(form.vipPrice)
+          : null,
+      vip_price:
+        form.vipPrice !== "" && form.vipPrice != null
+          ? parseFloat(form.vipPrice)
+          : null,
+      vipPrice3x:
+        form.vipPrice3x !== "" && form.vipPrice3x != null
+          ? parseFloat(form.vipPrice3x)
+          : null,
+      vip_price_3x:
+        form.vipPrice3x !== "" && form.vipPrice3x != null
+          ? parseFloat(form.vipPrice3x)
+          : null,
       description: form.description || "",
       controlStock: Boolean(form.controlStock),
       control_stock: Boolean(form.controlStock),
       imageUrl: form.imageUrl || null,
       image_url: form.imageUrl || null,
       stocks: stocksObj,
-      variations: validatedVariations
+      variations: validatedVariations,
     };
 
     try {
       const token = localStorage.getItem("byse_token");
-      const rawApiUrl = import.meta.env.VITE_API_URL || (window.location.hostname === "localhost" ? "http://localhost:3333/api" : "https://byse-pro-backend-production.up.railway.app/api");
-      const API_URL = rawApiUrl.endsWith("/api") ? rawApiUrl : `${rawApiUrl.endsWith("/") ? rawApiUrl.slice(0, -1) : rawApiUrl}/api`;
+      const rawApiUrl =
+        import.meta.env.VITE_API_URL ||
+        (window.location.hostname === "localhost"
+          ? "http://localhost:3333/api"
+          : "https://byse-pro-backend-production.up.railway.app/api");
+      const API_URL = rawApiUrl.endsWith("/api")
+        ? rawApiUrl
+        : `${rawApiUrl.endsWith("/") ? rawApiUrl.slice(0, -1) : rawApiUrl}/api`;
 
-      const endpoint = editingId ? `${API_URL}/products/${editingId}` : `${API_URL}/products`;
+      const endpoint = editingId
+        ? `${API_URL}/products/${editingId}`
+        : `${API_URL}/products`;
       const method = editingId ? "PUT" : "POST";
 
       const response = await fetch(endpoint, {
         method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(built)
+        body: JSON.stringify(built),
       });
 
       if (response.ok) {
@@ -222,7 +255,8 @@ export function Estoque({
         const finalProduct = {
           ...built,
           ...savedData,
-          variations: savedData.variations || savedData.subcategories || built.variations
+          variations:
+            savedData.variations || savedData.subcategories || built.variations,
         };
 
         if (editingId) {
@@ -230,7 +264,11 @@ export function Estoque({
             await onEditProduct(finalProduct);
           } else if (setProducts) {
             const currentList = Array.isArray(products) ? products : [];
-            setProducts(currentList.map(p => p.id === finalProduct.id ? finalProduct : p));
+            setProducts(
+              currentList.map((p) =>
+                p.id === finalProduct.id ? finalProduct : p,
+              ),
+            );
           }
         } else {
           if (setProducts) {
@@ -273,10 +311,10 @@ export function Estoque({
     ...Array.from(
       new Set(
         (Array.isArray(products) ? products : []).map(
-          (p) => p.category || "Sem categoria"
-        )
-      )
-    )
+          (p) => p.category || "Sem categoria",
+        ),
+      ),
+    ),
   ];
 
   const filteredProducts = Array.isArray(products)
@@ -314,7 +352,7 @@ export function Estoque({
             border: `1px solid ${border}`,
             borderRadius: 12,
             padding: 14,
-            marginBottom: 16
+            marginBottom: 16,
           }}
         >
           {stockLocations.map((l) => (
@@ -325,7 +363,7 @@ export function Estoque({
               style={{
                 ...inputStyle(border, text),
                 width: "100%",
-                marginBottom: 6
+                marginBottom: 6,
               }}
             />
           ))}
@@ -345,7 +383,7 @@ export function Estoque({
                 borderRadius: 8,
                 padding: "0 14px",
                 fontWeight: 700,
-                cursor: "pointer"
+                cursor: "pointer",
               }}
             >
               + Adicionar
@@ -368,7 +406,7 @@ export function Estoque({
           fontSize: 13,
           fontWeight: 600,
           cursor: "pointer",
-          marginBottom: 16
+          marginBottom: 16,
         }}
       >
         <Plus size={15} />{" "}
@@ -382,7 +420,7 @@ export function Estoque({
             border: `1px solid ${border}`,
             borderRadius: 12,
             padding: 16,
-            marginBottom: 16
+            marginBottom: 16,
           }}
         >
           <div
@@ -390,39 +428,31 @@ export function Estoque({
               display: "flex",
               gap: 10,
               flexWrap: "wrap",
-              marginBottom: 10
+              marginBottom: 10,
             }}
           >
             <input
               placeholder="Nome do produto"
               value={form.name}
-              onChange={(e) =>
-                setForm({ ...form, name: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
               style={inputStyle(border, text)}
             />
             <input
               placeholder="Categoria"
               value={form.category}
-              onChange={(e) =>
-                setForm({ ...form, category: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
               style={inputStyle(border, text)}
             />
             <input
               placeholder="Código de barras"
               value={form.barcode}
-              onChange={(e) =>
-                setForm({ ...form, barcode: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
               style={inputStyle(border, text)}
             />
             <input
               placeholder="Código rápido (ex: 30) - Usado no Catálogo"
               value={form.code}
-              onChange={(e) =>
-                setForm({ ...form, code: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
               style={inputStyle(border, text)}
             />
           </div>
@@ -432,43 +462,35 @@ export function Estoque({
               display: "flex",
               gap: 10,
               flexWrap: "wrap",
-              marginBottom: 10
+              marginBottom: 10,
             }}
           >
             <input
               placeholder="Custo (R$)"
               type="number"
               value={form.cost}
-              onChange={(e) =>
-                setForm({ ...form, cost: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, cost: e.target.value })}
               style={inputStyle(border, text)}
             />
             <input
               placeholder="Valor de venda (R$)"
               type="number"
               value={form.price}
-              onChange={(e) =>
-                setForm({ ...form, price: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
               style={inputStyle(border, text)}
             />
             <input
               placeholder="Valor Vip À VISTA (R$)"
               type="number"
               value={form.vipPrice}
-              onChange={(e) =>
-                setForm({ ...form, vipPrice: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, vipPrice: e.target.value })}
               style={{ ...inputStyle(border, text), borderColor: accent }}
             />
             <input
               placeholder="Valor VIP 3x s/ juros (R$)"
               type="number"
               value={form.vipPrice3x}
-              onChange={(e) =>
-                setForm({ ...form, vipPrice3x: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, vipPrice3x: e.target.value })}
               style={{ ...inputStyle(border, text), borderColor: accent }}
             />
           </div>
@@ -478,7 +500,7 @@ export function Estoque({
               display: "flex",
               gap: 10,
               flexWrap: "wrap",
-              marginBottom: 10
+              marginBottom: 10,
             }}
           >
             <div style={{ flex: "1 1 150px" }}>
@@ -486,16 +508,14 @@ export function Estoque({
                 placeholder="Imposto (R$)"
                 type="number"
                 value={form.imposto}
-                onChange={(e) =>
-                  setForm({ ...form, imposto: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, imposto: e.target.value })}
                 style={{ ...inputStyle(border, text), width: "100%" }}
               />
               <div
                 style={{
                   fontSize: 10.5,
                   color: subtext,
-                  marginTop: 3
+                  marginTop: 3,
                 }}
               >
                 {pctOfCost(form.imposto) != null
@@ -509,16 +529,14 @@ export function Estoque({
                 placeholder="Frete (R$)"
                 type="number"
                 value={form.frete}
-                onChange={(e) =>
-                  setForm({ ...form, frete: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, frete: e.target.value })}
                 style={{ ...inputStyle(border, text), width: "100%" }}
               />
               <div
                 style={{
                   fontSize: 10.5,
                   color: subtext,
-                  marginTop: 3
+                  marginTop: 3,
                 }}
               >
                 {pctOfCost(form.frete) != null
@@ -531,16 +549,14 @@ export function Estoque({
           <textarea
             placeholder="Descrição (aparece no catálogo)"
             value={form.description}
-            onChange={(e) =>
-              setForm({ ...form, description: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
             rows={2}
             style={{
               ...inputStyle(border, text),
               width: "100%",
               marginBottom: 10,
               fontFamily: FONT_BODY,
-              resize: "vertical"
+              resize: "vertical",
             }}
           />
 
@@ -550,7 +566,7 @@ export function Estoque({
               alignItems: "center",
               gap: 10,
               marginBottom: 10,
-              flexWrap: "wrap"
+              flexWrap: "wrap",
             }}
           >
             <label
@@ -559,7 +575,7 @@ export function Estoque({
                 alignItems: "center",
                 gap: 6,
                 fontSize: 13,
-                color: text
+                color: text,
               }}
             >
               <input
@@ -577,7 +593,7 @@ export function Estoque({
                 alignItems: "center",
                 gap: 8,
                 fontSize: 12.5,
-                color: subtext
+                color: subtext,
               }}
             >
               Foto:{" "}
@@ -596,7 +612,7 @@ export function Estoque({
                   width: 40,
                   height: 40,
                   objectFit: "cover",
-                  borderRadius: 6
+                  borderRadius: 6,
                 }}
               />
             )}
@@ -604,7 +620,14 @@ export function Estoque({
 
           {form.controlStock && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: text, marginBottom: 6 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 6,
+                }}
+              >
                 Estoque Principal / Global:
               </div>
               <div
@@ -612,7 +635,7 @@ export function Estoque({
                   display: "flex",
                   gap: 10,
                   flexWrap: "wrap",
-                  marginBottom: 14
+                  marginBottom: 14,
                 }}
               >
                 {stockLocations.map((l) => (
@@ -626,8 +649,8 @@ export function Estoque({
                         ...form,
                         stocks: {
                           ...form.stocks,
-                          [l.id]: e.target.value
-                        }
+                          [l.id]: e.target.value,
+                        },
                       })
                     }
                     style={inputStyle(border, text)}
@@ -635,8 +658,21 @@ export function Estoque({
                 ))}
               </div>
 
-              <div style={{ borderTop: `1px dashed ${border}`, paddingTop: 12, marginTop: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div
+                style={{
+                  borderTop: `1px dashed ${border}`,
+                  paddingTop: 12,
+                  marginTop: 10,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: text }}>
                     Subcategorias / Variações (ex: Sabores, Cores, Tamanhos)
                   </div>
@@ -651,7 +687,7 @@ export function Estoque({
                       padding: "4px 10px",
                       fontSize: 11.5,
                       fontWeight: 600,
-                      cursor: "pointer"
+                      cursor: "pointer",
                     }}
                   >
                     + Adicionar Variação
@@ -669,20 +705,29 @@ export function Estoque({
                       marginBottom: 8,
                       display: "flex",
                       flexDirection: "column",
-                      gap: 8
+                      gap: 8,
                     }}
                   >
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div
+                      style={{ display: "flex", gap: 8, alignItems: "center" }}
+                    >
                       <input
                         placeholder='Nome da variação (ex: "Chocolate")'
                         value={v.name}
-                        onChange={(e) => updateVariationName(v.id, e.target.value)}
+                        onChange={(e) =>
+                          updateVariationName(v.id, e.target.value)
+                        }
                         style={{ ...inputStyle(border, text), flex: 1 }}
                       />
                       <button
                         type="button"
                         onClick={() => removeVariation(v.id)}
-                        style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 4,
+                        }}
                       >
                         <Trash2 size={16} color="#ef4444" />
                       </button>
@@ -695,8 +740,13 @@ export function Estoque({
                           placeholder={`Qtd ${l.name} (${v.name || "Variação"})`}
                           type="number"
                           value={v.stocks?.[l.id] ?? ""}
-                          onChange={(e) => updateVariationStock(v.id, l.id, e.target.value)}
-                          style={{ ...inputStyle(border, text), flex: "1 1 120px" }}
+                          onChange={(e) =>
+                            updateVariationStock(v.id, l.id, e.target.value)
+                          }
+                          style={{
+                            ...inputStyle(border, text),
+                            flex: "1 1 120px",
+                          }}
                         />
                       ))}
                     </div>
@@ -717,7 +767,7 @@ export function Estoque({
                 padding: "8px 16px",
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: "pointer"
+                cursor: "pointer",
               }}
             >
               Salvar produto
@@ -733,7 +783,7 @@ export function Estoque({
                   padding: "8px 16px",
                   fontSize: 13,
                   fontWeight: 600,
-                  cursor: "pointer"
+                  cursor: "pointer",
                 }}
               >
                 Cancelar
@@ -744,7 +794,9 @@ export function Estoque({
       )}
 
       {/* Barra de Filtro por Categoria */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+      <div
+        style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}
+      >
         {categories.map((cat) => (
           <button
             key={cat}
@@ -758,7 +810,7 @@ export function Estoque({
               fontSize: 12,
               fontWeight: 600,
               cursor: "pointer",
-              transition: "all 0.2s ease"
+              transition: "all 0.2s ease",
             }}
           >
             {cat}
@@ -771,7 +823,7 @@ export function Estoque({
           background: card,
           border: `1px solid ${border}`,
           borderRadius: 12,
-          overflow: "auto"
+          overflow: "auto",
         }}
       >
         <div
@@ -784,7 +836,7 @@ export function Estoque({
             fontWeight: 700,
             borderBottom: `1px solid ${border}`,
             textTransform: "uppercase",
-            minWidth: 700
+            minWidth: 700,
           }}
         >
           <div>Produto</div>
@@ -800,18 +852,30 @@ export function Estoque({
         </div>
 
         {filteredProducts.length === 0 && (
-          <div style={{ padding: 20, textAlign: "center", color: subtext, fontSize: 13 }}>
+          <div
+            style={{
+              padding: 20,
+              textAlign: "center",
+              color: subtext,
+              fontSize: 13,
+            }}
+          >
             Nenhum produto encontrado nesta categoria.
           </div>
         )}
 
         {filteredProducts.map((p, i) => {
-          const pVipPrice = p.vip_price !== undefined ? p.vip_price : p.vipPrice;
-          const pVipPrice3x = p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
-          const pControlStock = p.control_stock !== undefined ? p.control_stock : p.controlStock;
+          const pVipPrice =
+            p.vip_price !== undefined ? p.vip_price : p.vipPrice;
+          const pVipPrice3x =
+            p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
+          const pControlStock =
+            p.control_stock !== undefined ? p.control_stock : p.controlStock;
           const pImageUrl = p.image_url || p.imageUrl;
-          const pVariations = Array.isArray(p.variations) ? p.variations : (p.subcategories || []);
-          
+          const pVariations = Array.isArray(p.variations)
+            ? p.variations
+            : p.subcategories || [];
+
           return (
             <div
               key={p.id}
@@ -823,15 +887,28 @@ export function Estoque({
                 fontSize: 13,
                 alignItems: "center",
                 borderBottom:
-                  i < filteredProducts.length - 1 ? `1px solid ${border}` : "none",
+                  i < filteredProducts.length - 1
+                    ? `1px solid ${border}`
+                    : "none",
                 minWidth: 700,
                 cursor: "pointer",
-                transition: "background 0.15s ease"
+                transition: "background 0.15s ease",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = `${accent}08`)}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = `${accent}08`)
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background = "transparent")
+              }
             >
-              <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
                 {pImageUrl && (
                   <img
                     src={pImageUrl}
@@ -841,7 +918,7 @@ export function Estoque({
                       height: 32,
                       objectFit: "cover",
                       borderRadius: 4,
-                      flexShrink: 0
+                      flexShrink: 0,
                     }}
                   />
                 )}
@@ -852,7 +929,7 @@ export function Estoque({
                       style={{
                         fontSize: 11,
                         color: subtext,
-                        fontWeight: 400
+                        fontWeight: 400,
                       }}
                     >
                       {p.code && `cód. ${p.code}`}
@@ -862,12 +939,23 @@ export function Estoque({
                   )}
 
                   {pVariations.length > 0 && (
-                    <div style={{ fontSize: 11, color: subtext, marginTop: 3, fontWeight: 400 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: subtext,
+                        marginTop: 3,
+                        fontWeight: 400,
+                      }}
+                    >
                       {pVariations.map((v, vIdx) => {
-                        const varTotal = Object.values(v.stocks || {}).reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+                        const varTotal = Object.values(v.stocks || {}).reduce(
+                          (acc, curr) => acc + (Number(curr) || 0),
+                          0,
+                        );
                         return (
                           <span key={vIdx}>
-                            {v.name}: {varTotal}{vIdx < pVariations.length - 1 ? " | " : ""}
+                            {v.name}: {varTotal}
+                            {vIdx < pVariations.length - 1 ? " | " : ""}
                           </span>
                         );
                       })}
@@ -878,13 +966,27 @@ export function Estoque({
               <div>{p.category}</div>
               <div>{money(p.cost)}</div>
               <div style={{ fontWeight: 700 }}>{money(p.price)}</div>
-              <div style={{ fontWeight: 700, color: accent }}>{pVipPrice != null ? money(pVipPrice) : "—"}</div>
-              <div style={{ fontWeight: 700, color: accent }}>{pVipPrice3x != null ? money(pVipPrice3x) : "—"}</div>
+              <div style={{ fontWeight: 700, color: accent }}>
+                {pVipPrice != null ? money(pVipPrice) : "—"}
+              </div>
+              <div style={{ fontWeight: 700, color: accent }}>
+                {pVipPrice3x != null ? money(pVipPrice3x) : "—"}
+              </div>
 
               {stockLocations.map((l) => {
-                const globalLocStock = Number(p.stocks?.[l.id] || 0);
-                const variationsLocStock = pVariations.reduce((acc, v) => acc + (Number(v.stocks?.[l.id]) || 0), 0);
-                const totalLocStock = globalLocStock + variationsLocStock;
+                const pVariations = Array.isArray(p.variations)
+                  ? p.variations
+                  : p.subcategories || [];
+                const variationsLocStock = pVariations.reduce(
+                  (acc, v) => acc + (Number(v.stocks?.[l.id]) || 0),
+                  0,
+                );
+
+                // Se houver variações, exibe o estoque das variações. Caso contrário, exibe o estoque global.
+                const totalLocStock =
+                  pVariations.length > 0
+                    ? variationsLocStock
+                    : Number(p.stocks?.[l.id] || 0);
 
                 return (
                   <div key={l.id}>
@@ -907,24 +1009,39 @@ export function Estoque({
                 );
               })}
 
-              <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+              <div
+                style={{ display: "flex", gap: 6 }}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <button
                   onClick={() => setViewingProduct(p)}
-                  style={{ background: "none", border: "none", cursor: "pointer" }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
                   title="Ver detalhes"
                 >
                   <Eye size={14} color={subtext} />
                 </button>
                 <button
                   onClick={() => startEdit(p)}
-                  style={{ background: "none", border: "none", cursor: "pointer" }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
                   title="Editar"
                 >
                   <Edit2 size={14} color={subtext} />
                 </button>
                 <button
                   onClick={() => removeProduct(p.id)}
-                  style={{ background: "none", border: "none", cursor: "pointer" }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
                   title="Excluir"
                 >
                   <Trash2 size={14} color={subtext} />
@@ -936,254 +1053,542 @@ export function Estoque({
       </div>
 
       {/* Modal / Gaveta de Detalhes Completos do Produto */}
-      {viewingProduct && (() => {
-        const vp = viewingProduct;
-        const vpVipPrice = vp.vip_price !== undefined ? vp.vip_price : vp.vipPrice;
-        const vpVipPrice3x = vp.vip_price_3x !== undefined ? vp.vip_price_3x : vp.vipPrice3x;
-        const vpControlStock = vp.control_stock !== undefined ? vp.control_stock : vp.controlStock;
-        const vpImageUrl = vp.image_url || vp.imageUrl;
-        const vpVariations = Array.isArray(vp.variations) ? vp.variations : (vp.subcategories || []);
+      {viewingProduct &&
+        (() => {
+          const vp = viewingProduct;
+          const vpVipPrice =
+            vp.vip_price !== undefined ? vp.vip_price : vp.vipPrice;
+          const vpVipPrice3x =
+            vp.vip_price_3x !== undefined ? vp.vip_price_3x : vp.vipPrice3x;
+          const vpControlStock =
+            vp.control_stock !== undefined ? vp.control_stock : vp.controlStock;
+          const vpImageUrl = vp.image_url || vp.imageUrl;
+          const vpVariations = Array.isArray(vp.variations)
+            ? vp.variations
+            : vp.subcategories || [];
 
-        return (
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.6)",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              zIndex: 1000,
-              padding: 16
-            }}
-            onClick={() => setViewingProduct(null)}
-          >
+          return (
             <div
               style={{
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 16,
-                width: "100%",
-                maxWidth: 700,
-                maxHeight: "90vh",
-                overflowY: "auto",
-                padding: 24,
-                boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.3)",
-                position: "relative"
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "rgba(0,0,0,0.6)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 1000,
+                padding: 16,
               }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={() => setViewingProduct(null)}
             >
-              {/* Botão Fechar */}
-              <button
-                onClick={() => setViewingProduct(null)}
+              <div
                 style={{
-                  position: "absolute",
-                  top: 16,
-                  right: 16,
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: text,
-                  padding: 4
+                  background: card,
+                  border: `1px solid ${border}`,
+                  borderRadius: 16,
+                  width: "100%",
+                  maxWidth: 700,
+                  maxHeight: "90vh",
+                  overflowY: "auto",
+                  padding: 24,
+                  boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.3)",
+                  position: "relative",
                 }}
+                onClick={(e) => e.stopPropagation()}
               >
-                <X size={20} />
-              </button>
-
-              {/* Cabeçalho do Modal */}
-              <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 20 }}>
-                {vpImageUrl ? (
-                  <img
-                    src={vpImageUrl}
-                    alt={vp.name}
-                    style={{
-                      width: 90,
-                      height: 90,
-                      objectFit: "cover",
-                      borderRadius: 10,
-                      border: `1px solid ${border}`
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: 90,
-                      height: 90,
-                      background: `${accent}15`,
-                      borderRadius: 10,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: accent,
-                      fontWeight: 700,
-                      fontSize: 12
-                    }}
-                  >
-                    Sem foto
-                  </div>
-                )}
-                <div>
-                  <div style={{ fontSize: 12, color: accent, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
-                    {vp.category || "Sem categoria"}
-                  </div>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, color: text, margin: "0 0 6px 0" }}>
-                    {vp.name}
-                  </h2>
-                  <div style={{ fontSize: 12, color: subtext, display: "flex", gap: 12 }}>
-                    {vp.code && <span>Cód. rápido: <strong>{vp.code}</strong></span>}
-                    {vp.barcode && <span>Cód. barras: <strong>{vp.barcode}</strong></span>}
-                  </div>
-                </div>
-              </div>
-
-              {/* Descrição */}
-              {vp.description && (
-                <div style={{ marginBottom: 20, background: `${border}20`, padding: 12, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: subtext, textTransform: "uppercase", marginBottom: 4 }}>
-                    Descrição
-                  </div>
-                  <div style={{ fontSize: 13, color: text, lineHeight: 1.4 }}>
-                    {vp.description}
-                  </div>
-                </div>
-              )}
-
-              {/* Grid de Preços e Custos */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
-                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Custo</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: text, marginTop: 2 }}>{money(vp.cost)}</div>
-                </div>
-                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Venda Padrão</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: text, marginTop: 2 }}>{money(vp.price)}</div>
-                </div>
-                <div style={{ background: `${accent}15`, border: `1px solid ${accent}40`, padding: 10, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: accent, fontWeight: 600 }}>VIP À Vista</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: accent, marginTop: 2 }}>
-                    {vpVipPrice != null ? money(vpVipPrice) : "—"}
-                  </div>
-                </div>
-                <div style={{ background: `${accent}15`, border: `1px solid ${accent}40`, padding: 10, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: accent, fontWeight: 600 }}>VIP 3x S/ Juros</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: accent, marginTop: 2 }}>
-                    {vpVipPrice3x != null ? money(vpVipPrice3x) : "—"}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
-                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Imposto</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginTop: 2 }}>{money(vp.imposto)}</div>
-                </div>
-                <div style={{ background: `${border}15`, padding: 10, borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: subtext, fontWeight: 600 }}>Frete</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: text, marginTop: 2 }}>{money(vp.frete)}</div>
-                </div>
-              </div>
-
-              {/* Distribuição de Estoque */}
-              <div style={{ borderTop: `1px solid ${border}`, paddingTop: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: text, marginBottom: 12 }}>
-                  Distribuição de Estoque por Local
-                </div>
-
-                {vpControlStock === false ? (
-                  <div style={{ fontSize: 12, color: subtext, fontStyle: "italic", marginBottom: 12 }}>
-                    Este produto está configurado para **não controlar estoque**.
-                  </div>
-                ) : (
-                  <>
-                    {/* Totais por Local */}
-                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${stockLocations.length}, 1fr)`, gap: 8, marginBottom: 16 }}>
-                      {stockLocations.map((l) => {
-                        const globalLocStock = Number(vp.stocks?.[l.id] || 0);
-                        const variationsLocStock = vpVariations.reduce((acc, v) => acc + (Number(v.stocks?.[l.id]) || 0), 0);
-                        const totalLocStock = globalLocStock + variationsLocStock;
-
-                        return (
-                          <div key={l.id} style={{ background: card, border: `1px solid ${border}`, padding: 10, borderRadius: 8, textAlign: "center" }}>
-                            <div style={{ fontSize: 11, color: subtext, marginBottom: 4 }}>{l.name}</div>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: accent }}>{totalLocStock}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Variações Detalhadas com Quantidades */}
-                    {vpVariations.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: subtext, marginBottom: 8 }}>
-                          Detalhamento por Variações / Subcategorias:
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {vpVariations.map((v, vIdx) => (
-                            <div key={vIdx} style={{ background: `${border}10`, padding: 8, borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontWeight: 600, fontSize: 12, color: text }}>{v.name}</span>
-                              <div style={{ display: "flex", gap: 12, fontSize: 12, color: subtext }}>
-                                {stockLocations.map((l) => (
-                                  <span key={l.id}>
-                                    {l.name}: <strong style={{ color: text }}>{v.stocks?.[l.id] || 0}</strong>
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Ações no Rodapé do Modal */}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24, borderTop: `1px solid ${border}`, paddingTop: 16 }}>
-                <button
-                  onClick={() => {
-                    const prodToEdit = viewingProduct;
-                    setViewingProduct(null);
-                    startEdit(prodToEdit);
-                  }}
-                  style={{
-                    background: accent,
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "8px 16px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  <Edit2 size={14} /> Editar Produto
-                </button>
+                {/* Botão Fechar */}
                 <button
                   onClick={() => setViewingProduct(null)}
                   style={{
-                    background: "transparent",
-                    border: `1px solid ${border}`,
+                    position: "absolute",
+                    top: 16,
+                    right: 16,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
                     color: text,
-                    borderRadius: 8,
-                    padding: "8px 16px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer"
+                    padding: 4,
                   }}
                 >
-                  Fechar
+                  <X size={20} />
                 </button>
+
+                {/* Cabeçalho do Modal */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 16,
+                    alignItems: "flex-start",
+                    marginBottom: 20,
+                  }}
+                >
+                  {vpImageUrl ? (
+                    <img
+                      src={vpImageUrl}
+                      alt={vp.name}
+                      style={{
+                        width: 90,
+                        height: 90,
+                        objectFit: "cover",
+                        borderRadius: 10,
+                        border: `1px solid ${border}`,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 90,
+                        height: 90,
+                        background: `${accent}15`,
+                        borderRadius: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: accent,
+                        fontWeight: 700,
+                        fontSize: 12,
+                      }}
+                    >
+                      Sem foto
+                    </div>
+                  )}
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: accent,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {vp.category || "Sem categoria"}
+                    </div>
+                    <h2
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 700,
+                        color: text,
+                        margin: "0 0 6px 0",
+                      }}
+                    >
+                      {vp.name}
+                    </h2>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: subtext,
+                        display: "flex",
+                        gap: 12,
+                      }}
+                    >
+                      {vp.code && (
+                        <span>
+                          Cód. rápido: <strong>{vp.code}</strong>
+                        </span>
+                      )}
+                      {vp.barcode && (
+                        <span>
+                          Cód. barras: <strong>{vp.barcode}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Descrição */}
+                {vp.description && (
+                  <div
+                    style={{
+                      marginBottom: 20,
+                      background: `${border}20`,
+                      padding: 12,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: subtext,
+                        textTransform: "uppercase",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Descrição
+                    </div>
+                    <div style={{ fontSize: 13, color: text, lineHeight: 1.4 }}>
+                      {vp.description}
+                    </div>
+                  </div>
+                )}
+
+                {/* Grid de Preços e Custos */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                    gap: 10,
+                    marginBottom: 20,
+                  }}
+                >
+                  <div
+                    style={{
+                      background: `${border}15`,
+                      padding: 10,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                    >
+                      Custo
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: text,
+                        marginTop: 2,
+                      }}
+                    >
+                      {money(vp.cost)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      background: `${border}15`,
+                      padding: 10,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                    >
+                      Venda Padrão
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: text,
+                        marginTop: 2,
+                      }}
+                    >
+                      {money(vp.price)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      background: `${accent}15`,
+                      border: `1px solid ${accent}40`,
+                      padding: 10,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 11, color: accent, fontWeight: 600 }}
+                    >
+                      VIP À Vista
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: accent,
+                        marginTop: 2,
+                      }}
+                    >
+                      {vpVipPrice != null ? money(vpVipPrice) : "—"}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      background: `${accent}15`,
+                      border: `1px solid ${accent}40`,
+                      padding: 10,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 11, color: accent, fontWeight: 600 }}
+                    >
+                      VIP 3x S/ Juros
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: accent,
+                        marginTop: 2,
+                      }}
+                    >
+                      {vpVipPrice3x != null ? money(vpVipPrice3x) : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                    marginBottom: 20,
+                  }}
+                >
+                  <div
+                    style={{
+                      background: `${border}15`,
+                      padding: 10,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                    >
+                      Imposto
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: text,
+                        marginTop: 2,
+                      }}
+                    >
+                      {money(vp.imposto)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      background: `${border}15`,
+                      padding: 10,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                    >
+                      Frete
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: text,
+                        marginTop: 2,
+                      }}
+                    >
+                      {money(vp.frete)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Distribuição de Estoque */}
+                <div
+                  style={{ borderTop: `1px solid ${border}`, paddingTop: 16 }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: text,
+                      marginBottom: 12,
+                    }}
+                  >
+                    Distribuição de Estoque por Local
+                  </div>
+
+                  {vpControlStock === false ? (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: subtext,
+                        fontStyle: "italic",
+                        marginBottom: 12,
+                      }}
+                    >
+                      Este produto está configurado para **não controlar
+                      estoque**.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Totais por Local */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: `repeat(${stockLocations.length}, 1fr)`,
+                          gap: 8,
+                          marginBottom: 16,
+                        }}
+                      >
+                        {stockLocations.map((l) => {
+                          const variationsLocStock = vpVariations.reduce(
+                            (acc, v) => acc + (Number(v.stocks?.[l.id]) || 0),
+                            0,
+                          );
+
+                          const totalLocStock =
+                            vpVariations.length > 0
+                              ? variationsLocStock
+                              : Number(vp.stocks?.[l.id] || 0);
+                          return (
+                            <div
+                              key={l.id}
+                              style={{
+                                background: card,
+                                border: `1px solid ${border}`,
+                                padding: 10,
+                                borderRadius: 8,
+                                textAlign: "center",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: subtext,
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {l.name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 16,
+                                  fontWeight: 700,
+                                  color: accent,
+                                }}
+                              >
+                                {totalLocStock}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Variações Detalhadas com Quantidades */}
+                      {vpVariations.length > 0 && (
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: subtext,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Detalhamento por Variações / Subcategorias:
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                            }}
+                          >
+                            {vpVariations.map((v, vIdx) => (
+                              <div
+                                key={vIdx}
+                                style={{
+                                  background: `${border}10`,
+                                  padding: 8,
+                                  borderRadius: 6,
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontWeight: 600,
+                                    fontSize: 12,
+                                    color: text,
+                                  }}
+                                >
+                                  {v.name}
+                                </span>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: 12,
+                                    fontSize: 12,
+                                    color: subtext,
+                                  }}
+                                >
+                                  {stockLocations.map((l) => (
+                                    <span key={l.id}>
+                                      {l.name}:{" "}
+                                      <strong style={{ color: text }}>
+                                        {v.stocks?.[l.id] || 0}
+                                      </strong>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Ações no Rodapé do Modal */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                    marginTop: 24,
+                    borderTop: `1px solid ${border}`,
+                    paddingTop: 16,
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      const prodToEdit = viewingProduct;
+                      setViewingProduct(null);
+                      startEdit(prodToEdit);
+                    }}
+                    style={{
+                      background: accent,
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "8px 16px",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Edit2 size={14} /> Editar Produto
+                  </button>
+                  <button
+                    onClick={() => setViewingProduct(null)}
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${border}`,
+                      color: text,
+                      borderRadius: 8,
+                      padding: "8px 16px",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
     </div>
   );
 }
