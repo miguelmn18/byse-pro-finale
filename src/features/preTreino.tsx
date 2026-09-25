@@ -437,7 +437,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                      
                      const clientTotalSpent = clientRecords.reduce((sum:number, r:any) => {
                        const pMatch = products.find((p:any)=>p.id === r.productId || p.id === r.produto_id);
-                       const val = Number(r.value || r.valor || pMatch?.price || 0);
+                       const val = Number(r.value || r.valor || pMatch?.cost || 0);
                        return sum + val;
                      }, 0);
 
@@ -477,7 +477,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                                  
                                  const dayTotal = dayItems.reduce((accDay:number, item:any) => {
                                    const pMatch = products.find((p:any)=>p.id === item.productId || p.id === item.produto_id);
-                                   return accDay + Number(item.value || item.valor || pMatch?.price || 0);
+                                   return accDay + Number(item.cost || item.valor || pMatch?.price || 0);
                                  }, 0);
 
                                  return (
