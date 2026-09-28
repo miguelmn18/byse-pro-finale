@@ -218,14 +218,17 @@ function Fiados({
 
   const clearAllFiados = async () => {
     if (confirm("Tem certeza que deseja excluir TODOS os fiados? Esta ação não pode ser desfeita.")) {
+      const itemsToDelete = [...fiados];
       setFiados([]);
-      for (const f of fiados) {
+      for (const f of itemsToDelete) {
         try {
           await fetch(`${API_URL}/fiados/${f.id}`, {
             method: "DELETE",
             headers: getAuthHeaders()
           });
-        } catch (err) {}
+        } catch (err) {
+          console.error(`Erro ao excluir fiado ${f.id}:`, err);
+        }
       }
     }
   };

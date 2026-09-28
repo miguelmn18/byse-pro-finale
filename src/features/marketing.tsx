@@ -228,6 +228,12 @@ function TrafegoPago({
           sub={roi >= 0 ? "Positivo" : "Negativo"}
           {...{ card, border, subtext, accent }}
         />
+        <StatCard
+          label="Faturamento do período"
+          value={`${roi.toFixed(0)}%`}
+          sub={roi >= 0 ? "Positivo" : "Negativo"}
+          {...{ card, border, subtext, accent }}
+        />
       </div>
 
       <button

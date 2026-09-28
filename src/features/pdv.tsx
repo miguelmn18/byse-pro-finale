@@ -24,8 +24,11 @@ export function PDV({
 }) {
   const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
 
+  // ==========================================
+  // CONTROLO DE TEMPO E PERSISTÊNCIA CONTÍNUA (localStorage)
+  // ==========================================
   const STORAGE_KEY = "byse_pdv_persistent_data";
-  const TIMEOUT_DURATION = 10 * 60 * 1000;
+  const TIMEOUT_DURATION = 10 * 60 * 1000; // 10 minutos
 
   const getInitialState = (key, defaultValue) => {
     try {
@@ -54,8 +57,6 @@ export function PDV({
   
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
   const [lastCompletedSale, setLastCompletedSale] = useState(null);
-  const finalizingSaleRef = useRef(false);
-  const [isFinalizingSale, setIsFinalizingSale] = useState(false);
 
   const [productQuery, setProductQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Todos produtos");
@@ -65,10 +66,11 @@ export function PDV({
   const [salesChannel, setSalesChannel] = useState("Loja física");
   const [deliveryType, setDeliveryType] = useState("Retirada");
 
+  // Estado para modal/seleção de variação de um produto clicado
   const [activeProductForVariation, setActiveProductForVariation] = useState(null);
   const [selectedVariationOption, setSelectedVariationOption] = useState("");
 
-  const [cashbackPercent, setCashbackPercent] = useState(3);
+  const [cashbackPercent, setCashbackPercent] = useState(0);
   const [cashbackValidityDays, setCashbackValidityDays] = useState(30);
   const [cashbackMessage, setCashbackMessage] = useState('Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁');
   const [activeReminderButton, setActiveReminderButton] = useState(false);
@@ -101,10 +103,6 @@ export function PDV({
       const res = await fetch(`${API_URL}/api/pdv/config`, { headers });
       if (res.ok) {
         const data = await res.json();
-        
-        const fetchedPct = data.cashbackPercentage !== undefined && data.cashbackPercentage !== null ? Number(data.cashbackPercentage) : 3;
-        setCashbackPercent(fetchedPct);
-
         if (data.cashbackPercentage !== undefined) setCashbackPercent(Number(data.cashbackPercentage));
         if (data.cashbackValidityDays !== undefined) setCashbackValidityDays(Number(data.cashbackValidityDays));
         if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
@@ -143,15 +141,14 @@ export function PDV({
     }
   };
 
-  // Padronização: Usa ID 'loja' em vez de 'loja-fisica' para corresponder ao estoque.tsx
   const availableStockLocations = stockLocations && stockLocations.length > 0 
     ? stockLocations 
     : [
-        { id: 'loja', name: 'Loja Física' },
+        { id: 'loja-fisica', name: 'Loja Física' },
         { id: 'degustacao', name: 'Degustação' }
       ];
 
-  const [selectedStockLoc, setSelectedStockLoc] = useState(availableStockLocations[0]?.id || "loja");
+  const [selectedStockLoc, setSelectedStockLoc] = useState(availableStockLocations[0]?.id || "");
 
   const categories = [
     "Todos produtos",
@@ -178,6 +175,7 @@ export function PDV({
     });
 
     setCustomerSuggestions(matches);
+
     if (matches.length === 1) {
       setFoundCustomer(matches[0]);
     }
@@ -319,7 +317,8 @@ export function PDV({
   };
 
   const filteredProducts = products.filter((p) => {
-    const matchesCategory = selectedCategory === "Todos produtos" || p.category === selectedCategory;
+    const matchesCategory =
+      selectedCategory === "Todos produtos" || p.category === selectedCategory;
     const query = productQuery.toLowerCase();
     const matchesQuery =
       (p.name && p.name.toLowerCase().includes(query)) ||
@@ -343,8 +342,6 @@ export function PDV({
   };
 
   const finalizeSale = async () => {
-    if (finalizingSaleRef.current) return;
-
     if (cart.length === 0) {
       alert("O carrinho está vazio!");
       return;
@@ -355,38 +352,28 @@ export function PDV({
       return;
     }
 
-    finalizingSaleRef.current = true;
-    setIsFinalizingSale(true);
-
     const currentLocObj = availableStockLocations.find(l => l.id === selectedStockLoc);
     const localName = currentLocObj ? currentLocObj.name : "Estoque Principal";
 
     const formattedItems = cart.map(item => {
       const varName = (item.variationName || item.variation || "").trim();
-      const itemQty = Math.max(1, Number(item.qty || 1));
-
       return {
         ...item,
         productId: item.id,
         price: Number(item.price || 0),
-        qty: itemQty,
-        quantity: itemQty,
+        qty: Number(item.qty || 1),
+        quantity: Number(item.qty || 1),
         local: localName,
         location: localName,
-        stockLocation: selectedStockLoc,
-        stock_location: selectedStockLoc,
         variationName: varName,
         variation: varName
       };
     });
 
     const cashbackEarnedVal = earnedCashbackCalc;
-    const saleId = `pur_${typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
-
+    
     const newSale = {
-      id: saleId,
+      id: `pur_${Date.now()}`,
       customerId: selectedCustomer ? selectedCustomer.id : null,
       customer_id: selectedCustomer ? selectedCustomer.id : null,
       customer_name: selectedCustomer ? selectedCustomer.name : "Cliente Geral",
@@ -396,9 +383,8 @@ export function PDV({
       total: total,
       subtotal: subtotal,
       earned_cashback: cashbackEarnedVal,
-      cashbackEarned: cashbackEarnedVal,
-      gender: gender,
-      sales_channel: salesChannel,
+      gender: gender,               
+      sales_channel: salesChannel,  
       delivery_type: deliveryType,
       items: formattedItems,
       date: new Date().toISOString()
@@ -419,63 +405,108 @@ export function PDV({
         body: JSON.stringify(newSale)
       });
 
-      let result = {};
-      try {
-        result = await response.json();
-      } catch {
-        result = {};
-      }
-
       if (!response.ok) {
-        throw new Error(result?.error || "Falha ao salvar a venda no servidor.");
+        throw new Error("Falha ao salvar a venda no servidor.");
       }
 
-      const duplicateRequest = Boolean(result?.duplicate);
       localStorage.removeItem(STORAGE_KEY);
 
-      if (!duplicateRequest && selectedCustomer && typeof setCustomers === "function") {
+      if (selectedCustomer && typeof setCustomers === "function") {
         const expirationDate = new Date();
         expirationDate.setDate(expirationDate.getDate() + Number(cashbackValidityDays || 30));
 
-        const updatedCustomersList = customers.map(c =>
-          c.id === selectedCustomer.id
-            ? {
-                ...c,
+        const updatedCustomersList = customers.map(c => 
+          c.id === selectedCustomer.id 
+            ? { 
+                ...c, 
                 cashback: Number(c.cashback || 0) + cashbackEarnedVal,
-                cashback_expiration_date: expirationDate.toISOString().split("T")[0]
+                cashback_expiration_date: expirationDate.toISOString().split('T')[0]
               }
             : c
         );
-
         setCustomers(updatedCustomersList);
       }
 
-      // Sincroniza o estoque atualizado enviado pelo backend
-      if (
-        !duplicateRequest &&
-        typeof setProducts === "function" &&
-        Array.isArray(result?.stockUpdates) &&
-        result.stockUpdates.length > 0
-      ) {
-        setProducts(prevProducts =>
-          prevProducts.map(prod => {
-            const update = result.stockUpdates.find(u => String(u.productId) === String(prod.id));
-            if (!update) return prod;
-            return {
-              ...prod,
-              ...(update.stocks !== undefined ? { stocks: update.stocks } : {}),
-              ...(update.variations !== undefined ? { variations: update.variations } : {})
-            };
-          })
-        );
+      if (typeof setProducts === "function" && products.length > 0) {
+        const updatedProducts = products.map((prod) => {
+          const cartItemsForThisProd = cart.filter((i) => String(i.id) === String(prod.id));
+          if (cartItemsForThisProd.length === 0) return prod;
+
+          const isControlled = prod.control_stock ?? prod.controlStock ?? true;
+          if (!isControlled) return prod;
+
+          let newStocks = { ...(prod.stocks || {}) };
+          let newVariations = prod.variations ? JSON.parse(JSON.stringify(prod.variations)) : null;
+          let newStockTotal = Number(prod.stock ?? 0);
+
+          let chaveAlvo = null;
+          if (selectedStockLoc && newStocks[selectedStockLoc] !== undefined) {
+            chaveAlvo = selectedStockLoc;
+          } else if (localName && newStocks[localName] !== undefined) {
+            chaveAlvo = localName;
+          } else if (selectedStockLoc) {
+            chaveAlvo = selectedStockLoc;
+          } else if (localName) {
+            chaveAlvo = localName;
+          } else {
+            const chavesExistentes = Object.keys(newStocks);
+            chaveAlvo = chavesExistentes.length > 0 ? chavesExistentes[0] : 'Estoque Principal';
+          }
+
+          cartItemsForThisProd.forEach((foundItem) => {
+            const varName = (foundItem.variationName || foundItem.variation || "").trim();
+
+            if (newVariations && Array.isArray(newVariations) && newVariations.length > 0) {
+              newVariations = newVariations.map((v) => {
+                const vName = (typeof v === 'string' ? v : (v.name || "")).trim();
+                if (vName === varName) {
+                  if (typeof v === 'string') {
+                    return v;
+                  }
+                  
+                  let newVarStocks = v.stocks ? { ...v.stocks } : {};
+                  let currentVarStock = 0;
+
+                  if (newVarStocks[chaveAlvo] !== undefined) {
+                    currentVarStock = Number(newVarStocks[chaveAlvo]);
+                    newVarStocks[chaveAlvo] = Math.max(0, currentVarStock - foundItem.qty);
+                  } else {
+                    const fallbackKey = Object.keys(newVarStocks)[0] || chaveAlvo;
+                    currentVarStock = Number(newVarStocks[fallbackKey] ?? v.stock ?? v.qty ?? 0);
+                    newVarStocks[fallbackKey] = Math.max(0, currentVarStock - foundItem.qty);
+                  }
+
+                  const updatedVarStock = Math.max(0, Number(v.stock ?? v.qty ?? 0) - foundItem.qty);
+                  return { ...v, stock: updatedVarStock, stocks: newVarStocks };
+                }
+                return v;
+              });
+            } else {
+              const currentQty = Number(newStocks[chaveAlvo] ?? newStockTotal);
+              const newQty = Math.max(0, currentQty - foundItem.qty);
+              newStocks[chaveAlvo] = newQty;
+              newStockTotal = newQty;
+            }
+          });
+
+          const updatedProdObj = {
+            ...prod,
+            stock: newStockTotal,
+            stocks: newStocks
+          };
+
+          if (newVariations) {
+            updatedProdObj.variations = newVariations;
+          }
+
+          return updatedProdObj;
+        });
+
+        setProducts(updatedProducts);
       }
 
-      if (!duplicateRequest && typeof setSales === "function") {
-        setSales(prevSales => {
-          const current = Array.isArray(prevSales) ? prevSales : [];
-          if (current.some(s => String(s.id) === String(newSale.id))) return current;
-          return [...current, newSale];
-        });
+      if (typeof setSales === "function") {
+        setSales([...sales, newSale]);
       }
 
       if (typeof onSaleCompleted === "function") {
@@ -484,43 +515,49 @@ export function PDV({
 
       setLastCompletedSale(newSale);
 
-      if (!duplicateRequest && selectedCustomer && selectedCustomer.phone) {
-        const telefoneLimpo = selectedCustomer.phone.replace(/\D/g, "");
+      if (selectedCustomer && selectedCustomer.phone) {
+        const telefoneLimpo = selectedCustomer.phone.replace(/\D/g, '');
         if (telefoneLimpo.length >= 10) {
           const nomeCliente = selectedCustomer.name || "Cliente";
           const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-          const vencimentoFormatado = new Date(Date.now() + Number(cashbackValidityDays || 30) * 86400000).toLocaleDateString("pt-BR");
-
+          const vencimentoFormatado = new Date(Date.now() + Number(cashbackValidityDays || 30) * 86400000).toLocaleDateString('pt-BR');
+          
           const mensagemPronta = cashbackMessage
             .replace(/{nome}/g, nomeCliente)
             .replace(/{saldo}/g, cashbackGanhoFormatado)
             .replace(/{vencimento}/g, vencimentoFormatado);
-
-          window.open(`https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagemPronta)}`, "_blank");
+          
+          window.open(`https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagemPronta)}`, '_blank');
         }
       }
 
-      alert(
-        duplicateRequest
-          ? "Esta venda já havia sido processada. O estoque não foi abatido novamente."
-          : "Venda finalizada com sucesso! O cashback foi creditado a partir de hoje e o estoque atualizado."
-      );
+      alert("Venda finalizada com sucesso! O cashback foi creditado a partir de hoje e o estoque atualizado.");
     } catch (error) {
       console.error("❌ Erro ao finalizar venda:", error);
-      alert(error?.message || "Erro ao conectar com o servidor para salvar a venda. Verifique se a API está rodando.");
-    } finally {
-      finalizingSaleRef.current = false;
-      setIsFinalizingSale(false);
+      alert("Erro ao conectar com o servidor para salvar a venda. Verifique se a API está rodando.");
     }
+  };
+
+  const updateCashbackPercent = async (value) => {
+    const normalized = Math.min(100, Math.max(0, Number(value) || 0));
+    setCashbackPercent(normalized);
+    await saveUserSettings({ cashbackPercentage: normalized });
   };
 
   return (
     <div style={{ padding: device === "desktop" ? 20 : 10 }}>
       <style>{`
         @media print {
-          @page { size: 58mm auto; margin: 0; }
-          body * { visibility: hidden !important; }
-          #printable-receipt, #printable-receipt * { visibility: visible !important; }
+          @page {
+            size: 58mm auto;
+            margin: 0;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-receipt, #printable-receipt * {
+            visibility: visible !important;
+          }
           #printable-receipt {
             display: block !important;
             position: absolute !important;
@@ -538,9 +575,30 @@ export function PDV({
         }
       `}</style>
 
+      {/* Modal de seleção de Variações (Sabor/Cor/etc) */}
       {activeProductForVariation && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-          <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 24, width: "100%", maxWidth: 400, boxShadow: "0 10px 25px rgba(0,0,0,0.3)" }}>
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: 16
+        }}>
+          <div style={{
+            background: card,
+            border: `1px solid ${border}`,
+            borderRadius: 14,
+            padding: 24,
+            width: "100%",
+            maxWidth: 400,
+            boxShadow: "0 10px 25px rgba(0,0,0,0.3)"
+          }}>
             <h3 style={{ color: text, margin: "0 0 8px 0", fontSize: 18 }}>Escolha a Variação</h3>
             <p style={{ color: subtext, fontSize: 13, marginBottom: 16 }}>
               Produto: <strong>{activeProductForVariation.name}</strong>
@@ -551,7 +609,13 @@ export function PDV({
               <select
                 value={selectedVariationOption}
                 onChange={(e) => setSelectedVariationOption(e.target.value)}
-                style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 6 }}
+                style={{
+                  ...inputStyle(border, text),
+                  backgroundColor: card,
+                  color: text,
+                  width: "100%",
+                  marginTop: 6
+                }}
               >
                 {(activeProductForVariation.variations || activeProductForVariation.options || activeProductForVariation.variationList || []).map((opt, idx) => {
                   const optName = (typeof opt === 'string' ? opt : (opt.name || String(opt))).trim();
@@ -567,13 +631,31 @@ export function PDV({
             <div style={{ display: "flex", gap: 10 }}>
               <button
                 onClick={() => setActiveProductForVariation(null)}
-                style={{ flex: 1, background: "transparent", color: text, border: `1px solid ${border}`, padding: 10, borderRadius: 8, cursor: "pointer", fontWeight: "bold" }}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  color: text,
+                  border: `1px solid ${border}`,
+                  padding: 10,
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
               >
                 Cancelar
               </button>
               <button
                 onClick={() => addToCartWithVariation(activeProductForVariation, selectedVariationOption)}
-                style={{ flex: 1, background: accent, color: "#fff", border: "none", padding: 10, borderRadius: 8, cursor: "pointer", fontWeight: "bold" }}
+                style={{
+                  flex: 1,
+                  background: accent,
+                  color: "#fff",
+                  border: "none",
+                  padding: 10,
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
               >
                 Adicionar ao Carrinho
               </button>
@@ -626,7 +708,14 @@ export function PDV({
             sub="Busque um cliente por nome ou telefone, cadastre ou inicie uma venda rápida com gestão integrada"
           />
           <div style={{ display: "grid", gridTemplateColumns: device === "desktop" ? "1fr 1fr" : "1fr", gap: 20 }}>
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 20 }}>
+            <div
+              style={{
+                background: card,
+                border: `1px solid ${border}`,
+                borderRadius: 14,
+                padding: 20
+              }}
+            >
               <button
                 onClick={startOrderWithoutCustomer}
                 style={{
@@ -648,7 +737,13 @@ export function PDV({
                 <ShoppingCart size={18} /> Venda Rápida (Sem Cadastro)
               </button>
 
-              <div style={{ borderTop: `1px solid ${border}`, paddingTop: 15, marginBottom: 15 }}></div>
+              <div
+                style={{
+                  borderTop: `1px solid ${border}`,
+                  paddingTop: 15,
+                  marginBottom: 15
+                }}
+              ></div>
 
               <label style={lbl(subtext)}>BUSCAR CLIENTE (DIGITE O NOME OU TELEFONE)</label>
               <div style={{ display: "flex", gap: 8, marginTop: 8, position: "relative" }}>
@@ -661,7 +756,13 @@ export function PDV({
                 />
                 <button
                   onClick={search}
-                  style={{ background: accent, border: "none", borderRadius: 8, padding: "0 15px", cursor: "pointer" }}
+                  style={{
+                    background: accent,
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "0 15px",
+                    cursor: "pointer"
+                  }}
                   title="Buscar"
                 >
                   <Search size={20} color="#fff" />
@@ -669,7 +770,19 @@ export function PDV({
               </div>
 
               {customerSuggestions.length > 0 && (
-                <div style={{ marginTop: 8, background: card, border: `1px solid ${border}`, borderRadius: 8, maxHeight: 180, overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 10, position: "relative" }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    background: card,
+                    border: `1px solid ${border}`,
+                    borderRadius: 8,
+                    maxHeight: 180,
+                    overflowY: "auto",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                    zIndex: 10,
+                    position: "relative"
+                  }}
+                >
                   <div style={{ padding: "6px 10px", fontSize: 11, color: subtext, borderBottom: `1px solid ${border}` }}>
                     Sugestões encontradas ({customerSuggestions.length}) — Clique ou pressione Enter:
                   </div>
@@ -677,7 +790,15 @@ export function PDV({
                     <div
                       key={cust.id}
                       onClick={() => startOrderWithFoundCustomer(cust)}
-                      style={{ padding: "10px 12px", cursor: "pointer", borderBottom: `1px solid ${border}40`, display: "flex", justifyContent: "space-between", alignItems: "center", transition: "background 0.2s" }}
+                      style={{
+                        padding: "10px 12px",
+                        cursor: "pointer",
+                        borderBottom: `1px solid ${border}40`,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        transition: "background 0.2s"
+                      }}
                       onMouseEnter={(e) => e.currentTarget.style.background = `${accent}15`}
                       onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                     >
@@ -694,13 +815,28 @@ export function PDV({
               )}
 
               {foundCustomer && customerSuggestions.length <= 1 && (
-                <div style={{ marginTop: 15, padding: 12, background: `${accent}15`, borderRadius: 8 }}>
+                <div
+                  style={{
+                    marginTop: 15,
+                    padding: 12,
+                    background: `${accent}15`,
+                    borderRadius: 8
+                  }}
+                >
                   <p style={{ color: text, margin: "0 0 8px 0" }}>
                     Cliente selecionado: <strong>{foundCustomer.name}</strong> ({foundCustomer.phone}) — Saldo: <strong>{Number(foundCustomer.cashback || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong>
                   </p>
                   <button
                     onClick={() => startOrderWithFoundCustomer(foundCustomer)}
-                    style={{ ...inputStyle(border, text), cursor: "pointer", width: "100%", background: accent, color: "#fff", border: "none", fontWeight: "bold" }}
+                    style={{
+                      ...inputStyle(border, text),
+                      cursor: "pointer",
+                      width: "100%",
+                      background: accent,
+                      color: "#fff",
+                      border: "none",
+                      fontWeight: "bold"
+                    }}
                   >
                     Iniciar Pedido com Este Cliente (Enter)
                   </button>
@@ -713,17 +849,47 @@ export function PDV({
                 </p>
               )}
 
-              <div style={{ marginTop: foundCustomer ? 12 : 20, borderTop: `1px solid ${border}`, paddingTop: 15 }}>
+              <div
+                style={{
+                  marginTop: foundCustomer ? 12 : 20,
+                  borderTop: `1px solid ${border}`,
+                  paddingTop: 15
+                }}
+              >
                 <button
                   onClick={() => setStep("register")}
-                  style={{ background: "transparent", color: accent, border: `1px solid ${accent}`, padding: 10, borderRadius: 8, width: "100%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontWeight: "bold" }}
+                  style={{
+                    background: "transparent",
+                    color: accent,
+                    border: `1px solid ${accent}`,
+                    padding: 10,
+                    borderRadius: 8,
+                    width: "100%",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    fontWeight: "bold"
+                  }}
                 >
                   <UserPlus size={18} /> Cadastrar Novo Cliente
                 </button>
               </div>
             </div>
 
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 20, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 16 }}>
+            <div
+              style={{
+                background: card,
+                border: `1px solid ${border}`,
+                borderRadius: 14,
+                padding: 20,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                gap: 16
+              }}
+            >
               <div>
                 <h3 style={{ color: text, margin: "0 0 8px 0", fontSize: 16, borderBottom: `1px solid ${border}`, paddingBottom: 8 }}>
                   🔔 Automação de Lembretes de Cashback
@@ -752,7 +918,20 @@ export function PDV({
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: activeReminderButton ? accent : subtext, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: "bold", fontSize: 12 }}>
+                  <div
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      background: activeReminderButton ? accent : subtext,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#fff",
+                      fontWeight: "bold",
+                      fontSize: 12
+                    }}
+                  >
                     {activeReminderButton ? "✓" : ""}
                   </div>
                   <div>
@@ -765,7 +944,16 @@ export function PDV({
                   </div>
                 </div>
 
-                <div style={{ background: activeReminderButton ? accent : subtext, color: "#fff", padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                <div
+                  style={{
+                    background: activeReminderButton ? accent : subtext,
+                    color: "#fff",
+                    padding: "6px 14px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600
+                  }}
+                >
                   {activeReminderButton ? "Ligado" : "Desligado"}
                 </div>
               </div>
@@ -782,7 +970,16 @@ export function PDV({
         <div>
           <button
             onClick={backToGate}
-            style={{ background: "transparent", border: "none", cursor: "pointer", marginBottom: 10, display: "flex", alignItems: "center", gap: 5, color: text }}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              marginBottom: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              color: text
+            }}
           >
             <X size={16} /> Voltar
           </button>
@@ -798,16 +995,49 @@ export function PDV({
       )}
 
       {step === "order" && (
-        <div style={{ display: "grid", gridTemplateColumns: device === "desktop" ? "2fr 1fr" : "1fr", gap: 20 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              device === "desktop" ? "2fr 1fr" : "1fr",
+            gap: 20
+          }}
+        >
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 15 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 15
+              }}
+            >
               <button
                 onClick={backToGate}
-                style={{ background: "transparent", border: `1px solid ${border}`, borderRadius: 8, padding: 8, cursor: "pointer", color: text, display: "flex", alignItems: "center", gap: 5 }}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${border}`,
+                  borderRadius: 8,
+                  padding: 8,
+                  cursor: "pointer",
+                  color: text,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5
+                }}
               >
                 <ArrowLeft size={16} /> Trocar cliente
               </button>
-              <div style={{ background: card, border: `1px solid ${border}`, padding: "8px 12px", borderRadius: 8, fontSize: 14, color: text }}>
+              <div
+                style={{
+                  background: card,
+                  border: `1px solid ${border}`,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  fontSize: 14,
+                  color: text
+                }}
+              >
                 Cliente:{" "}
                 <strong>
                   {selectedCustomer
@@ -818,18 +1048,39 @@ export function PDV({
             </div>
 
             <div style={{ marginBottom: 15 }}>
-              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                <Search size={18} color={subtext} style={{ position: "absolute", left: 12 }} />
+              <div
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center"
+                }}
+              >
+                <Search
+                  size={18}
+                  color={subtext}
+                  style={{ position: "absolute", left: 12 }}
+                />
                 <input
                   value={productQuery}
                   onChange={(e) => setProductQuery(e.target.value)}
                   placeholder="Pesquisar produto por nome ou código de barras..."
-                  style={{ ...inputStyle(border, text), paddingLeft: 38, width: "100%" }}
+                  style={{
+                    ...inputStyle(border, text),
+                    paddingLeft: 38,
+                    width: "100%"
+                  }}
                 />
                 {productQuery && (
                   <button
                     onClick={() => setProductQuery("")}
-                    style={{ position: "absolute", right: 10, background: "transparent", border: "none", cursor: "pointer", color: subtext }}
+                    style={{
+                      position: "absolute",
+                      right: 10,
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: subtext
+                    }}
                   >
                     <X size={16} />
                   </button>
@@ -837,13 +1088,22 @@ export function PDV({
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 10, marginBottom: 15 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                overflowX: "auto",
+                paddingBottom: 10,
+                marginBottom: 15
+              }}
+            >
               {categories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
                   style={{
-                    background: selectedCategory === cat ? accent : card,
+                    background:
+                      selectedCategory === cat ? accent : card,
                     color: selectedCategory === cat ? "#fff" : text,
                     border: `1px solid ${border}`,
                     borderRadius: 20,
@@ -858,9 +1118,22 @@ export function PDV({
               ))}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fill, minmax(200px, 1fr))",
+                gap: 12
+              }}
+            >
               {filteredProducts.length === 0 ? (
-                <p style={{ color: subtext, fontSize: 14, gridColumn: "1 / -1" }}>
+                <p
+                  style={{
+                    color: subtext,
+                    fontSize: 14,
+                    gridColumn: "1 / -1"
+                  }}
+                >
                   Nenhum produto cadastrado ou encontrado.
                 </p>
               ) : (
@@ -868,16 +1141,45 @@ export function PDV({
                   <div
                     key={prod.id}
                     onClick={() => handleProductClick(prod)}
-                    style={{ background: card, border: `1px solid ${border}`, borderRadius: 10, padding: 15, cursor: "pointer" }}
+                    style={{
+                      background: card,
+                      border: `1px solid ${border}`,
+                      borderRadius: 10,
+                      padding: 15,
+                      cursor: "pointer"
+                    }}
                   >
-                    <p style={{ fontWeight: "bold", color: text, fontSize: 14, marginBottom: 4 }}>
+                    <p
+                      style={{
+                        fontWeight: "bold",
+                        color: text,
+                        fontSize: 14,
+                        marginBottom: 4
+                      }}
+                    >
                       {prod.name}
                     </p>
-                    <p style={{ color: subtext, fontSize: 11, marginBottom: 8 }}>
-                      {prod.barcode ? `Cód: ${prod.barcode}` : prod.category}
+                    <p
+                      style={{
+                        color: subtext,
+                        fontSize: 11,
+                        marginBottom: 8
+                      }}
+                    >
+                      {prod.barcode
+                        ? `Cód: ${prod.barcode}`
+                        : prod.category}
                     </p>
-                    <p style={{ color: accent, fontWeight: "600" }}>
-                      {Number(prod.price || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    <p
+                      style={{
+                        color: accent,
+                        fontWeight: "600"
+                      }}
+                    >
+                      {Number(prod.price || 0).toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL"
+                      })}
                     </p>
                   </div>
                 ))
@@ -885,35 +1187,92 @@ export function PDV({
             </div>
           </div>
 
-          <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, height: "fit-content", display: "flex", flexDirection: "column", gap: 12 }}>
-            <h3 style={{ color: text, margin: 0, fontSize: 16, borderBottom: `1px solid ${border}`, paddingBottom: 8 }}>
+          <div
+            style={{
+              background: card,
+              border: `1px solid ${border}`,
+              borderRadius: 14,
+              padding: 16,
+              height: "fit-content",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12
+            }}
+          >
+            <h3
+              style={{
+                color: text,
+                margin: 0,
+                fontSize: 16,
+                borderBottom: `1px solid ${border}`,
+                paddingBottom: 8
+              }}
+            >
               Carrinho de Compras
             </h3>
 
             {cart.length === 0 ? (
-              <p style={{ color: subtext, fontSize: 13, margin: "4px 0" }}>Nenhum item adicionado.</p>
+              <p style={{ color: subtext, fontSize: 13, margin: "4px 0" }}>
+                Nenhum item adicionado.
+              </p>
             ) : (
-              <div style={{ maxHeight: 140, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
+              <div
+                style={{
+                  maxHeight: 140,
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  paddingRight: 4
+                }}
+              >
                 {cart.map((item, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: text }}>
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: 13,
+                      color: text
+                    }}
+                  >
                     <span>
                       {item.qty}x {item.name} {item.variationName ? <strong style={{ color: accent }}>({item.variationName})</strong> : ""}
                     </span>
                     <span style={{ fontWeight: 500 }}>
-                      {((Number(item.price) || 0) * item.qty).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      {((Number(item.price) || 0) * item.qty).toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL"
+                      })}
                     </span>
                   </div>
                 ))}
               </div>
             )}
 
-            <div style={{ background: `${border}15`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${border}` }}>
+            <div
+              style={{
+                background: `${border}15`,
+                borderRadius: 10,
+                padding: 10,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                border: `1px solid ${border}`
+              }}
+            >
               <div>
                 <label style={lbl(subtext)}>Vendedor</label>
                 <select
                   value={seller}
                   onChange={(e) => setSeller(e.target.value)}
-                  style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                  style={{
+                    ...inputStyle(border, text),
+                    backgroundColor: card,
+                    color: text,
+                    width: "100%",
+                    marginTop: 2
+                  }}
                 >
                   {sellers.map((s) => (
                     <option key={s.id || s.name} value={s.name} style={{ backgroundColor: card, color: text }}>
@@ -928,7 +1287,13 @@ export function PDV({
                 <select
                   value={selectedStockLoc}
                   onChange={(e) => setSelectedStockLoc(e.target.value)}
-                  style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                  style={{
+                    ...inputStyle(border, text),
+                    backgroundColor: card,
+                    color: text,
+                    width: "100%",
+                    marginTop: 2
+                  }}
                 >
                   {availableStockLocations.map((loc) => (
                     <option key={loc.id} value={loc.id} style={{ backgroundColor: card, color: text }}>
@@ -944,7 +1309,13 @@ export function PDV({
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value)}
-                    style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                    style={{
+                      ...inputStyle(border, text),
+                      backgroundColor: card,
+                      color: text,
+                      width: "100%",
+                      marginTop: 2
+                    }}
                   >
                     <option value="Pix" style={{ backgroundColor: card, color: text }}>Pix</option>
                     <option value="Crédito" style={{ backgroundColor: card, color: text }}>Crédito</option>
@@ -961,7 +1332,13 @@ export function PDV({
                     type="number"
                     value={discount}
                     onChange={(e) => setDiscount(e.target.value)}
-                    style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                    style={{
+                      ...inputStyle(border, text),
+                      backgroundColor: card,
+                      color: text,
+                      width: "100%",
+                      marginTop: 2
+                    }}
                   />
                 </div>
               </div>
@@ -972,7 +1349,13 @@ export function PDV({
                   <select
                     value={salesChannel}
                     onChange={(e) => setSalesChannel(e.target.value)}
-                    style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                    style={{
+                      ...inputStyle(border, text),
+                      backgroundColor: card,
+                      color: text,
+                      width: "100%",
+                      marginTop: 2
+                    }}
                   >
                     <option value="Loja física" style={{ backgroundColor: card, color: text }}>Loja física</option>
                     <option value="Instagram" style={{ backgroundColor: card, color: text }}>Instagram</option>
@@ -986,7 +1369,13 @@ export function PDV({
                   <select
                     value={deliveryType}
                     onChange={(e) => setDeliveryType(e.target.value)}
-                    style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                    style={{
+                      ...inputStyle(border, text),
+                      backgroundColor: card,
+                      color: text,
+                      width: "100%",
+                      marginTop: 2
+                    }}
                   >
                     <option value="Retirada" style={{ backgroundColor: card, color: text }}>Retirada</option>
                     <option value="Delivery" style={{ backgroundColor: card, color: text }}>Delivery</option>
@@ -999,7 +1388,13 @@ export function PDV({
                 <select
                   value={gender}
                   onChange={(e) => setGender(e.target.value)}
-                  style={{ ...inputStyle(border, text), backgroundColor: card, color: text, width: "100%", marginTop: 2 }}
+                  style={{
+                    ...inputStyle(border, text),
+                    backgroundColor: card,
+                    color: text,
+                    width: "100%",
+                    marginTop: 2
+                  }}
                 >
                   <option value="Prefiro não informar" style={{ backgroundColor: card, color: text }}>Prefiro não informar</option>
                   <option value="Masculino" style={{ backgroundColor: card, color: text }}>Masculino</option>
@@ -1008,20 +1403,60 @@ export function PDV({
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: `1px solid ${border}`, paddingTop: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: text }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                borderTop: `1px solid ${border}`,
+                paddingTop: 10
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 13,
+                  color: text
+                }}
+              >
                 <span>Subtotal:</span>
                 <span>{subtotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: text }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 13,
+                  color: text
+                }}
+              >
                 <span>Desconto:</span>
                 <span>{Number(discount || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: accent }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 13,
+                  color: accent
+                }}
+              >
                 <span>Cashback da Compra ({cashbackPercent}%):</span>
                 <span>{earnedCashbackCalc.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: "bold", color: accent, borderTop: `1px dashed ${border}`, paddingTop: 6, marginTop: 2 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 16,
+                  fontWeight: "bold",
+                  color: accent,
+                  borderTop: `1px dashed ${border}`,
+                  paddingTop: 6,
+                  marginTop: 2
+                }}
+              >
                 <span>Total:</span>
                 <span>{total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
               </div>
@@ -1029,7 +1464,6 @@ export function PDV({
 
             <button
               onClick={finalizeSale}
-              disabled={isFinalizingSale}
               style={{
                 background: accent,
                 color: "#fff",
@@ -1037,26 +1471,57 @@ export function PDV({
                 borderRadius: 8,
                 padding: 12,
                 fontWeight: "bold",
-                cursor: isFinalizingSale ? "not-allowed" : "pointer",
-                opacity: isFinalizingSale ? 0.7 : 1,
+                cursor: "pointer",
                 textAlign: "center",
                 marginTop: 6
               }}
             >
-              {isFinalizingSale ? "Finalizando venda..." : "Finalizar Venda & Gerar Cashback Imediato"}
+              Finalizar Venda & Gerar Cashback Imediato
             </button>
 
             {lastCompletedSale && (
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  marginTop: 6
+                }}
+              >
                 <button
                   onClick={() => handlePrintReceipt(lastCompletedSale)}
-                  style={{ flex: 1, background: "transparent", color: text, border: `1px solid ${border}`, borderRadius: 8, padding: 8, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    color: text,
+                    border: `1px solid ${border}`,
+                    borderRadius: 8,
+                    padding: 8,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 5
+                  }}
                 >
                   Imprimir Comprovante
                 </button>
                 <button
                   onClick={() => handleDownloadPDF(lastCompletedSale)}
-                  style={{ flex: 1, background: "transparent", color: text, border: `1px solid ${border}`, borderRadius: 8, padding: 8, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    color: text,
+                    border: `1px solid ${border}`,
+                    borderRadius: 8,
+                    padding: 8,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 5
+                  }}
                 >
                   Baixar / Imprimir PDF
                 </button>

@@ -712,8 +712,8 @@ export default function Catalogo({
               onClick={toggleCatalogVisibility}
               title={
                 isCatalogVisible
-                  ? 'Ocultar produtos e valores'
-                  : 'Mostrar produtos e valores'
+                  ? 'Ocultar valores'
+                  : 'Mostrar valores'
               }
               style={{
                 display: 'flex',
@@ -742,8 +742,8 @@ export default function Catalogo({
               )}
 
               {isCatalogVisible
-                ? 'Ocultar produtos'
-                : 'Mostrar produtos'}
+                ? 'Ocultar valores'
+                : 'Mostrar valores'}
             </button>
 
             {/* BOTÃO VIP */}
