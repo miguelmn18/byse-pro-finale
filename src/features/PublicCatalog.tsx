@@ -59,8 +59,8 @@ export function PublicCatalog() {
    *
    * O backend deve devolver esse campo no endpoint público.
    *
-   * true  -> produtos aparecem
-   * false -> produtos ficam ocultos
+   * true  -> preços aparecem
+   * false -> produtos continuam aparecendo, mas os preços ficam ocultos
    *
    * Por segurança de compatibilidade, também aceitamos alguns
    * nomes alternativos caso o backend antigo ainda os utilize.
@@ -111,22 +111,6 @@ export function PublicCatalog() {
         setLoading(false);
       });
   }, [id, base]);
-
-  /*
-   * ============================================================
-   * REAÇÃO À ALTERAÇÃO DE VISIBILIDADE
-   * ============================================================
-   *
-   * Se o administrador desativar a visibilidade enquanto houver
-   * produtos no carrinho, limpamos o carrinho para que nenhum
-   * produto oculto continue sendo exibido ao cliente.
-   */
-  useEffect(() => {
-    if (!catalogVisible) {
-      setIsCartOpen(false);
-      setCart([]);
-    }
-  }, [catalogVisible]);
 
   /*
    * ============================================================
@@ -308,10 +292,6 @@ export function PublicCatalog() {
    * estiver oculta, o produto não será adicionado.
    */
   const addToCart = (product: any) => {
-    if (!catalogVisible) {
-      return;
-    }
-
     setCart(prev => {
       const existing = prev.find(
         item => item.product.id === product.id
@@ -403,13 +383,6 @@ export function PublicCatalog() {
    * ============================================================
    */
   const handleCheckoutWhatsApp = () => {
-    if (!catalogVisible) {
-      alert(
-        'A vitrine de produtos está temporariamente indisponível.'
-      );
-      return;
-    }
-
     if (!data?.whatsapp) {
       alert(
         'Esta loja ainda não configurou um número de WhatsApp para pedidos.'
@@ -455,18 +428,16 @@ export function PublicCatalog() {
           ? Number(vipVal)
           : Number(currentProduct.price || 0);
 
-      message +=
-        `• ${item.quantity}x ${
-          currentProduct.name
-        } - R$ ${
-          (price * item.quantity).toFixed(2)
-        }\n`;
+      message += catalogVisible
+        ? `• ${item.quantity}x ${currentProduct.name} - R$ ${(price * item.quantity).toFixed(2)}\n`
+        : `• ${item.quantity}x ${currentProduct.name}\n`;
     });
 
-    message +=
-      `\n*Total:* R$ ${
-        calculateTotal().toFixed(2)
-      }`;
+    if (catalogVisible) {
+      message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
+    } else {
+      message += '\n*Valores:* sob consulta';
+    }
 
     window.open(
       `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
@@ -803,7 +774,7 @@ export function PublicCatalog() {
             >
               {catalogVisible
                 ? 'Confira nossos produtos disponíveis em estoque'
-                : 'Catálogo temporariamente indisponível'}
+                : 'Confira nossos produtos — valores sob consulta'}
             </p>
           </div>
 
@@ -894,8 +865,7 @@ export function PublicCatalog() {
               )}
             </div>
 
-            {catalogVisible && (
-              <button
+            <button
                 onClick={() =>
                   setIsCartOpen(true)
                 }
@@ -960,551 +930,367 @@ export function PublicCatalog() {
                     )}
                   </span>
                 )}
-              </button>
-            )}
+            </button>
           </div>
         </div>
 
-        {/* =====================================================
-            CATÁLOGO OCULTO
-        ====================================================== */}
+        {/* Produtos: a visibilidade controla somente a exibição dos preços. */}
 
-        {!catalogVisible ? (
+          {/* =================================================
+              PESQUISA E CATEGORIAS
+          ================================================== */}
+
           <div
             style={{
-              background: '#1C1C1C',
-              border:
-                '1px solid #2E2E2E',
-              borderRadius: 16,
-              padding:
-                '70px 20px',
-              textAlign: 'center',
-              minHeight: 300,
               display: 'flex',
               flexDirection:
                 'column',
-              alignItems:
-                'center',
-              justifyContent:
-                'center'
+              gap: 12,
+              marginBottom: 24
             }}
           >
-            <div
+            <input
+              value={query}
+              onChange={e =>
+                setQuery(
+                  e.target.value
+                )
+              }
+              placeholder="Pesquisar produtos..."
               style={{
-                width: 64,
-                height: 64,
-                borderRadius: 16,
-                background:
-                  'rgba(220, 38, 38, 0.10)',
-                display: 'flex',
-                alignItems:
-                  'center',
-                justifyContent:
-                  'center',
-                marginBottom: 16,
+                width: '100%',
+                boxSizing:
+                  'border-box',
                 border:
-                  '1px solid rgba(220, 38, 38, 0.20)'
+                  '1px solid #2E2E2E',
+                borderRadius: 10,
+                padding:
+                  '12px 16px',
+                background:
+                  '#1C1C1C',
+                color: '#F0EFE9',
+                fontSize: 14,
+                outline: 0
               }}
-            >
-              <Lock
-                size={28}
-                color="#DC2626"
-              />
-            </div>
-
-            <h2
-              style={{
-                margin: 0,
-                fontSize: 20,
-                fontWeight: 700,
-                color: '#F0EFE9'
-              }}
-            >
-              Produtos indisponíveis no momento
-            </h2>
-
-            <p
-              style={{
-                margin:
-                  '8px auto 0',
-                maxWidth: 460,
-                color: '#8A8A82',
-                fontSize: 13,
-                lineHeight: 1.5
-              }}
-            >
-              A vitrine de produtos
-              desta loja está
-              temporariamente
-              indisponível.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* =================================================
-                PESQUISA E CATEGORIAS
-            ================================================== */}
+            />
 
             <div
               style={{
                 display: 'flex',
-                flexDirection:
-                  'column',
-                gap: 12,
-                marginBottom: 24
+                gap: 8,
+                overflowX:
+                  'auto',
+                paddingBottom: 4
               }}
             >
-              <input
-                value={query}
-                onChange={e =>
-                  setQuery(
-                    e.target.value
-                  )
-                }
-                placeholder="Pesquisar produtos..."
+              {categories.map(
+                cat => (
+                  <button
+                    key={cat}
+                    onClick={() =>
+                      setSelectedCategory(
+                        cat
+                      )
+                    }
+                    style={{
+                      padding:
+                        '7px 14px',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      whiteSpace:
+                        'nowrap',
+                      cursor:
+                        'pointer',
+                      border:
+                        selectedCategory ===
+                        cat
+                          ? 0
+                          : '1px solid #2E2E2E',
+                      background:
+                        selectedCategory ===
+                        cat
+                          ? '#DC2626'
+                          : '#1C1C1C',
+                      color:
+                        selectedCategory ===
+                        cat
+                          ? '#fff'
+                          : '#8A8A82'
+                    }}
+                  >
+                    {cat}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* =================================================
+              PRODUTOS
+          ================================================== */}
+
+          {filteredProducts.length ===
+          0 ? (
+            <div
+              style={{
+                textAlign:
+                  'center',
+                padding:
+                  '60px 0',
+                color:
+                  '#8A8A82'
+              }}
+            >
+              <ShoppingBag
+                size={40}
                 style={{
-                  width: '100%',
-                  boxSizing:
-                    'border-box',
-                  border:
-                    '1px solid #2E2E2E',
-                  borderRadius: 10,
-                  padding:
-                    '12px 16px',
-                  background:
-                    '#1C1C1C',
-                  color: '#F0EFE9',
-                  fontSize: 14,
-                  outline: 0
+                  opacity: 0.3,
+                  marginBottom: 10
                 }}
               />
 
-              <div
+              <p
                 style={{
-                  display: 'flex',
-                  gap: 8,
-                  overflowX:
-                    'auto',
-                  paddingBottom: 4
+                  fontSize: 14,
+                  fontWeight: 600,
+                  margin: 0
                 }}
               >
-                {categories.map(
-                  cat => (
-                    <button
-                      key={cat}
-                      onClick={() =>
-                        setSelectedCategory(
-                          cat
-                        )
-                      }
+                Nenhum produto
+                encontrado.
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fill, minmax(220px, 1fr))',
+                gap: 16
+              }}
+            >
+              {filteredProducts.map(
+                (p: any) => {
+                  const vipVal =
+                    p.vip_price !==
+                    undefined
+                      ? p.vip_price
+                      : p.vipPrice;
+
+                  const hasVipPrice =
+                    catalogVisible &&
+                    vip &&
+                    vipVal !==
+                      undefined &&
+                    vipVal !== null &&
+                    Number(vipVal) >
+                      0;
+
+                  const vip3xVal =
+                    p.vip_price_3x !==
+                    undefined
+                      ? p.vip_price_3x
+                      : p.vipPrice3x;
+
+                  const hasVip3xPrice =
+                    catalogVisible &&
+                    vip &&
+                    vip3xVal !==
+                      undefined &&
+                    vip3xVal !== null &&
+                    Number(vip3xVal) >
+                      0;
+
+                  const imageUrl =
+                    p.image_url ||
+                    p.imageUrl;
+
+                  return (
+                    <div
+                      key={p.id}
                       style={{
-                        padding:
-                          '7px 14px',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        whiteSpace:
-                          'nowrap',
-                        cursor:
-                          'pointer',
-                        border:
-                          selectedCategory ===
-                          cat
-                            ? 0
-                            : '1px solid #2E2E2E',
                         background:
-                          selectedCategory ===
-                          cat
-                            ? '#DC2626'
-                            : '#1C1C1C',
-                        color:
-                          selectedCategory ===
-                          cat
-                            ? '#fff'
-                            : '#8A8A82'
+                          '#1C1C1C',
+                        border:
+                          '1px solid #2E2E2E',
+                        borderRadius: 12,
+                        overflow:
+                          'hidden',
+                        display:
+                          'flex',
+                        flexDirection:
+                          'column',
+                        justifyContent:
+                          'space-between'
                       }}
                     >
-                      {cat}
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-
-            {/* =================================================
-                PRODUTOS
-            ================================================== */}
-
-            {filteredProducts.length ===
-            0 ? (
-              <div
-                style={{
-                  textAlign:
-                    'center',
-                  padding:
-                    '60px 0',
-                  color:
-                    '#8A8A82'
-                }}
-              >
-                <ShoppingBag
-                  size={40}
-                  style={{
-                    opacity: 0.3,
-                    marginBottom: 10
-                  }}
-                />
-
-                <p
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    margin: 0
-                  }}
-                >
-                  Nenhum produto
-                  encontrado.
-                </p>
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: 16
-                }}
-              >
-                {filteredProducts.map(
-                  (p: any) => {
-                    const vipVal =
-                      p.vip_price !==
-                      undefined
-                        ? p.vip_price
-                        : p.vipPrice;
-
-                    const hasVipPrice =
-                      vip &&
-                      vipVal !==
-                        undefined &&
-                      vipVal !== null &&
-                      Number(vipVal) >
-                        0;
-
-                    const vip3xVal =
-                      p.vip_price_3x !==
-                      undefined
-                        ? p.vip_price_3x
-                        : p.vipPrice3x;
-
-                    const hasVip3xPrice =
-                      vip &&
-                      vip3xVal !==
-                        undefined &&
-                      vip3xVal !== null &&
-                      Number(vip3xVal) >
-                        0;
-
-                    const imageUrl =
-                      p.image_url ||
-                      p.imageUrl;
-
-                    return (
-                      <div
-                        key={p.id}
-                        style={{
-                          background:
-                            '#1C1C1C',
-                          border:
-                            '1px solid #2E2E2E',
-                          borderRadius: 12,
-                          overflow:
-                            'hidden',
-                          display:
-                            'flex',
-                          flexDirection:
-                            'column',
-                          justifyContent:
-                            'space-between'
-                        }}
-                      >
-                        <div>
-                          {imageUrl ? (
-                            <img
-                              src={
-                                imageUrl
-                              }
-                              alt={
-                                p.name
-                              }
-                              style={{
-                                width:
-                                  '100%',
-                                height: 150,
-                                objectFit:
-                                  'cover'
-                              }}
-                            />
-                          ) : (
-                            <div
-                              style={{
-                                height: 110,
-                                display:
-                                  'flex',
-                                alignItems:
-                                  'center',
-                                justifyContent:
-                                  'center',
-                                background:
-                                  '#141414',
-                                color:
-                                  '#8A8A82'
-                              }}
-                            >
-                              <Tag
-                                size={
-                                  24
-                                }
-                                style={{
-                                  opacity:
-                                    0.3
-                                }}
-                              />
-                            </div>
-                          )}
-
+                      <div>
+                        {imageUrl ? (
+                          <img
+                            src={
+                              imageUrl
+                            }
+                            alt={
+                              p.name
+                            }
+                            style={{
+                              width:
+                                '100%',
+                              height: 150,
+                              objectFit:
+                                'cover'
+                            }}
+                          />
+                        ) : (
                           <div
                             style={{
-                              padding: 14
+                              height: 110,
+                              display:
+                                'flex',
+                              alignItems:
+                                'center',
+                              justifyContent:
+                                'center',
+                              background:
+                                '#141414',
+                              color:
+                                '#8A8A82'
                             }}
                           >
-                            <span
+                            <Tag
+                              size={
+                                24
+                              }
                               style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                textTransform:
-                                  'uppercase',
-                                background:
-                                  '#2E2E2E',
-                                color:
-                                  '#8A8A82',
-                                padding:
-                                  '2px 8px',
-                                borderRadius: 6
+                                opacity:
+                                  0.3
                               }}
-                            >
-                              {p.category ||
-                                'Geral'}
-                            </span>
-
-                            <h3
-                              style={{
-                                fontSize: 14,
-                                margin:
-                                  '8px 0 4px 0',
-                                fontWeight: 600,
-                                color:
-                                  '#F0EFE9'
-                              }}
-                            >
-                              {p.name}
-                            </h3>
-
-                            {p.description && (
-                              <p
-                                style={{
-                                  fontSize: 12,
-                                  color:
-                                    '#8A8A82',
-                                  margin: 0,
-                                  lineHeight:
-                                    1.3
-                                }}
-                              >
-                                {
-                                  p.description
-                                }
-                              </p>
-                            )}
+                            />
                           </div>
-                        </div>
+                        )}
 
                         <div
                           style={{
-                            padding:
-                              '0 14px 14px 14px',
-                            display:
-                              'flex',
-                            alignItems:
-                              'center',
-                            justifyContent:
-                              'space-between'
+                            padding: 14
                           }}
                         >
-                          <div>
-                            {hasVipPrice ? (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              textTransform:
+                                'uppercase',
+                              background:
+                                '#2E2E2E',
+                              color:
+                                '#8A8A82',
+                              padding:
+                                '2px 8px',
+                              borderRadius: 6
+                            }}
+                          >
+                            {p.category ||
+                              'Geral'}
+                          </span>
+
+                          <h3
+                            style={{
+                              fontSize: 14,
+                              margin:
+                                '8px 0 4px 0',
+                              fontWeight: 600,
+                              color:
+                                '#F0EFE9'
+                            }}
+                          >
+                            {p.name}
+                          </h3>
+
+                          {p.description && (
+                            <p
+                              style={{
+                                fontSize: 12,
+                                color:
+                                  '#8A8A82',
+                                margin: 0,
+                                lineHeight:
+                                  1.3
+                              }}
+                            >
+                              {
+                                p.description
+                              }
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '0 14px 14px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <div>
+                          {catalogVisible ? (
+                            hasVipPrice ? (
                               <div>
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    color:
-                                      '#8A8A82',
-                                    textDecoration:
-                                      'line-through'
-                                  }}
-                                >
-                                  {Number(
-                                    p.price ||
-                                      0
-                                  ).toLocaleString(
-                                    'pt-BR',
-                                    {
-                                      style:
-                                        'currency',
-                                      currency:
-                                        'BRL'
-                                    }
-                                  )}
+                                <span style={{ fontSize: 11, color: '#8A8A82', textDecoration: 'line-through' }}>
+                                  {Number(p.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                 </span>
-
-                                <div
-                                  style={{
-                                    fontSize: 15,
-                                    fontWeight: 700,
-                                    color:
-                                      '#10b981',
-                                    display:
-                                      'flex',
-                                    alignItems:
-                                      'center',
-                                    gap: 4
-                                  }}
-                                >
-                                  {Number(
-                                    vipVal
-                                  ).toLocaleString(
-                                    'pt-BR',
-                                    {
-                                      style:
-                                        'currency',
-                                      currency:
-                                        'BRL'
-                                    }
-                                  )}
-
-                                  <span
-                                    style={{
-                                      fontSize: 9,
-                                      background:
-                                        '#064e3b',
-                                      color:
-                                        '#34d399',
-                                      padding:
-                                        '1px 4px',
-                                      borderRadius: 4
-                                    }}
-                                  >
-                                    VIP
-                                  </span>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  {Number(vipVal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  <span style={{ fontSize: 9, background: '#064e3b', color: '#34d399', padding: '1px 4px', borderRadius: 4 }}>VIP</span>
                                 </div>
-
                                 {hasVip3xPrice && (
-                                  <div
-                                    style={{
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      color:
-                                        '#A3A39B',
-                                      marginTop: 2
-                                    }}
-                                  >
-                                    ou 3x de{' '}
-                                    {(
-                                      Number(
-                                        vip3xVal
-                                      ) / 3
-                                    ).toLocaleString(
-                                      'pt-BR',
-                                      {
-                                        style:
-                                          'currency',
-                                        currency:
-                                          'BRL'
-                                      }
-                                    )}{' '}
-                                    (VIP 3x:{' '}
-                                    {Number(
-                                      vip3xVal
-                                    ).toLocaleString(
-                                      'pt-BR',
-                                      {
-                                        style:
-                                          'currency',
-                                        currency:
-                                          'BRL'
-                                      }
-                                    )}
-                                    )
+                                  <div style={{ fontSize: 11, fontWeight: 600, color: '#A3A39B', marginTop: 2 }}>
+                                    ou 3x de {(Number(vip3xVal) / 3).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (VIP 3x: {Number(vip3xVal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
                                   </div>
                                 )}
                               </div>
                             ) : (
-                              <div
-                                style={{
-                                  fontSize: 15,
-                                  fontWeight: 700,
-                                  color:
-                                    '#F0EFE9'
-                                }}
-                              >
-                                {Number(
-                                  p.price ||
-                                    0
-                                ).toLocaleString(
-                                  'pt-BR',
-                                  {
-                                    style:
-                                      'currency',
-                                    currency:
-                                      'BRL'
-                                  }
-                                )}
+                              <div style={{ fontSize: 15, fontWeight: 700, color: '#F0EFE9' }}>
+                                {Number(p.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </div>
-                            )}
-                          </div>
-
-                          <button
-                            onClick={() =>
-                              addToCart(p)
-                            }
-                            style={{
-                              background:
-                                '#DC2626',
-                              color:
-                                '#fff',
-                              border: 0,
-                              padding:
-                                '7px 12px',
-                              borderRadius: 8,
-                              fontWeight: 600,
-                              fontSize: 12,
-                              cursor:
-                                'pointer'
-                            }}
-                          >
-                            Adicionar
-                          </button>
+                            )
+                          ) : (
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#8A8A82' }}>
+                              Valor sob consulta
+                            </span>
+                          )}
                         </div>
-                      </div>
-                    );
-                  }
-                )}
-              </div>
-            )}
-          </>
-        )}
 
-        {/* =====================================================
+                        <button
+                          onClick={() =>
+                            addToCart(p)
+                          }
+                          style={{
+                            background:
+                              '#DC2626',
+                            color:
+                              '#fff',
+                            border: 0,
+                            padding:
+                              '7px 12px',
+                            borderRadius: 8,
+                            fontWeight: 600,
+                            fontSize: 12,
+                            cursor:
+                              'pointer'
+                          }}
+                        >
+                          Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          )}        {/* =====================================================
             MODAL VIP
         ====================================================== */}
 
@@ -1688,8 +1474,7 @@ export function PublicCatalog() {
             CARRINHO
         ====================================================== */}
 
-        {isCartOpen &&
-          catalogVisible && (
+        {isCartOpen && (
             <div
               style={{
                 position:
@@ -2021,24 +1806,33 @@ export function PublicCatalog() {
                         Total:
                       </span>
 
-                      <span
-                        style={{
-                          fontSize: 17,
-                          fontWeight: 700,
-                          color:
-                            '#F0EFE9'
-                        }}
-                      >
-                        {calculateTotal().toLocaleString(
-                          'pt-BR',
-                          {
-                            style:
-                              'currency',
-                            currency:
-                              'BRL'
-                          }
-                        )}
-                      </span>
+                      {catalogVisible ? (
+                        <span
+                          style={{
+                            fontSize: 17,
+                            fontWeight: 700,
+                            color: '#F0EFE9'
+                          }}
+                        >
+                          {calculateTotal().toLocaleString(
+                            'pt-BR',
+                            {
+                              style: 'currency',
+                              currency: 'BRL'
+                            }
+                          )}
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: '#8A8A82'
+                          }}
+                        >
+                          Valores sob consulta
+                        </span>
+                      )}
                     </div>
 
                     <button

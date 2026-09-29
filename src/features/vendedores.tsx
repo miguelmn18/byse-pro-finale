@@ -43,7 +43,9 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
 
   const startEdit = (s) => {
     setEditingId(s.id);
-    const currentPct = s.commissionPct !== undefined ? s.commissionPct : (s.commission_pct !== undefined ? s.commission_pct : 5);
+    const currentPct = s.commissionPct !== undefined && s.commissionPct !== null 
+      ? s.commissionPct 
+      : (s.commission_pct !== undefined && s.commission_pct !== null ? s.commission_pct : 5);
     setForm({ name: s.name, commissionPct: String(currentPct) });
     setShowForm(true);
   };
@@ -57,7 +59,8 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
   const save = async () => {
     if (!form.name.trim()) return;
     
-    const parsedCommission = parseFloat(form.commissionPct);
+    const trimmedPct = String(form.commissionPct).trim();
+    const parsedCommission = trimmedPct === "" ? 5 : parseFloat(trimmedPct);
     const finalCommission = !isNaN(parsedCommission) ? parsedCommission : 5;
 
     const sellerPayload = {
@@ -179,7 +182,9 @@ export function Vendedores({ sellers, setSellers, sales, card, border, subtext, 
         {sellers.map((s, i) => {
           const sellerSales = sales.filter((v) => v.seller === s.name || v.seller === s.id);
           const total = sellerSales.reduce((a, v) => a + v.total, 0);
-          const rawPct = s.commissionPct !== undefined ? s.commissionPct : (s.commission_pct !== undefined ? s.commission_pct : 5);
+          const rawPct = s.commissionPct !== undefined && s.commissionPct !== null 
+            ? s.commissionPct 
+            : (s.commission_pct !== undefined && s.commission_pct !== null ? s.commission_pct : 5);
           const commissionPct = Number(rawPct);
           const commission = (total * commissionPct) / 100;
 

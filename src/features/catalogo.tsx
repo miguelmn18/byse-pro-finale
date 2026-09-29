@@ -110,7 +110,7 @@ export default function Catalogo({
 
   const publicUrl =
     cfg.publicUrl ||
-    `${window.location.origin}/catalogo/${userId || ''}`;
+    `${window.location.origin}/PublicCatalog/${userId || ''}`;
 
   const save = async () => {
     setSaving(true);

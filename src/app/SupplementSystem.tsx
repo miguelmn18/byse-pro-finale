@@ -289,21 +289,38 @@ function SupplementSystem() {
   }, [user]);
 
   useEffect(() => {
-    const path = window.location.pathname;
-    const match = path.match(/^\/catalogo\/([^/]+)$/);
+    const path = window.location.pathname.replace(/\/+$/, "");
 
-    if (match) {
-      const storeUserId = match[1];
+    // Aceita o link público atual e mantém compatibilidade com links antigos.
+    const publicCatalogMatch =
+      path.match(/^\/publicCatalog\/([^/]+)$/i) ||
+      path.match(/^\/catalogo\/([^/]+)$/i);
+
+    if (publicCatalogMatch) {
+      const storeUserId = decodeURIComponent(publicCatalogMatch[1]);
       setIsPublicCatalog(true);
+      setPublicStoreData(null);
+      setLoading(true);
 
-      fetch(`${API_URL}/public/catalogo/${storeUserId}`)
-        .then((res) => res.json())
+      fetch(`${API_URL}/public/catalogo/${encodeURIComponent(storeUserId)}`)
+        .then(async (res) => {
+          if (!res.ok) {
+            let message = "Não foi possível carregar o catálogo.";
+            try {
+              const errorData = await res.json();
+              message = errorData?.error || message;
+            } catch (_) {}
+            throw new Error(message);
+          }
+          return res.json();
+        })
         .then((data) => {
           setPublicStoreData(data);
           setLoading(false);
         })
         .catch((err) => {
           console.error("Erro ao carregar catálogo público:", err);
+          setPublicStoreData(null);
           setLoading(false);
         });
       return;

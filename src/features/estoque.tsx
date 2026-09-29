@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Plus, Trash2, Edit2, X, Eye } from "lucide-react";
 import { FONT_BODY } from "../data/constants";
 import { money, inputStyle, ghostBtn } from "../utils/helpers";
@@ -8,6 +8,7 @@ import { SectionTitle, HBar } from "../components/common";
 export function Estoque({
   products,
   setProducts,
+  onCreateProduct,
   stockLocations,
   setStockLocations,
   onDeleteProduct,
@@ -26,8 +27,111 @@ export function Estoque({
   // Estado para armazenar a categoria selecionada no filtro
   const [selectedCategory, setSelectedCategory] = useState("Todas");
 
-  // Estado para o Modal/Gaveta de Detalhes do Produto
-  const [viewingProduct, setViewingProduct] = useState(null);
+  // Histórico de categorias criadas/identificadas no front.
+  // O armazenamento é separado por usuário quando possível, evitando
+  // misturar categorias entre logins no mesmo navegador.
+  const getCategoryStorageKey = () => {
+    try {
+      const token = localStorage.getItem("byse_token");
+      const userId =
+        localStorage.getItem("byse_user_id") ||
+        localStorage.getItem("userId") ||
+        localStorage.getItem("byse_user") ||
+        "";
+      const tokenPart = token ? token.slice(-24) : "guest";
+      const userPart = userId ? String(userId) : "no-user";
+      return `byse_product_categories_${userPart}_${tokenPart}`;
+    } catch {
+      return "byse_product_categories_guest";
+    }
+  };
+
+  const [savedCategories, setSavedCategories] = useState([]);
+
+  // Carrega as categorias salvas no navegador ao abrir o módulo.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(getCategoryStorageKey());
+      if (!raw) {
+        setSavedCategories([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setSavedCategories(
+          Array.from(
+            new Set(
+              parsed
+                .map((cat) => String(cat || "").trim())
+                .filter(Boolean)
+            )
+          ).sort((a, b) => a.localeCompare(b, "pt-BR"))
+        );
+      }
+    } catch (error) {
+      console.error("Erro ao carregar categorias salvas:", error);
+      setSavedCategories([]);
+    }
+  }, []);
+
+  // Mantém no histórico as categorias que já existem nos produtos.
+  useEffect(() => {
+    const productCategories = (Array.isArray(products) ? products : [])
+      .map((p) => String(p?.category || "").trim())
+      .filter(Boolean)
+      .filter((cat) => cat.toLowerCase() !== "sem categoria");
+
+    if (productCategories.length === 0) return;
+
+    setSavedCategories((current) => {
+      const merged = Array.from(
+        new Set([...current, ...productCategories])
+      )
+        .map((cat) => String(cat).trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+      try {
+        localStorage.setItem(getCategoryStorageKey(), JSON.stringify(merged));
+      } catch (error) {
+        console.error("Erro ao salvar categorias:", error);
+      }
+
+      return merged;
+    });
+  }, [products]);
+
+  // Salva uma categoria nova no histórico local.
+  const saveCategoryToHistory = (category) => {
+    const normalized = String(category || "").trim();
+    if (!normalized || normalized.toLowerCase() === "sem categoria") return;
+
+    setSavedCategories((current) => {
+      const existing = current.find(
+        (cat) => cat.toLowerCase() === normalized.toLowerCase()
+      );
+
+      if (existing) {
+        return current;
+      }
+
+      const updated = [...current, normalized].sort((a, b) =>
+        a.localeCompare(b, "pt-BR")
+      );
+
+      try {
+        localStorage.setItem(
+          getCategoryStorageKey(),
+          JSON.stringify(updated)
+        );
+      } catch (error) {
+        console.error("Erro ao salvar categoria:", error);
+      }
+
+      return updated;
+    });
+  };
 
   const blankForm = {
     name: "",
@@ -47,7 +151,35 @@ export function Estoque({
     imageUrl: null,
   };
 
+  // O formulário precisa existir antes dos useMemo que leem form.category.
   const [form, setForm] = useState(blankForm);
+
+  // Estado para o Modal/Gaveta de Detalhes do Produto
+  const [viewingProduct, setViewingProduct] = useState(null);
+
+  // Todas as categorias disponíveis no sistema:
+  // histórico salvo + categorias atualmente existentes nos produtos.
+  const allCategories = useMemo(() => {
+    const productCategories = (Array.isArray(products) ? products : [])
+      .map((p) => String(p?.category || "").trim())
+      .filter(Boolean)
+      .filter((cat) => cat.toLowerCase() !== "sem categoria");
+
+    return Array.from(
+      new Set([...savedCategories, ...productCategories])
+    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [savedCategories, products]);
+
+  // Categorias filtradas pelo texto digitado no campo de categoria.
+  const categorySuggestions = useMemo(() => {
+    const typed = String(form.category || "").trim().toLowerCase();
+
+    if (!typed) return allCategories;
+
+    return allCategories.filter((cat) =>
+      cat.toLowerCase().includes(typed)
+    );
+  }, [form.category, allCategories]);
 
   const renameLoc = async (id, name) => {
     const updatedLocs = stockLocations.map((l) =>
@@ -176,6 +308,9 @@ export function Estoque({
   const saveProduct = async () => {
     if (!form.name || !form.price) return;
 
+    // Registra a categoria assim que o produto é criado/atualizado.
+    saveCategoryToHistory(form.category);
+
     const validatedVariations = (form.variations || []).map((v) => ({
       id: v.id || `var_${Date.now()}_${Math.random()}`,
       name: (v.name || "").trim() || "Padrão",
@@ -226,74 +361,25 @@ export function Estoque({
     };
 
     try {
-      const token = localStorage.getItem("byse_token");
-      const rawApiUrl =
-        import.meta.env.VITE_API_URL ||
-        (window.location.hostname === "localhost"
-          ? "http://localhost:3333/api"
-          : "https://byse-pro-backend-production.up.railway.app/api");
-      const API_URL = rawApiUrl.endsWith("/api")
-        ? rawApiUrl
-        : `${rawApiUrl.endsWith("/") ? rawApiUrl.slice(0, -1) : rawApiUrl}/api`;
-
-      const endpoint = editingId
-        ? `${API_URL}/products/${editingId}`
-        : `${API_URL}/products`;
-      const method = editingId ? "PUT" : "POST";
-
-      const response = await fetch(endpoint, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(built),
-      });
-
-      if (response.ok) {
-        const savedData = await response.json();
-        const finalProduct = {
-          ...built,
-          ...savedData,
-          variations:
-            savedData.variations || savedData.subcategories || built.variations,
-        };
-
-        if (editingId) {
-          if (onEditProduct) {
-            await onEditProduct(finalProduct);
-          } else if (setProducts) {
-            const currentList = Array.isArray(products) ? products : [];
-            setProducts(
-              currentList.map((p) =>
-                p.id === finalProduct.id ? finalProduct : p,
-              ),
-            );
-          }
-        } else {
-          if (setProducts) {
-            if (typeof setProducts === "function") {
-              const currentList = Array.isArray(products) ? products : [];
-              setProducts([finalProduct, ...currentList]);
-            }
-          }
-        }
-      } else {
-        if (editingId && onEditProduct) {
+      // O SupplementSystem centraliza a persistência no Railway.
+      // Assim evitamos POST duplicado e não tratamos handleUpdateProducts
+      // como se fosse um setter de estado do React.
+      if (editingId) {
+        if (onEditProduct) {
           await onEditProduct(built);
-        } else if (!editingId && setProducts) {
-          const currentList = Array.isArray(products) ? products : [];
-          setProducts([built, ...currentList]);
+        } else if (onCreateProduct) {
+          await onCreateProduct(built);
+        } else if (setProducts) {
+          await setProducts(built);
         }
+      } else if (onCreateProduct) {
+        await onCreateProduct(built);
+      } else if (setProducts) {
+        // Compatibilidade caso o componente seja usado isoladamente.
+        await setProducts(built);
       }
     } catch (err) {
-      console.error("Erro ao salvar produto no backend:", err);
-      if (editingId && onEditProduct) {
-        await onEditProduct(built);
-      } else if (!editingId && setProducts) {
-        const currentList = Array.isArray(products) ? products : [];
-        setProducts([built, ...currentList]);
-      }
+      console.error("Erro ao salvar produto:", err);
     }
 
     cancelForm();
@@ -306,16 +392,16 @@ export function Estoque({
     }
   };
 
-  const categories = [
-    "Todas",
-    ...Array.from(
-      new Set(
-        (Array.isArray(products) ? products : []).map(
-          (p) => p.category || "Sem categoria",
-        ),
-      ),
-    ),
-  ];
+  const categories = ["Todas", ...allCategories];
+
+  useEffect(() => {
+    if (
+      selectedCategory !== "Todas" &&
+      !allCategories.includes(selectedCategory)
+    ) {
+      setSelectedCategory("Todas");
+    }
+  }, [selectedCategory, allCategories]);
 
   const filteredProducts = Array.isArray(products)
     ? products.filter((p) => {
@@ -437,12 +523,78 @@ export function Estoque({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               style={inputStyle(border, text)}
             />
-            <input
-              placeholder="Categoria"
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              style={inputStyle(border, text)}
-            />
+            <div
+              style={{
+                position: "relative",
+                flex: "1 1 180px",
+                minWidth: 180,
+              }}
+            >
+              <input
+                list="byse-categorias-salvas"
+                placeholder="Categoria"
+                value={form.category}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setForm({ ...form, category: value });
+
+                  // Se o usuário digitar uma categoria nova, ela fica
+                  // disponível imediatamente como sugestão.
+                  const normalized = value.trim();
+                  if (
+                    normalized &&
+                    !allCategories.some(
+                      (cat) => cat.toLowerCase() === normalized.toLowerCase()
+                    )
+                  ) {
+                    setSavedCategories((current) => {
+                      const updated = Array.from(
+                        new Set([...current, normalized])
+                      ).sort((a, b) =>
+                        a.localeCompare(b, "pt-BR")
+                      );
+
+                      try {
+                        localStorage.setItem(
+                          getCategoryStorageKey(),
+                          JSON.stringify(updated)
+                        );
+                      } catch (error) {
+                        console.error(
+                          "Erro ao salvar categoria digitada:",
+                          error
+                        );
+                      }
+
+                      return updated;
+                    });
+                  }
+                }}
+                onBlur={(e) => saveCategoryToHistory(e.target.value)}
+                style={{ ...inputStyle(border, text), width: "100%" }}
+              />
+
+              <datalist id="byse-categorias-salvas">
+                {categorySuggestions.map((cat) => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
+
+              {allCategories.length > 0 && (
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: subtext,
+                    marginTop: 4,
+                  }}
+                >
+                  {allCategories.length} categoria
+                  {allCategories.length !== 1 ? "s" : ""} salva
+                  {allCategories.length !== 1 ? "s" : ""}. Digite para filtrar
+                  as sugestões.
+                </div>
+              )}
+            </div>
             <input
               placeholder="Código de barras"
               value={form.barcode}
@@ -793,29 +945,125 @@ export function Estoque({
         </div>
       )}
 
-      {/* Barra de Filtro por Categoria */}
+      {/* Filtro por Categoria */}
       <div
-        style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}
+        style={{
+          background: card,
+          border: `1px solid ${border}`,
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 14,
+        }}
       >
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div
             style={{
-              background: selectedCategory === cat ? accent : card,
-              color: selectedCategory === cat ? "#fff" : text,
-              border: `1px solid ${selectedCategory === cat ? accent : border}`,
-              borderRadius: 8,
-              padding: "6px 12px",
               fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
+              fontWeight: 700,
+              color: text,
+              whiteSpace: "nowrap",
             }}
           >
-            {cat}
-          </button>
-        ))}
+            Filtrar por categoria:
+          </div>
+
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            style={{
+              ...inputStyle(border, text),
+              flex: "1 1 240px",
+              minWidth: 220,
+              cursor: "pointer",
+              background: card,
+            }}
+          >
+            <option value="Todas">Todas as categorias</option>
+            {allCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
+          <div
+            style={{
+              fontSize: 11,
+              color: subtext,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {allCategories.length} categoria
+            {allCategories.length !== 1 ? "s" : ""} disponível
+            {allCategories.length !== 1 ? "s" : ""}
+          </div>
+        </div>
+
+        {allCategories.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              flexWrap: "wrap",
+              marginTop: 10,
+              paddingTop: 10,
+              borderTop: `1px solid ${border}`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedCategory("Todas")}
+              style={{
+                background:
+                  selectedCategory === "Todas" ? accent : card,
+                color:
+                  selectedCategory === "Todas" ? "#fff" : text,
+                border: `1px solid ${
+                  selectedCategory === "Todas" ? accent : border
+                }`,
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Todas
+            </button>
+
+            {allCategories.map((cat) => (
+              <button
+                type="button"
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                style={{
+                  background:
+                    selectedCategory === cat ? accent : card,
+                  color:
+                    selectedCategory === cat ? "#fff" : text,
+                  border: `1px solid ${
+                    selectedCategory === cat ? accent : border
+                  }`,
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
