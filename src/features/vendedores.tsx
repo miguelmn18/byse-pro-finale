@@ -1,213 +1,407 @@
 // @ts-nocheck
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Plus, Edit2, Trash2 } from "lucide-react";
 import { SectionTitle } from "../components/common";
 import { money, inputStyle } from "../utils/helpers";
 
-export function Vendedores({ sellers, setSellers, sales, card, border, subtext, accent, text }) {
-  // Remove barra dupla ou trailing slash se houver na variável de ambiente
-  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
+export function Vendedores({
+  sellers = [],
+  setSellers,
+  sales = [],
+  card,
+  border,
+  subtext,
+  accent,
+  text,
+}) {
+  const API_URL = (
+    import.meta.env.VITE_API_URL || "http://localhost:3333"
+  ).replace(/\/+$/, "");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: "", commissionPct: "5" });
+  const [saving, setSaving] = useState(false);
 
-  const getAuthHeaders = () => {
+  const headers = () => {
     const token = localStorage.getItem("byse_token");
-    const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
     return {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-      "x-user-id": user.id || localStorage.getItem("userId") || "user_1"
+      Authorization: `Bearer ${token}`,
     };
   };
 
   useEffect(() => {
-    const fetchSellers = async () => {
+    const load = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/sellers`, {
-          headers: getAuthHeaders()
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            setSellers(data);
-          }
-        }
-      } catch (error) {
-        console.error("Erro ao carregar vendedores do banco:", error);
+        const r = await fetch(`${API_URL}/api/sellers`, { headers: headers() });
+        const data = await r.json().catch(() => []);
+        if (!r.ok) throw new Error(data.error || `Erro ${r.status}`);
+        if (Array.isArray(data)) setSellers(data);
+      } catch (e) {
+        console.error("Erro ao carregar vendedores:", e);
       }
     };
-
-    fetchSellers();
-  }, [API_URL, setSellers]);
+    load();
+  }, [API_URL]);
 
   const startEdit = (s) => {
+    const pct = s.commissionPct ?? s.commission_pct ?? 5;
     setEditingId(s.id);
-    const currentPct = s.commissionPct !== undefined && s.commissionPct !== null 
-      ? s.commissionPct 
-      : (s.commission_pct !== undefined && s.commission_pct !== null ? s.commission_pct : 5);
-    setForm({ name: s.name, commissionPct: String(currentPct) });
+    setForm({
+      name: s.name || "",
+      commissionPct: String(pct),
+    });
     setShowForm(true);
   };
 
   const cancel = () => {
-    setForm({ name: "", commissionPct: "5" });
     setEditingId(null);
+    setForm({ name: "", commissionPct: "5" });
     setShowForm(false);
   };
 
   const save = async () => {
-    if (!form.name.trim()) return;
-    
-    const trimmedPct = String(form.commissionPct).trim();
-    const parsedCommission = trimmedPct === "" ? 5 : parseFloat(trimmedPct);
-    const finalCommission = !isNaN(parsedCommission) ? parsedCommission : 5;
+    const name = String(form.name || "").trim();
+    if (!name) {
+      alert("Informe o nome do vendedor.");
+      return;
+    }
 
-    const sellerPayload = {
-      id: editingId || (`sel_${Date.now()}`),
-      name: form.name.trim(),
-      commissionPct: finalCommission,
-      commission_pct: finalCommission
-    };
+    const parsed = parseFloat(String(form.commissionPct || "5"));
+    const commissionPct = Number.isFinite(parsed) ? parsed : 5;
+
+    setSaving(true);
 
     try {
-      const url = editingId ? `${API_URL}/api/sellers/${editingId}` : `${API_URL}/api/sellers`;
-      const method = editingId ? "PUT" : "POST";
+      const editing = Boolean(editingId);
 
-      const response = await fetch(url, {
-        method: method,
-        headers: getAuthHeaders(),
-        body: JSON.stringify(sellerPayload)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.message || `Erro ao salvar no servidor (Status: ${response.status})`);
-      }
-
-      // Lê a resposta real retornada pela API para garantir sincronia com o banco
-      const savedData = await response.json().catch(() => ({}));
-      
-      const savedPct = savedData.commissionPct !== undefined ? savedData.commissionPct : (savedData.commission_pct !== undefined ? savedData.commission_pct : finalCommission);
-
-      const finalSeller = {
-        id: savedData.id || sellerPayload.id,
-        name: savedData.name || sellerPayload.name,
-        commissionPct: Number(savedPct),
-        commission_pct: Number(savedPct)
+      const payload = {
+        ...(editing ? { id: editingId } : {}),
+        name,
+        commissionPct,
+        commission_pct: commissionPct,
       };
 
-      if (editingId) {
-        setSellers(sellers.map((s) => (s.id === editingId ? finalSeller : s)));
-      } else {
-        setSellers([...sellers, finalSeller]);
-      }
+      const r = await fetch(
+        editing
+          ? `${API_URL}/api/sellers/${encodeURIComponent(editingId)}`
+          : `${API_URL}/api/sellers`,
+        {
+          method: editing ? "PUT" : "POST",
+          headers: headers(),
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok)
+        throw new Error(
+          data.error || data.message || `Erro ao salvar vendedor (${r.status})`,
+        );
+
+      const pct = Number(
+        data.commissionPct ?? data.commission_pct ?? commissionPct,
+      );
+
+      const saved = {
+        id: data.id || (editing ? editingId : null),
+        name: data.name || name,
+        commissionPct: pct,
+        commission_pct: pct,
+      };
+
+      setSellers((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+
+        if (editing) {
+          return list.map((s) =>
+            String(s.id) === String(saved.id) ? { ...s, ...saved } : s,
+          );
+        }
+
+        const exists = list.some((s) => String(s.id) === String(saved.id));
+
+        return exists
+          ? list.map((s) =>
+              String(s.id) === String(saved.id) ? { ...s, ...saved } : s,
+            )
+          : [...list, saved];
+      });
+
       cancel();
-    } catch (error) {
-      console.error("Erro ao salvar vendedor:", error);
-      alert(`Erro ao salvar vendedor: ${error.message}`);
+    } catch (e) {
+      console.error("Erro ao salvar vendedor:", e);
+      alert(`Erro ao salvar vendedor: ${e.message}`);
+    } finally {
+      setSaving(false);
     }
   };
 
+
+  const getAuthHeaders = () => {
+  const token = localStorage.getItem("byse_token");
+
+  return {
+    "Content-Type": "application/json",
+    ...(token
+      ? { Authorization: `Bearer ${token}` }
+      : {})
+  };
+};
+
   const remove = async (id) => {
     if (!confirm("Deseja realmente excluir este vendedor?")) return;
+
     try {
       const response = await fetch(`${API_URL}/api/sellers/${id}`, {
         method: "DELETE",
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
       });
 
-      if (!response.ok) throw new Error("Erro ao excluir no servidor");
+      const data = await response.json().catch(() => ({}));
 
-      setSellers(sellers.filter((s) => s.id !== id));
+      if (!response.ok)
+        throw new Error(
+          data.error || `Erro ao excluir vendedor (${response.status})`,
+        );
+
+      setSellers((prev) => prev.filter((s) => String(s.id) !== String(id)));
     } catch (error) {
       console.error("Erro ao remover vendedor:", error);
-      alert("Erro ao remover vendedor do servidor.");
+      alert(`Erro ao remover vendedor: ${error.message}`);
     }
   };
 
   return (
     <div>
-      <SectionTitle title="Vendedores" sub="Desempenho de vendas e comissão" subtext={subtext} />
-      
-      <button 
-        onClick={() => (showForm ? cancel() : setShowForm(true))} 
-        style={{ 
-          background: accent, color: "#fff", border: "none", borderRadius: 8, 
-          padding: "8px 16px", display: "flex", alignItems: "center", gap: 6, 
-          fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 16 
+      <SectionTitle
+        title="Vendedores"
+        sub="Desempenho de vendas e comissão"
+        subtext={subtext}
+      />
+
+      <button
+        onClick={() => (showForm ? cancel() : setShowForm(true))}
+        style={{
+          background: accent,
+          color: "#fff",
+          border: "none",
+          borderRadius: 8,
+          padding: "9px 14px",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 16,
         }}
       >
-        <Plus size={15} /> {editingId ? "Editando vendedor" : "Novo vendedor"}
+        {showForm ? <Trash2 size={15} /> : <Plus size={15} />}
+        {showForm ? "Cancelar" : "Novo vendedor"}
       </button>
 
       {showForm && (
-        <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 12, padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <input 
-            placeholder="Nome" 
-            value={form.name} 
-            onChange={(e) => setForm({ ...form, name: e.target.value })} 
-            style={inputStyle(border, text)} 
-          />
-          <input 
-            placeholder="Comissão (%)" 
-            type="number" 
-            step="0.1"
-            value={form.commissionPct} 
-            onChange={(e) => setForm({ ...form, commissionPct: e.target.value })} 
-            style={{ ...inputStyle(border, text), flex: "0 0 130px" }} 
-          />
-          <button 
-            onClick={save} 
-            style={{ background: accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        <div
+          style={{
+            background: card,
+            border: `1px solid ${border}`,
+            borderRadius: 10,
+            padding: 16,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 180px auto",
+              gap: 10,
+              alignItems: "end",
+            }}
           >
-            Salvar
-          </button>
-          {editingId && (
-            <button 
-              onClick={cancel} 
-              style={{ background: "transparent", border: `1px solid ${border}`, color: text, borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  color: subtext,
+                  marginBottom: 5,
+                }}
+              >
+                Nome
+              </label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Nome do vendedor"
+                style={inputStyle(border, text)}
+              />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  color: subtext,
+                  marginBottom: 5,
+                }}
+              >
+                Comissão (%)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={form.commissionPct}
+                onChange={(e) =>
+                  setForm({ ...form, commissionPct: e.target.value })
+                }
+                style={inputStyle(border, text)}
+              />
+            </div>
+
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{
+                height: 38,
+                padding: "0 16px",
+                border: "none",
+                borderRadius: 8,
+                background: accent,
+                color: "#fff",
+                cursor: saving ? "wait" : "pointer",
+                fontWeight: 600,
+                opacity: saving ? 0.7 : 1,
+              }}
             >
-              Cancelar
+              {saving
+                ? "Salvando..."
+                : editingId
+                  ? "Salvar alteração"
+                  : "Cadastrar"}
             </button>
-          )}
+          </div>
         </div>
       )}
 
-      <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 0.6fr", padding: "10px 14px", fontSize: 11, color: subtext, fontWeight: 700, borderBottom: `1px solid ${border}`, textTransform: "uppercase" }}>
-          <div>Vendedor</div><div>Vendas</div><div>Faturado</div><div>Comissão</div><div></div>
-        </div>
+      <div
+        style={{
+          background: card,
+          border: `1px solid ${border}`,
+          borderRadius: 10,
+          overflow: "hidden",
+        }}
+      >
+        {!sellers.length ? (
+          <div style={{ padding: 25, textAlign: "center", color: subtext }}>
+            Nenhum vendedor cadastrado.
+          </div>
+        ) : (
+          sellers.map((s) => {
+            const sellerSales = sales.filter(
+              (v) => v.seller === s.name || v.seller === s.id,
+            );
 
-        {sellers.map((s, i) => {
-          const sellerSales = sales.filter((v) => v.seller === s.name || v.seller === s.id);
-          const total = sellerSales.reduce((a, v) => a + v.total, 0);
-          const rawPct = s.commissionPct !== undefined && s.commissionPct !== null 
-            ? s.commissionPct 
-            : (s.commission_pct !== undefined && s.commission_pct !== null ? s.commission_pct : 5);
-          const commissionPct = Number(rawPct);
-          const commission = (total * commissionPct) / 100;
+            const total = sellerSales.reduce(
+              (a, v) => a + Number(v.total || 0),
+              0,
+            );
 
-          return (
-            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 0.6fr", padding: "12px 14px", fontSize: 13, alignItems: "center", borderBottom: i < sellers.length - 1 ? `1px solid ${border}` : "none" }}>
-              <div style={{ fontWeight: 600 }}>{s.name}</div>
-              <div>{sellerSales.length}</div>
-              <div style={{ fontWeight: 700 }}>{money(total)}</div>
-              <div style={{ color: accent, fontWeight: 700 }}>
-                {money(commission)} <span style={{ color: subtext, fontWeight: 400 }}>({commissionPct}%)</span>
+            const commissionPct = Number(
+              s.commissionPct ?? s.commission_pct ?? 5,
+            );
+
+            const commission = (total * commissionPct) / 100;
+
+            return (
+              <div
+                key={s.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 110px 130px 100px 90px",
+                  gap: 10,
+                  alignItems: "center",
+                  padding: "13px 15px",
+                  borderBottom: `1px solid ${border}`,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, color: text }}>{s.name}</div>
+                  <div style={{ fontSize: 11, color: subtext }}>
+                    {sellerSales.length} venda(s)
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: subtext }}>
+                  {commissionPct}%
+                </div>
+
+                <div style={{ fontSize: 13 }}>{money(total)}</div>
+
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: accent,
+                  }}
+                >
+                  {money(commission)}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: 5,
+                  }}
+                >
+                  <button
+                    onClick={() => startEdit(s)}
+                    title="Editar"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      border: `1px solid ${border}`,
+                      background: "transparent",
+                      color: text,
+                      borderRadius: 7,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Edit2 size={14} />
+                  </button>
+
+                  <button
+                    onClick={() => remove(s.id)}
+                    title="Excluir"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      border: "1px solid #7f1d1d",
+                      background: "transparent",
+                      color: "#ef4444",
+                      borderRadius: 7,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => startEdit(s)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                  <Edit2 size={14} color={subtext} />
-                </button>
-                <button onClick={() => remove(s.id)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                  <Trash2 size={14} color={subtext} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
+
+export default Vendedores;

@@ -601,30 +601,7 @@ function SupplementSystem() {
     }
   };
 
-  const handleUpdateSellers = async (newSellers) => {
-    const latestSeller =
-      Array.isArray(newSellers) && newSellers.length > 0
-        ? newSellers[newSellers.length - 1]
-        : null;
-
-    setSellers([...newSellers]);
-    localStorage.setItem(getStorageKey("sellers"), JSON.stringify(newSellers));
-
-    if (latestSeller) {
-      try {
-        await fetch(`${API_URL}/sellers`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            id: latestSeller.id || `sel_${Date.now()}`,
-            name: latestSeller.name,
-          }),
-        });
-      } catch (err) {
-        console.error("Erro ao salvar vendedor no banco:", err);
-      }
-    }
-  };
+  
 
   const handleUpdateFiados = async (newFiados) => {
     const latestFiado =
@@ -884,7 +861,7 @@ function SupplementSystem() {
       return (
         <Vendedores
           sellers={sellers}
-          setSellers={handleUpdateSellers}
+          setSellers={setSellers}
           {...{ sales, card, border, subtext, accent, text }}
         />
       );

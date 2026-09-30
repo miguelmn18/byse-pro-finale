@@ -36,13 +36,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (
-      !origin ||
-      origin.startsWith('http://localhost:') ||
-      origin.endsWith('.vercel.app') ||
-      origin.endsWith('.up.railway.app') ||
-      allowedOrigins.includes(origin)
-    ) {
+    if (!origin || origin.startsWith('http://localhost:') || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app') || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(null, true);
@@ -50,71 +44,36 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'x-user-id',
-    'X-User-Id'
-  ]
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'X-User-Id']
 }));
 
 app.options('*', cors());
 
 const sessions = new Map();
 const authRoot = path.resolve(__dirname, '../whatsapp-sessions');
-
 fs.mkdirSync(authRoot, { recursive: true });
 
 const json = (value, fallback) => {
   if (value == null) return fallback;
   if (typeof value === 'object') return value;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(value); } catch { return fallback; }
 };
-
-// ==========================================
-// AUXILIARES
-// ==========================================
 
 const calculateDaysCounter = (createdAt, vencimentoDia01) => {
   if (!createdAt) return 0;
-
   const start = new Date(createdAt);
   const end = new Date(vencimentoDia01);
-
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-    return 0;
-  }
-
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
   const diffTime = end.getTime() - start.getTime();
-
-  return Math.max(
-    0,
-    Math.floor(diffTime / (1000 * 60 * 60 * 24))
-  );
+  return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
 };
 
 const normalizeCustomer = (c) => {
-  const createdAtDate = c.created_at
-    ? new Date(c.created_at)
-    : new Date();
-
+  const createdAtDate = c.created_at ? new Date(c.created_at) : new Date();
   const year = createdAtDate.getFullYear();
-  const month = String(
-    createdAtDate.getMonth() + 1
-  ).padStart(2, '0');
-
+  const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
   const fixedVencimento = `${year}-${month}-01`;
-
-  const diasContador = calculateDaysCounter(
-    c.created_at,
-    fixedVencimento
-  );
+  const diasContador = calculateDaysCounter(c.created_at, fixedVencimento);
 
   return {
     id: c.id,
@@ -122,167 +81,72 @@ const normalizeCustomer = (c) => {
     phone: c.phone,
     cpf: c.cpf || '',
     birthDate: c.data_aniversario || '',
-
     cashback: Number(c.cashback || 0),
-
-    cashbackExpirationDate:
-      c.cashback_expiration_date ||
-      c.cashback_expiry ||
-      null,
-
-    cashback_expiration_date:
-      c.cashback_expiration_date ||
-      c.cashback_expiry ||
-      null,
-
+    cashbackExpirationDate: c.cashback_expiration_date || c.cashback_expiry || null,
+    cashback_expiration_date: c.cashback_expiration_date || c.cashback_expiry || null,
     cashbackLost: Number(c.cashback_lost || 0),
-
     status: c.status || 'Ativo',
-
     whatsappOptIn: Boolean(c.whatsapp_opt_in),
-
-    remindersEnabled:
-      c.reminders_enabled !== 0,
-
-    statusMensalidade:
-      c.status_mensalidade ||
-      'Pendente (Não Pago)',
-
-    status_mensalidade:
-      c.status_mensalidade ||
-      'Pendente (Não Pago)',
-
+    remindersEnabled: c.reminders_enabled !== 0,
+    statusMensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
+    status_mensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
     dataVencimento: fixedVencimento,
     data_vencimento: fixedVencimento,
-
-    diasContadorVencimento:
-      diasContador,
-
-    valorMensalidade:
-      Number(c.valor_mensalidade || 0),
-
-    valor_mensalidade:
-      Number(c.valor_mensalidade || 0),
-
-    preTreinoTipo:
-      c.pre_treino_tipo || 'avulso',
-
-    preTreinoInicio:
-      c.pre_treino_inicio || '',
-
-    preTreinoFim:
-      c.pre_treino_fim || '',
-
-    preTreinoValorAvulso:
-      Number(c.pre_treino_valor_avulso || 0)
+    diasContadorVencimento: diasContador,
+    valorMensalidade: Number(c.valor_mensalidade || 0),
+    valor_mensalidade: Number(c.valor_mensalidade || 0),
+    preTreinoTipo: c.pre_treino_tipo || 'avulso',
+    preTreinoInicio: c.pre_treino_inicio || '',
+    preTreinoFim: c.pre_treino_fim || '',
+    preTreinoValorAvulso: Number(c.pre_treino_valor_avulso || 0)
   };
 };
 
 const normalizeProduct = (p) => {
-  const controlStockVal =
-    p.control_stock !== undefined
-      ? p.control_stock
-      : (
-          p.controlStock !== undefined
-            ? p.controlStock
-            : true
-        );
-
-  const vipPriceVal =
-    p.vip_price !== undefined
-      ? p.vip_price
-      : p.vipPrice;
-
-  const vipPrice3xVal =
-    p.vip_price_3x !== undefined
-      ? p.vip_price_3x
-      : p.vipPrice3x;
-
-  const imageUrlVal =
-    p.image_url ||
-    p.imageUrl ||
-    null;
+  const controlStockVal = p.control_stock !== undefined ? p.control_stock : (p.controlStock !== undefined ? p.controlStock : true);
+  const vipPriceVal = p.vip_price !== undefined ? p.vip_price : p.vipPrice;
+  const vipPrice3xVal = p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
+  const imageUrlVal = p.image_url || p.imageUrl || null;
 
   return {
     ...p,
-
     cost: Number(p.cost || 0),
     price: Number(p.price || 0),
     imposto: Number(p.imposto || 0),
     frete: Number(p.frete || 0),
-
     controlStock: controlStockVal,
     control_stock: controlStockVal,
-
-    vipPrice:
-      vipPriceVal == null
-        ? null
-        : Number(vipPriceVal),
-
-    vip_price:
-      vipPriceVal == null
-        ? null
-        : Number(vipPriceVal),
-
-    vipPrice3x:
-      vipPrice3xVal == null
-        ? null
-        : Number(vipPrice3xVal),
-
-    vip_price_3x:
-      vipPrice3xVal == null
-        ? null
-        : Number(vipPrice3xVal),
-
+    vipPrice: vipPriceVal == null ? null : Number(vipPriceVal),
+    vip_price: vipPriceVal == null ? null : Number(vipPriceVal),
+    vipPrice3x: vipPrice3xVal == null ? null : Number(vipPrice3xVal),
+    vip_price_3x: vipPrice3xVal == null ? null : Number(vipPrice3xVal),
     imageUrl: imageUrlVal,
     image_url: imageUrlVal,
-
     stocks: json(p.stocks, {}),
     variations: json(p.variations, [])
   };
 };
 
-const signToken = (user) => {
-  return jwt.sign(
-    {
-      sub: user.id,
-      email: user.email
-    },
+const signToken = (user) =>
+  jwt.sign(
+    { sub: user.id, email: user.email },
     JWT_SECRET,
-    {
-      expiresIn: '7d',
-      issuer: 'byse-pro'
-    }
+    { expiresIn: '7d', issuer: 'byse-pro' }
   );
-};
 
 function authMiddleware(req, res, next) {
   const raw = req.headers.authorization || '';
+  const token = raw.startsWith('Bearer ') ? raw.slice(7) : '';
 
-  const token = raw.startsWith('Bearer ')
-    ? raw.slice(7)
-    : '';
-
-  if (!token) {
-    return res.status(401).json({
-      error: 'Usuário não autenticado.'
-    });
-  }
+  if (!token)
+    return res.status(401).json({ error: 'Usuário não autenticado.' });
 
   try {
-    const payload = jwt.verify(
-      token,
-      JWT_SECRET,
-      {
-        issuer: 'byse-pro'
-      }
-    );
-
+    const payload = jwt.verify(token, JWT_SECRET, { issuer: 'byse-pro' });
     req.user = {
       id: String(payload.sub),
       email: payload.email
     };
-
     return next();
   } catch {
     return res.status(401).json({
@@ -296,97 +160,59 @@ async function userExists(userId) {
     'SELECT id FROM users WHERE id = $1',
     [userId]
   );
-
   return r.rows.length > 0;
 }
-
-// ==========================================
-// HEALTH
-// ==========================================
 
 app.get('/api/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
-
-    res.json({
-      ok: true,
-      service: 'byse-pro-api'
-    });
+    res.json({ ok: true, service: 'byse-pro-api' });
   } catch {
-    res.status(503).json({
-      ok: false
-    });
+    res.status(503).json({ ok: false });
   }
 });
 
 // ==========================================
-// AUTENTICAÇÃO DO LOJISTA
+// AUTENTICAÇÃO
 // ==========================================
 
 app.post('/api/register', async (req, res) => {
   try {
-    const name =
-      String(req.body.name || '').trim();
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
 
-    const email =
-      String(req.body.email || '')
-        .trim()
-        .toLowerCase();
-
-    const password =
-      String(req.body.password || '');
-
-    if (
-      !name ||
-      !email.includes('@') ||
-      password.length < 6
-    ) {
+    if (!name || !email.includes('@') || password.length < 6)
       return res.status(400).json({
-        error:
-          'Informe nome, e-mail válido e senha com pelo menos 6 caracteres.'
+        error: 'Informe nome, e-mail válido e senha com pelo menos 6 caracteres.'
       });
-    }
 
     const exists = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [email]
     );
 
-    if (exists.rows.length) {
+    if (exists.rows.length)
       return res.status(409).json({
         error: 'Este e-mail já está cadastrado.'
       });
-    }
 
     const id = crypto.randomUUID();
-
-    const hash =
-      await bcrypt.hash(password, 12);
+    const hash = await bcrypt.hash(password, 12);
 
     await pool.query(
       'INSERT INTO users (id,name,email,password) VALUES ($1,$2,$3,$4)',
-      [
-        id,
-        name,
-        email,
-        hash
-      ]
+      [id, name, email, hash]
     );
 
-    const user = {
-      id,
-      name,
-      email
-    };
+    const user = { id, name, email };
 
     res.status(201).json({
       token: signToken(user),
       user
     });
-
   } catch (e) {
     console.error(e);
-
     res.status(500).json({
       error: 'Erro ao criar usuário.'
     });
@@ -395,42 +221,33 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   try {
-    const email =
-      String(req.body.email || '')
-        .trim()
-        .toLowerCase();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
 
-    const password =
-      String(req.body.password || '');
-
-    if (!email || !password) {
+    if (!email || !password)
       return res.status(400).json({
         error: 'E-mail e senha são obrigatórios.'
       });
-    }
 
     const r = await pool.query(
       'SELECT id,name,email,password FROM users WHERE email = $1',
       [email]
     );
 
-    if (!r.rows.length) {
+    if (!r.rows.length)
       return res.status(401).json({
         error: 'E-mail ou senha inválidos.'
       });
-    }
 
-    const valid =
-      await bcrypt.compare(
-        password,
-        r.rows[0].password
-      );
+    const valid = await bcrypt.compare(
+      password,
+      r.rows[0].password
+    );
 
-    if (!valid) {
+    if (!valid)
       return res.status(401).json({
         error: 'E-mail ou senha inválidos.'
       });
-    }
 
     const user = {
       id: r.rows[0].id,
@@ -442,10 +259,8 @@ app.post('/api/login', async (req, res) => {
       token: signToken(user),
       user
     });
-
   } catch (e) {
     console.error('[LOGIN]', e);
-
     res.status(500).json({
       error: 'Erro interno no servidor.'
     });
@@ -458,554 +273,283 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     [req.user.id]
   );
 
-  if (!r.rows.length) {
+  if (!r.rows.length)
     return res.status(401).json({
       error: 'Usuário não encontrado.'
     });
-  }
 
   res.json(r.rows[0]);
 });
 
-// ==========================================
-// APP STATE
-// ==========================================
+app.get('/api/app-state/:key', authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
+    [req.user.id, req.params.key]
+  );
 
-app.get(
-  '/api/app-state/:key',
-  authMiddleware,
-  async (req, res) => {
-    const r = await pool.query(
-      'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
-      [
-        req.user.id,
-        req.params.key
-      ]
-    );
+  res.json(
+    r.rows[0]
+      ? json(r.rows[0].state, {})
+      : {}
+  );
+});
 
-    res.json(
-      r.rows[0]
-        ? json(r.rows[0].state, {})
-        : {}
-    );
-  }
-);
+app.put('/api/app-state/:key', authMiddleware, async (req, res) => {
+  await pool.query(
+    `INSERT INTO user_app_states(user_id,state_key,state,updated_at)
+     VALUES($1,$2,$3,NOW())
+     ON CONFLICT(user_id,state_key)
+     DO UPDATE SET state=EXCLUDED.state,updated_at=NOW()`,
+    [
+      req.user.id,
+      req.params.key,
+      JSON.stringify(req.body ?? {})
+    ]
+  );
 
-app.put(
-  '/api/app-state/:key',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      `
-      INSERT INTO user_app_states
-      (
-        user_id,
-        state_key,
-        state,
-        updated_at
-      )
-      VALUES
-      (
-        $1,
-        $2,
-        $3,
-        NOW()
-      )
-      ON CONFLICT(user_id,state_key)
-      DO UPDATE SET
-        state=EXCLUDED.state,
-        updated_at=NOW()
-      `,
-      [
-        req.user.id,
-        req.params.key,
-        JSON.stringify(req.body ?? {})
-      ]
-    );
-
-    res.json({
-      success: true
-    });
-  }
-);
+  res.json({ success: true });
+});
 
 // ==========================================
 // CATÁLOGO PÚBLICO
 // ==========================================
-//
-// IMPORTANTE:
-//
-// A URL DA PÁGINA PÚBLICA É:
-//
-// /publicCatalog/:userId
-//
-// Já a API usada pelo PublicCatalog é:
-//
-// /api/public/catalogo/:userId
-//
-// catalogVisible controla SOMENTE a exibição
-// dos preços.
-// Os produtos continuam sendo retornados.
-//
 
-app.get(
-  '/api/public/catalogo/:userId',
-  async (req, res) => {
+app.get('/api/public/catalogo/:userId', async (req, res) => {
+  const userId = String(req.params.userId);
+
+  if (!(await userExists(userId)))
+    return res.status(404).json({
+      error: 'Loja não encontrada.'
+    });
+
+  const u = await pool.query(
+    'SELECT id,name FROM users WHERE id=$1',
+    [userId]
+  );
+
+  const isVipQuery = req.query.vip === 'true';
+  let isVipTokenValid = false;
+
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : '';
+
+  if (token) {
     try {
-      const userId =
-        String(req.params.userId);
-
-      if (!(await userExists(userId))) {
-        return res.status(404).json({
-          error: 'Loja não encontrada.'
-        });
-      }
-
-      const u = await pool.query(
-        'SELECT id, name FROM users WHERE id=$1',
-        [userId]
+      const payload = jwt.verify(
+        token,
+        JWT_SECRET,
+        { issuer: 'byse-pro-catalog' }
       );
-
-      const isVipQuery =
-        req.query.vip === 'true';
-
-      let isVipTokenValid = false;
-
-      const authHeader =
-        req.headers.authorization || '';
-
-      const token =
-        authHeader.startsWith('Bearer ')
-          ? authHeader.slice(7)
-          : '';
-
-      if (token) {
-        try {
-          const payload =
-            jwt.verify(
-              token,
-              JWT_SECRET,
-              {
-                issuer: 'byse-pro-catalog'
-              }
-            );
-
-          if (
-            payload &&
-            String(payload.sub) === userId &&
-            payload.scope === 'catalog-vip'
-          ) {
-            isVipTokenValid = true;
-          }
-
-        } catch (err) {
-          console.error(
-            '[VIP TOKEN ERROR]',
-            err.message
-          );
-        }
-      }
-
-      const isVip =
-        isVipQuery ||
-        isVipTokenValid;
-
-      const products =
-        await pool.query(
-          `
-          SELECT *
-          FROM products
-          WHERE user_id = $1
-          ORDER BY name
-          `,
-          [userId]
-        );
-
-      const state =
-        await pool.query(
-          `
-          SELECT state
-          FROM user_app_states
-          WHERE user_id = $1
-          AND state_key = $2
-          `,
-          [
-            userId,
-            'catalogo'
-          ]
-        );
-
-      const cfg =
-        json(
-          state.rows[0]?.state,
-          {}
-        );
-
-      const vipResult =
-        await pool.query(
-          `
-          SELECT vip_catalog_password_hash
-          FROM users
-          WHERE id = $1
-          `,
-          [userId]
-        );
-
-      res.json({
-        storeName:
-          u.rows[0]?.name ||
-          'Loja',
-
-        whatsapp:
-          cfg.whatsapp || '',
-
-        address:
-          cfg.address || '',
-
-        instagram:
-          cfg.instagram || '',
-
-        bannerUrl:
-          cfg.bannerUrl || '',
-
-        // IMPORTANTE:
-        // false NÃO esconde os produtos.
-        // false significa que os preços
-        // devem ficar ocultos no PublicCatalog.
-        catalogVisible:
-          cfg.catalogVisible !== undefined
-            ? Boolean(cfg.catalogVisible)
-            : true,
-
-        isVip,
-
-        products:
-          (products.rows || [])
-            .map(normalizeProduct),
-
-        vipEnabled:
-          Boolean(
-            vipResult.rows[0]
-              ?.vip_catalog_password_hash
-          )
-      });
-
-    } catch (e) {
-      console.error(
-        '[PUBLIC CATALOG]',
-        e
-      );
-
-      res.status(500).json({
-        error:
-          'Erro ao carregar catálogo público.'
-      });
-    }
-  }
-);
-
-// ==========================================
-// VERIFICAÇÃO DA SENHA VIP
-// ==========================================
-
-app.post(
-  '/api/public/catalogo/:userId/vip/verify',
-  async (req, res) => {
-    try {
-      const userId =
-        String(req.params.userId);
-
-      const password =
-        String(
-          req.body.password || ''
-        );
-
-      const r =
-        await pool.query(
-          `
-          SELECT vip_catalog_password_hash
-          FROM users
-          WHERE id=$1
-          `,
-          [userId]
-        );
 
       if (
-        !r.rows.length ||
-        !r.rows[0]
-          .vip_catalog_password_hash
+        payload &&
+        String(payload.sub) === userId &&
+        payload.scope === 'catalog-vip'
       ) {
-        return res.status(404).json({
-          error:
-            'Acesso VIP não configurado.'
-        });
+        isVipTokenValid = true;
       }
-
-      const ok =
-        await bcrypt.compare(
-          password,
-          r.rows[0]
-            .vip_catalog_password_hash
-        );
-
-      if (!ok) {
-        return res.status(401).json({
-          error:
-            'Senha VIP inválida.'
-        });
-      }
-
-      const accessToken =
-        jwt.sign(
-          {
-            sub: userId,
-            scope: 'catalog-vip'
-          },
-          JWT_SECRET,
-          {
-            expiresIn: '12h',
-            issuer: 'byse-pro-catalog'
-          }
-        );
-
-      res.json({
-        success: true,
-        accessToken
-      });
-
-    } catch (e) {
+    } catch (err) {
       console.error(
-        '[VIP VERIFY]',
-        e
+        '[VIP TOKEN ERROR]',
+        err.message
       );
-
-      res.status(500).json({
-        error:
-          'Erro ao verificar acesso VIP.'
-      });
     }
   }
-);
 
-// ==========================================
-// CONFIGURAÇÃO DO CATÁLOGO
-// ==========================================
+  const isVip = isVipQuery || isVipTokenValid;
 
-app.get(
-  '/api/catalogo/config',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const r =
-        await pool.query(
-          `
-          SELECT vip_catalog_password_hash
-          FROM users
-          WHERE id=$1
-          `,
-          [req.user.id]
-        );
+  const products = await pool.query(
+    'SELECT * FROM products WHERE user_id=$1 ORDER BY name',
+    [userId]
+  );
 
-      const state =
-        await pool.query(
-          `
-          SELECT state
-          FROM user_app_states
-          WHERE user_id=$1
-          AND state_key=$2
-          `,
-          [
-            req.user.id,
-            'catalogo'
-          ]
-        );
+  const state = await pool.query(
+    'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
+    [userId, 'catalogo']
+  );
 
-      const cfg =
-        json(
-          state.rows[0]?.state,
-          {}
-        );
+  const cfg = json(
+    state.rows[0]?.state,
+    {}
+  );
 
-      res.json({
-        ...cfg,
+  const vipUser = await pool.query(
+    'SELECT vip_catalog_password_hash FROM users WHERE id=$1',
+    [userId]
+  );
 
-        vipConfigured:
-          Boolean(
-            r.rows[0]
-              ?.vip_catalog_password_hash
-          ),
+  res.json({
+    storeName: u.rows[0]?.name || 'Loja',
+    whatsapp: cfg.whatsapp || '',
+    address: cfg.address || '',
+    instagram: cfg.instagram || '',
+    bannerUrl: cfg.bannerUrl || '',
+    catalogVisible:
+      cfg.catalogVisible !== undefined
+        ? Boolean(cfg.catalogVisible)
+        : true,
+    isVip,
+    products: products.rows.map(normalizeProduct),
+    vipEnabled: Boolean(
+      vipUser.rows[0]?.vip_catalog_password_hash
+    )
+  });
+});
 
-        // LINK DA PÁGINA DO PUBLICCATALOG
-        publicUrl:
-          `${FRONTEND_URL.replace(/\/$/, '')}/PublicCatalog/${req.user.id}`
-      });
+app.post('/api/public/catalogo/:userId/vip/verify', async (req, res) => {
+  const userId = String(req.params.userId);
+  const password = String(req.body.password || '');
 
-    } catch (e) {
-      console.error(
-        '[CATALOGO CONFIG GET]',
-        e
-      );
+  const r = await pool.query(
+    'SELECT vip_catalog_password_hash FROM users WHERE id=$1',
+    [userId]
+  );
 
-      res.status(500).json({
-        error:
-          'Erro ao carregar configuração do catálogo.'
-      });
-    }
+  if (
+    !r.rows.length ||
+    !r.rows[0].vip_catalog_password_hash
+  ) {
+    return res.status(404).json({
+      error: 'Acesso VIP não configurado.'
+    });
   }
-);
 
-app.put(
-  '/api/catalogo/config',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const {
-        vipPassword,
-        ...cfg
-      } = req.body || {};
+  const ok = await bcrypt.compare(
+    password,
+    r.rows[0].vip_catalog_password_hash
+  );
 
+  if (!ok)
+    return res.status(401).json({
+      error: 'Senha VIP inválida.'
+    });
+
+  res.json({
+    success: true,
+    accessToken: jwt.sign(
+      {
+        sub: userId,
+        scope: 'catalog-vip'
+      },
+      JWT_SECRET,
+      {
+        expiresIn: '12h',
+        issuer: 'byse-pro-catalog'
+      }
+    )
+  });
+});
+
+app.get('/api/catalogo/config', authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    'SELECT vip_catalog_password_hash FROM users WHERE id=$1',
+    [req.user.id]
+  );
+
+  const state = await pool.query(
+    'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
+    [req.user.id, 'catalogo']
+  );
+
+  const cfg = json(
+    state.rows[0]?.state,
+    {}
+  );
+
+  res.json({
+    ...cfg,
+    vipConfigured: Boolean(
+      r.rows[0]?.vip_catalog_password_hash
+    ),
+    publicUrl:
+      `${FRONTEND_URL.replace(/\/$/, '')}/catalogo/${req.user.id}`
+  });
+});
+
+app.put('/api/catalogo/config', authMiddleware, async (req, res) => {
+  const { vipPassword, ...cfg } = req.body || {};
+
+  await pool.query(
+    `INSERT INTO user_app_states(user_id,state_key,state,updated_at)
+     VALUES($1,'catalogo',$2,NOW())
+     ON CONFLICT(user_id,state_key)
+     DO UPDATE SET state=EXCLUDED.state,updated_at=NOW()`,
+    [
+      req.user.id,
+      JSON.stringify(cfg)
+    ]
+  );
+
+  if (vipPassword !== undefined) {
+    if (!String(vipPassword).trim()) {
       await pool.query(
-        `
-        INSERT INTO user_app_states
-        (
-          user_id,
-          state_key,
-          state,
-          updated_at
-        )
-        VALUES
-        (
-          $1,
-          'catalogo',
-          $2,
-          NOW()
-        )
-        ON CONFLICT(user_id,state_key)
-        DO UPDATE SET
-          state=EXCLUDED.state,
-          updated_at=NOW()
-        `,
+        'UPDATE users SET vip_catalog_password_hash=NULL WHERE id=$1',
+        [req.user.id]
+      );
+    } else {
+      await pool.query(
+        'UPDATE users SET vip_catalog_password_hash=$1 WHERE id=$2',
         [
-          req.user.id,
-          JSON.stringify(cfg)
+          await bcrypt.hash(
+            String(vipPassword),
+            12
+          ),
+          req.user.id
         ]
       );
-
-      if (vipPassword !== undefined) {
-        if (
-          !String(vipPassword).trim()
-        ) {
-          await pool.query(
-            `
-            UPDATE users
-            SET vip_catalog_password_hash=NULL
-            WHERE id=$1
-            `,
-            [req.user.id]
-          );
-        } else {
-          const hash =
-            await bcrypt.hash(
-              String(vipPassword),
-              12
-            );
-
-          await pool.query(
-            `
-            UPDATE users
-            SET vip_catalog_password_hash=$1
-            WHERE id=$2
-            `,
-            [
-              hash,
-              req.user.id
-            ]
-          );
-        }
-      }
-
-      res.json({
-        success: true,
-
-        // LINK DA PÁGINA DO PUBLICCATALOG
-        publicUrl:
-          `${FRONTEND_URL.replace(/\/$/, '')}/PublicCatalog/${req.user.id}`
-      });
-
-    } catch (e) {
-      console.error(
-        '[CATALOGO CONFIG PUT]',
-        e
-      );
-
-      res.status(500).json({
-        error:
-          'Erro ao salvar configuração do catálogo.'
-      });
     }
   }
-);
+
+  res.json({
+    success: true,
+    publicUrl:
+      `${FRONTEND_URL.replace(/\/$/, '')}/catalogo/${req.user.id}`
+  });
+});
 
 // ==========================================
-// CUSTOMERS
+// CLIENTES
 // ==========================================
 
 async function getCustomers(req, res) {
   try {
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM customers
-        WHERE user_id=$1
-        ORDER BY created_at DESC
-        `,
-        [req.user.id]
-      );
+    const r = await pool.query(
+      'SELECT * FROM customers WHERE user_id=$1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
 
     res.json(
       r.rows.map(normalizeCustomer)
     );
-
   } catch (e) {
     console.error(e);
-
     res.status(500).json({
-      error:
-        'Erro ao buscar clientes.'
+      error: 'Erro ao buscar clientes.'
     });
   }
 }
 
 async function saveCustomer(req, res) {
   try {
-    const c =
-      req.body || {};
-
+    const c = req.body || {};
     const id =
       c.id ||
       `cli_${crypto.randomUUID()}`;
 
-    const name =
-      String(
-        c.name ||
-        c.nome ||
-        ''
-      ).trim();
+    const name = String(
+      c.name || c.nome || ''
+    ).trim();
 
-    const phone =
-      String(
-        c.phone ||
-        c.telefone ||
-        ''
-      ).trim();
+    const phone = String(
+      c.phone || c.telefone || ''
+    ).trim();
 
-    if (!name || !phone) {
+    if (!name || !phone)
       return res.status(400).json({
-        error:
-          'Nome e telefone são obrigatórios.'
+        error: 'Nome e telefone são obrigatórios.'
       });
-    }
 
     const cashbackExp =
       c.cashbackExpirationDate ||
@@ -1013,47 +557,26 @@ async function saveCustomer(req, res) {
       c.cashback_expiry ||
       null;
 
-    const currentDate =
-      new Date();
-
-    const year =
-      currentDate.getFullYear();
-
-    const month =
-      String(
-        currentDate.getMonth() + 1
-      ).padStart(2, '0');
+    const currentDate = new Date();
+    const year = currentDate.getFullYear();
+    const month = String(
+      currentDate.getMonth() + 1
+    ).padStart(2, '0');
 
     const fixedVencimento =
       `${year}-${month}-01`;
 
     await pool.query(
-      `
-      INSERT INTO customers
-      (
-        id,
-        user_id,
-        name,
-        phone,
-        cpf,
-        data_aniversario,
-        cashback,
-        cashback_expiration_date,
-        cashback_expiry,
-        cashback_lost,
-        status,
-        whatsapp_opt_in,
-        reminders_enabled,
-        status_mensalidade,
-        data_vencimento,
-        valor_mensalidade,
-        pre_treino_tipo,
-        pre_treino_inicio,
-        pre_treino_fim,
-        pre_treino_valor_avulso
+      `INSERT INTO customers(
+        id,user_id,name,phone,cpf,data_aniversario,
+        cashback,cashback_expiration_date,cashback_expiry,
+        cashback_lost,status,whatsapp_opt_in,
+        reminders_enabled,status_mensalidade,
+        data_vencimento,valor_mensalidade,
+        pre_treino_tipo,pre_treino_inicio,
+        pre_treino_fim,pre_treino_valor_avulso
       )
-      VALUES
-      (
+      VALUES(
         $1,$2,$3,$4,$5,$6,$7,$8,$8,$9,
         $10,$11,$12,$13,$14,$15,$16,$17,$18,$19
       )
@@ -1076,8 +599,7 @@ async function saveCustomer(req, res) {
         pre_treino_tipo=$16,
         pre_treino_inicio=$17,
         pre_treino_fim=$18,
-        pre_treino_valor_avulso=$19
-      `,
+        pre_treino_valor_avulso=$19`,
       [
         id,
         req.user.id,
@@ -1094,13 +616,10 @@ async function saveCustomer(req, res) {
           c.cashback_lost ||
           0
         ),
-        c.status ||
-          'Ativo',
+        c.status || 'Ativo',
         c.whatsappOptIn
           ? 1
-          : Number(
-              c.whatsapp_opt_in || 0
-            ),
+          : Number(c.whatsapp_opt_in || 0),
         c.remindersEnabled === false
           ? 0
           : 1,
@@ -1130,26 +649,14 @@ async function saveCustomer(req, res) {
       ]
     );
 
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM customers
-        WHERE id=$1
-        AND user_id=$2
-        `,
-        [
-          id,
-          req.user.id
-        ]
-      );
-
-    res.status(201).json(
-      normalizeCustomer(
-        r.rows[0]
-      )
+    const r = await pool.query(
+      'SELECT * FROM customers WHERE id=$1 AND user_id=$2',
+      [id, req.user.id]
     );
 
+    res.status(201).json(
+      normalizeCustomer(r.rows[0])
+    );
   } catch (e) {
     console.error(
       '[CUSTOMER]',
@@ -1157,8 +664,7 @@ async function saveCustomer(req, res) {
     );
 
     res.status(500).json({
-      error:
-        'Erro ao salvar cliente.'
+      error: 'Erro ao salvar cliente.'
     });
   }
 }
@@ -1192,20 +698,14 @@ app.delete(
   authMiddleware,
   async (req, res) => {
     await pool.query(
-      `
-      DELETE FROM customers
-      WHERE id=$1
-      AND user_id=$2
-      `,
+      'DELETE FROM customers WHERE id=$1 AND user_id=$2',
       [
         req.params.id,
         req.user.id
       ]
     );
 
-    res.json({
-      success: true
-    });
+    res.json({ success: true });
   }
 );
 
@@ -1214,44 +714,31 @@ app.delete(
   authMiddleware,
   async (req, res) => {
     await pool.query(
-      `
-      DELETE FROM customers
-      WHERE id=$1
-      AND user_id=$2
-      `,
+      'DELETE FROM customers WHERE id=$1 AND user_id=$2',
       [
         req.params.id,
         req.user.id
       ]
     );
 
-    res.json({
-      success: true
-    });
+    res.json({ success: true });
   }
 );
 
 // ==========================================
-// PRODUCTS / STOCK
+// PRODUTOS / ESTOQUE
 // ==========================================
 
 async function getProducts(req, res) {
   try {
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM products
-        WHERE user_id=$1
-        ORDER BY created_at DESC
-        `,
-        [req.user.id]
-      );
+    const r = await pool.query(
+      'SELECT * FROM products WHERE user_id=$1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
 
     res.json(
       r.rows.map(normalizeProduct)
     );
-
   } catch (e) {
     console.error(
       '[GET PRODUCTS]',
@@ -1259,26 +746,22 @@ async function getProducts(req, res) {
     );
 
     res.status(500).json({
-      error:
-        'Erro ao buscar produtos.'
+      error: 'Erro ao buscar produtos.'
     });
   }
 }
 
 async function saveProduct(req, res) {
   try {
-    const p =
-      req.body || {};
+    const p = req.body || {};
 
-    const name =
-      String(
-        p.name || ''
-      ).trim();
+    const name = String(
+      p.name || ''
+    ).trim();
 
-    const price =
-      Number(
-        p.price || 0
-      );
+    const price = Number(
+      p.price || 0
+    );
 
     const id =
       req.params.id ||
@@ -1300,37 +783,37 @@ async function saveProduct(req, res) {
       p.controlStock !== undefined
         ? p.controlStock
         : (
-            p.control_stock !== undefined
-              ? p.control_stock
-              : true
-          );
+          p.control_stock !== undefined
+            ? p.control_stock
+            : true
+        );
 
     const vipPriceVal =
       p.vipPrice !== undefined
         ? p.vipPrice
         : (
-            p.vip_price !== undefined
-              ? p.vip_price
-              : null
-          );
+          p.vip_price !== undefined
+            ? p.vip_price
+            : null
+        );
 
     const vipPrice3xVal =
       p.vipPrice3x !== undefined
         ? p.vipPrice3x
         : (
-            p.vip_price_3x !== undefined
-              ? p.vip_price_3x
-              : null
-          );
+          p.vip_price_3x !== undefined
+            ? p.vip_price_3x
+            : null
+        );
 
     const imageUrlVal =
       p.imageUrl !== undefined
         ? p.imageUrl
         : (
-            p.image_url !== undefined
-              ? p.image_url
-              : null
-          );
+          p.image_url !== undefined
+            ? p.image_url
+            : null
+        );
 
     const variationsArray =
       Array.isArray(p.variations)
@@ -1338,31 +821,15 @@ async function saveProduct(req, res) {
         : [];
 
     await pool.query(
-      `
-      INSERT INTO products
-      (
-        id,
-        user_id,
-        name,
-        category,
-        barcode,
-        code,
-        cost,
-        price,
-        imposto,
-        frete,
-        vip_price,
-        vip_price_3x,
-        description,
-        control_stock,
-        image_url,
-        stocks,
-        variations
+      `INSERT INTO products(
+        id,user_id,name,category,barcode,code,
+        cost,price,imposto,frete,vip_price,
+        vip_price_3x,description,control_stock,
+        image_url,stocks,variations
       )
-      VALUES
-      (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,
-        $10,$11,$12,$13,$14,$15,$16,$17
+      VALUES(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+        $11,$12,$13,$14,$15,$16,$17
       )
       ON CONFLICT(id,user_id)
       DO UPDATE SET
@@ -1380,8 +847,7 @@ async function saveProduct(req, res) {
         control_stock=$14,
         image_url=$15,
         stocks=$16,
-        variations=$17
-      `,
+        variations=$17`,
       [
         id,
         req.user.id,
@@ -1411,26 +877,14 @@ async function saveProduct(req, res) {
       ]
     );
 
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM products
-        WHERE id=$1
-        AND user_id=$2
-        `,
-        [
-          id,
-          req.user.id
-        ]
-      );
-
-    res.status(201).json(
-      normalizeProduct(
-        r.rows[0]
-      )
+    const r = await pool.query(
+      'SELECT * FROM products WHERE id=$1 AND user_id=$2',
+      [id, req.user.id]
     );
 
+    res.status(201).json(
+      normalizeProduct(r.rows[0])
+    );
   } catch (e) {
     console.error(
       '[SAVE PRODUCT ERROR]',
@@ -1438,10 +892,8 @@ async function saveProduct(req, res) {
     );
 
     res.status(500).json({
-      error:
-        'Erro ao salvar produto.',
-      details:
-        e.message
+      error: 'Erro ao salvar produto.',
+      details: e.message
     });
   }
 }
@@ -1487,20 +939,14 @@ app.delete(
   authMiddleware,
   async (req, res) => {
     await pool.query(
-      `
-      DELETE FROM products
-      WHERE id=$1
-      AND user_id=$2
-      `,
+      'DELETE FROM products WHERE id=$1 AND user_id=$2',
       [
         req.params.id,
         req.user.id
       ]
     );
 
-    res.json({
-      success: true
-    });
+    res.json({ success: true });
   }
 );
 
@@ -1509,636 +955,447 @@ app.delete(
   authMiddleware,
   async (req, res) => {
     await pool.query(
-      `
-      DELETE FROM products
-      WHERE id=$1
-      AND user_id=$2
-      `,
+      'DELETE FROM products WHERE id=$1 AND user_id=$2',
       [
         req.params.id,
         req.user.id
       ]
     );
 
-    res.json({
-      success: true
+    res.json({ success: true });
+  }
+);
+
+app.get('/api/locais', authMiddleware, async (req, res) => {
+  let r = await pool.query(
+    'SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',
+    [req.user.id]
+  );
+
+  if (!r.rows.length) {
+    const id = `loc_${req.user.id}`;
+
+    await pool.query(
+      `INSERT INTO stock_locations(id,user_id,name)
+       VALUES($1,$2,$3)
+       ON CONFLICT DO NOTHING`,
+      [
+        id,
+        req.user.id,
+        'Loja Física'
+      ]
+    );
+
+    r = await pool.query(
+      'SELECT id,name FROM stock_locations WHERE user_id=$1',
+      [req.user.id]
+    );
+  }
+
+  res.json(r.rows);
+});
+
+app.post('/api/locais', authMiddleware, async (req, res) => {
+  const { id, name } = req.body || {};
+
+  if (!name)
+    return res.status(400).json({
+      error: 'Nome obrigatório.'
     });
+
+  if (id) {
+    await pool.query(
+      'UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3',
+      [
+        name,
+        id,
+        req.user.id
+      ]
+    );
+  } else {
+    await pool.query(
+      'INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3)',
+      [
+        `loc_${crypto.randomUUID()}`,
+        req.user.id,
+        name
+      ]
+    );
   }
-);
+
+  const r = await pool.query(
+    'SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',
+    [req.user.id]
+  );
+
+  res.json(r.rows);
+});
 
 // ==========================================
-// LOCAIS DE ESTOQUE
+// VENDAS
 // ==========================================
 
-app.get(
-  '/api/locais',
-  authMiddleware,
-  async (req, res) => {
-    let r =
-      await pool.query(
-        `
-        SELECT id, name
-        FROM stock_locations
-        WHERE user_id = $1
-        ORDER BY name
-        `,
-        [req.user.id]
-      );
+app.get('/api/sales', authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    'SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC',
+    [req.user.id]
+  );
 
-    if (!r.rows.length) {
-      const id =
-        `loc_${req.user.id}`;
+  res.json(
+    r.rows.map(s => ({
+      ...s,
+      customerId: s.customer_id,
+      customerName: s.customer_name,
+      customerPhone: s.customer_phone,
+      total: Number(s.total || 0),
+      subtotal: Number(s.subtotal || 0),
+      discount: Number(s.discount || 0),
+      cashbackEarned: Number(
+        s.cashback_earned ||
+        s.earned_cashback ||
+        0
+      ),
+      items: json(
+        s.items,
+        []
+      )
+    }))
+  );
+});
 
-      await pool.query(
-        `
-        INSERT INTO stock_locations
-        (
-          id,
-          user_id,
-          name
-        )
-        VALUES
-        (
-          $1,$2,$3
-        )
-        ON CONFLICT DO NOTHING
-        `,
+app.post('/api/sales', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const s = req.body || {};
+    const id =
+      s.id ||
+      `sale_${crypto.randomUUID()}`;
+
+    const customerId =
+      s.customerId ||
+      s.customer_id ||
+      null;
+
+    let customerPhone =
+      s.customerPhone ||
+      s.customer_phone ||
+      null;
+
+    let customerName =
+      s.customerName ||
+      s.customer_name ||
+      'Cliente Geral';
+
+    if (customerId) {
+      const cr = await client.query(
+        'SELECT name,phone FROM customers WHERE id=$1 AND user_id=$2',
         [
-          id,
-          req.user.id,
-          'Loja Física'
-        ]
-      );
-
-      r =
-        await pool.query(
-          `
-          SELECT id, name
-          FROM stock_locations
-          WHERE user_id = $1
-          `,
-          [req.user.id]
-        );
-    }
-
-    res.json(r.rows);
-  }
-);
-
-app.post(
-  '/api/locais',
-  authMiddleware,
-  async (req, res) => {
-    const {
-      id,
-      name
-    } = req.body || {};
-
-    if (!name) {
-      return res.status(400).json({
-        error:
-          'Nome obrigatório.'
-      });
-    }
-
-    if (id) {
-      await pool.query(
-        `
-        UPDATE stock_locations
-        SET name=$1
-        WHERE id=$2
-        AND user_id=$3
-        `,
-        [
-          name,
-          id,
+          customerId,
           req.user.id
         ]
       );
-    } else {
-      await pool.query(
-        `
-        INSERT INTO stock_locations
-        (
-          id,
-          user_id,
-          name
-        )
-        VALUES
-        (
-          $1,$2,$3
-        )
-        `,
+
+      if (cr.rows[0]) {
+        customerName =
+          cr.rows[0].name;
+
+        customerPhone =
+          cr.rows[0].phone;
+      }
+    }
+
+    const items =
+      Array.isArray(s.items)
+        ? s.items
+        : [];
+
+    const subtotal =
+      Number(
+        s.subtotal ??
+        s.total ??
+        0
+      );
+
+    const total =
+      Number(
+        s.total ??
+        0
+      );
+
+    const cashback =
+      Number(
+        s.cashbackEarned ??
+        s.earned_cashback ??
+        0
+      );
+
+    await client.query(
+      `INSERT INTO sales(
+        id,user_id,customer_id,customer_name,
+        customer_phone,seller,payment_method,
+        discount,subtotal,total,cashback_earned,
+        earned_cashback,gender,sales_channel,
+        delivery_type,items,date
+      )
+      VALUES(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+        $11,$12,$13,$14,$15,$16
+      )
+      ON CONFLICT(id,user_id)
+      DO UPDATE SET
+        customer_id=$3,
+        customer_name=$4,
+        customer_phone=$5,
+        seller=$6,
+        payment_method=$7,
+        discount=$8,
+        subtotal=$9,
+        total=$10,
+        cashback_earned=$11,
+        earned_cashback=$11,
+        gender=$12,
+        sales_channel=$13,
+        delivery_type=$14,
+        items=$15,
+        date=$16`,
+      [
+        id,
+        req.user.id,
+        customerId,
+        customerName,
+        customerPhone,
+        s.seller || null,
+        s.paymentMethod ||
+          s.payment_method ||
+          'Pix',
+        Number(s.discount || 0),
+        subtotal,
+        total,
+        cashback,
+        s.gender ||
+          'Prefiro não informar',
+        s.salesChannel ||
+          s.sales_channel ||
+          'Loja física',
+        s.deliveryType ||
+          s.delivery_type ||
+          'Retirada',
+        JSON.stringify(items),
+        s.date ||
+          new Date().toISOString()
+      ]
+    );
+
+    if (
+      customerId &&
+      cashback > 0
+    ) {
+      const expDate =
+        new Date();
+
+      expDate.setDate(
+        expDate.getDate() + 30
+      );
+
+      const expDateStr =
+        expDate
+          .toISOString()
+          .split('T')[0];
+
+      await client.query(
+        `UPDATE customers
+         SET cashback=COALESCE(cashback,0)+$1,
+             cashback_expiration_date=$2,
+             cashback_expiry=$2
+         WHERE id=$3 AND user_id=$4`,
         [
-          `loc_${crypto.randomUUID()}`,
-          req.user.id,
-          name
+          cashback,
+          expDateStr,
+          customerId,
+          req.user.id
         ]
       );
     }
 
-    const r =
-      await pool.query(
-        `
-        SELECT id, name
-        FROM stock_locations
-        WHERE user_id=$1
-        ORDER BY name
-        `,
-        [req.user.id]
-      );
+    const consolidatedItems = {};
 
-    res.json(r.rows);
-  }
-);
+    for (const item of items) {
+      const pid =
+        item.productId ||
+        item.id ||
+        item.product_id;
 
-// ==========================================
-// SALES / PDV
-// ==========================================
+      const variationName =
+        String(
+          item.variationName ||
+          item.variation ||
+          ''
+        ).trim();
 
-app.get(
-  '/api/sales',
-  authMiddleware,
-  async (req, res) => {
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM sales
-        WHERE user_id=$1
-        ORDER BY date DESC
-        `,
-        [req.user.id]
-      );
-
-    res.json(
-      r.rows.map(s => ({
-        ...s,
-
-        customerId:
-          s.customer_id,
-
-        customerName:
-          s.customer_name,
-
-        customerPhone:
-          s.customer_phone,
-
-        total:
-          Number(s.total || 0),
-
-        subtotal:
-          Number(s.subtotal || 0),
-
-        discount:
-          Number(s.discount || 0),
-
-        cashbackEarned:
-          Number(
-            s.cashback_earned ||
-            s.earned_cashback ||
-            0
-          ),
-
-        items:
-          json(
-            s.items,
-            []
-          )
-      }))
-    );
-  }
-);
-
-app.post(
-  '/api/sales',
-  authMiddleware,
-  async (req, res) => {
-    const client =
-      await pool.connect();
-
-    try {
-      await client.query(
-        'BEGIN'
-      );
-
-      const s =
-        req.body || {};
-
-      const id =
-        s.id ||
-        `sale_${crypto.randomUUID()}`;
-
-      const customerId =
-        s.customerId ||
-        s.customer_id ||
-        null;
-
-      let customerPhone =
-        s.customerPhone ||
-        s.customer_phone ||
-        null;
-
-      let customerName =
-        s.customerName ||
-        s.customer_name ||
-        'Cliente Geral';
-
-      if (customerId) {
-        const cr =
-          await client.query(
-            `
-            SELECT name,phone
-            FROM customers
-            WHERE id=$1
-            AND user_id=$2
-            `,
-            [
-              customerId,
-              req.user.id
-            ]
-          );
-
-        if (cr.rows[0]) {
-          customerName =
-            cr.rows[0].name;
-
-          customerPhone =
-            cr.rows[0].phone;
-        }
-      }
-
-      const items =
-        Array.isArray(s.items)
-          ? s.items
-          : [];
-
-      const subtotal =
+      const qty =
         Number(
-          s.subtotal ??
-          s.total ??
-          0
+          item.quantity ||
+          item.qty ||
+          1
         );
-
-      const total =
-        Number(
-          s.total ??
-          0
-        );
-
-      const cashback =
-        Number(
-          s.cashbackEarned ??
-          s.earned_cashback ??
-          0
-        );
-
-      await client.query(
-        `
-        INSERT INTO sales
-        (
-          id,
-          user_id,
-          customer_id,
-          customer_name,
-          customer_phone,
-          seller,
-          payment_method,
-          discount,
-          subtotal,
-          total,
-          cashback_earned,
-          earned_cashback,
-          gender,
-          sales_channel,
-          delivery_type,
-          items,
-          date
-        )
-        VALUES
-        (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$11,$12,$13,$14,$15,$16
-        )
-        ON CONFLICT(id,user_id)
-        DO UPDATE SET
-          customer_id=$3,
-          customer_name=$4,
-          customer_phone=$5,
-          seller=$6,
-          payment_method=$7,
-          discount=$8,
-          subtotal=$9,
-          total=$10,
-          cashback_earned=$11,
-          earned_cashback=$11,
-          gender=$12,
-          sales_channel=$13,
-          delivery_type=$14,
-          items=$15,
-          date=$16
-        `,
-        [
-          id,
-          req.user.id,
-          customerId,
-          customerName,
-          customerPhone,
-          s.seller || null,
-          s.paymentMethod ||
-            s.payment_method ||
-            'Pix',
-          Number(
-            s.discount || 0
-          ),
-          subtotal,
-          total,
-          cashback,
-          s.gender ||
-            'Prefiro não informar',
-          s.salesChannel ||
-            s.sales_channel ||
-            'Loja física',
-          s.deliveryType ||
-            s.delivery_type ||
-            'Retirada',
-          JSON.stringify(items),
-          s.date ||
-            new Date().toISOString()
-        ]
-      );
 
       if (
-        customerId &&
-        cashback > 0
-      ) {
-        const expDate =
-          new Date();
+        !pid ||
+        qty <= 0
+      ) continue;
 
-        expDate.setDate(
-          expDate.getDate() + 30
-        );
+      const key =
+        `${pid}___${variationName}`;
 
-        const expDateStr =
-          expDate
-            .toISOString()
-            .split('T')[0];
-
-        await client.query(
-          `
-          UPDATE customers
-          SET
-            cashback=
-              COALESCE(cashback,0)+$1,
-            cashback_expiration_date=$2,
-            cashback_expiry=$2
-          WHERE id=$3
-          AND user_id=$4
-          `,
-          [
-            cashback,
-            expDateStr,
-            customerId,
-            req.user.id
-          ]
-        );
-      }
-
-      // ==================================================
-      // CORREÇÃO DO ESTOQUE
-      //
-      // Os itens são consolidados primeiro.
-      // Assim, se o mesmo produto aparecer mais de uma vez
-      // no carrinho, ele será decrementado somente pela
-      // quantidade TOTAL realmente vendida.
-      // ==================================================
-
-      const consolidatedItems = {};
-
-      for (const item of items) {
-        const pid =
-          item.productId ||
-          item.id ||
-          item.product_id;
-
-        const variationName =
-          String(
-            item.variationName ||
-            item.variation ||
-            ''
-          ).trim();
-
-        const qty =
-          Number(
-            item.quantity ||
-            item.qty ||
-            1
-          );
-
-        if (
-          !pid ||
-          qty <= 0
-        ) {
-          continue;
-        }
-
-        const key =
-          `${pid}___${variationName}`;
-
-        if (
-          consolidatedItems[key]
-        ) {
-          consolidatedItems[key].qty += qty;
-        } else {
-          consolidatedItems[key] = {
-            pid,
-            variationName,
-            qty,
-            item
-          };
-        }
-      }
-
-      for (
-        const key in consolidatedItems
-      ) {
-        const {
+      if (consolidatedItems[key]) {
+        consolidatedItems[key].qty += qty;
+      } else {
+        consolidatedItems[key] = {
           pid,
           variationName,
           qty,
           item
-        } =
-          consolidatedItems[key];
+        };
+      }
+    }
 
-        if (
-          !pid ||
-          qty <= 0
-        ) {
-          continue;
-        }
+    for (const key in consolidatedItems) {
+      const {
+        pid,
+        variationName,
+        qty,
+        item
+      } = consolidatedItems[key];
 
-        const pr =
+      if (
+        !pid ||
+        qty <= 0
+      ) continue;
+
+      const pr = await client.query(
+        `SELECT id,stocks,variations,control_stock
+         FROM products
+         WHERE id=$1 AND user_id=$2
+         FOR UPDATE`,
+        [
+          pid,
+          req.user.id
+        ]
+      );
+
+      if (
+        !pr.rows[0] ||
+        !pr.rows[0].control_stock
+      ) continue;
+
+      let stocks =
+        json(
+          pr.rows[0].stocks,
+          {}
+        );
+
+      let variations =
+        json(
+          pr.rows[0].variations,
+          []
+        );
+
+      const loc =
+        item.stockLocation ||
+        item.stock_location ||
+        Object.keys(stocks)[0] ||
+        'loja-fisica';
+
+      const cleanTargetVar =
+        variationName
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(
+            /[\u0300-\u036f]/g,
+            ''
+          )
+          .trim();
+
+      if (
+        cleanTargetVar &&
+        Array.isArray(variations) &&
+        variations.length > 0
+      ) {
+        let variationMatched =
+          false;
+
+        variations =
+          variations.map(v => {
+            const vObj =
+              typeof v === 'string'
+                ? {
+                    name: v,
+                    stocks: {}
+                  }
+                : {
+                    ...v,
+                    stocks:
+                      v.stocks || {}
+                  };
+
+            const vNameRaw =
+              (
+                vObj.name ||
+                ''
+              ).trim();
+
+            const cleanCurrentVar =
+              vNameRaw
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(
+                  /[\u0300-\u036f]/g,
+                  ''
+                )
+                .trim();
+
+            if (
+              cleanCurrentVar ===
+              cleanTargetVar
+            ) {
+              const currentVarStock =
+                Number(
+                  vObj.stocks[loc] ??
+                  0
+                );
+
+              vObj.stocks[loc] =
+                Math.max(
+                  0,
+                  currentVarStock - qty
+                );
+
+              variationMatched =
+                true;
+            }
+
+            return typeof v === 'string'
+              ? vObj.name
+              : vObj;
+          });
+
+        if (variationMatched) {
           await client.query(
-            `
-            SELECT
-              id,
-              stocks,
-              variations,
-              control_stock
-            FROM products
-            WHERE id=$1
-            AND user_id=$2
-            FOR UPDATE
-            `,
+            `UPDATE products
+             SET variations=$1
+             WHERE id=$2 AND user_id=$3`,
             [
+              JSON.stringify(
+                variations
+              ),
               pid,
               req.user.id
             ]
           );
-
-        if (
-          !pr.rows[0] ||
-          !pr.rows[0].control_stock
-        ) {
-          continue;
-        }
-
-        let stocks =
-          json(
-            pr.rows[0].stocks,
-            {}
-          );
-
-        let variations =
-          json(
-            pr.rows[0].variations,
-            []
-          );
-
-        const loc =
-          item.stockLocation ||
-          item.stock_location ||
-          Object.keys(stocks)[0] ||
-          'loja-fisica';
-
-        const cleanTargetVar =
-          variationName
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(
-              /[\u0300-\u036f]/g,
-              ''
-            )
-            .trim();
-
-        if (
-          cleanTargetVar &&
-          Array.isArray(variations) &&
-          variations.length > 0
-        ) {
-          let variationMatched =
-            false;
-
-          variations =
-            variations.map(v => {
-              const vObj =
-                typeof v === 'string'
-                  ? {
-                      name: v,
-                      stocks: {}
-                    }
-                  : {
-                      ...v,
-                      stocks:
-                        v.stocks || {}
-                    };
-
-              const vNameRaw =
-                (
-                  vObj.name ||
-                  ''
-                ).trim();
-
-              const cleanCurrentVar =
-                vNameRaw
-                  .toLowerCase()
-                  .normalize('NFD')
-                  .replace(
-                    /[\u0300-\u036f]/g,
-                    ''
-                  )
-                  .trim();
-
-              if (
-                cleanCurrentVar ===
-                cleanTargetVar
-              ) {
-                const currentVarStock =
-                  Number(
-                    vObj.stocks[loc] ??
-                    0
-                  );
-
-                vObj.stocks[loc] =
-                  Math.max(
-                    0,
-                    currentVarStock - qty
-                  );
-
-                variationMatched =
-                  true;
-              }
-
-              return typeof v === 'string'
-                ? vObj.name
-                : vObj;
-            });
-
-          if (
-            variationMatched
-          ) {
-            await client.query(
-              `
-              UPDATE products
-              SET variations=$1
-              WHERE id=$2
-              AND user_id=$3
-              `,
-              [
-                JSON.stringify(
-                  variations
-                ),
-                pid,
-                req.user.id
-              ]
-            );
-          } else {
-            stocks[loc] =
-              Math.max(
-                0,
-                Number(
-                  stocks[loc] || 0
-                ) - qty
-              );
-
-            await client.query(
-              `
-              UPDATE products
-              SET stocks=$1
-              WHERE id=$2
-              AND user_id=$3
-              `,
-              [
-                JSON.stringify(
-                  stocks
-                ),
-                pid,
-                req.user.id
-              ]
-            );
-          }
-
-        } else if (loc) {
+        } else {
           stocks[loc] =
             Math.max(
               0,
@@ -2148,12 +1405,9 @@ app.post(
             );
 
           await client.query(
-            `
-            UPDATE products
-            SET stocks=$1
-            WHERE id=$2
-            AND user_id=$3
-            `,
+            `UPDATE products
+             SET stocks=$1
+             WHERE id=$2 AND user_id=$3`,
             [
               JSON.stringify(
                 stocks
@@ -2163,245 +1417,223 @@ app.post(
             ]
           );
         }
-      }
+      } else if (loc) {
+        stocks[loc] =
+          Math.max(
+            0,
+            Number(
+              stocks[loc] || 0
+            ) - qty
+          );
 
-      await client.query(
-        'COMMIT'
-      );
-
-      res.status(201).json({
-        success: true,
-        saleId: id,
-        customerPhone,
-        earnedCashback: cashback
-      });
-
-    } catch (e) {
-      await client.query(
-        'ROLLBACK'
-      );
-
-      console.error(
-        '[SALE]',
-        e
-      );
-
-      res.status(500).json({
-        error:
-          'Erro ao registrar venda.'
-      });
-
-    } finally {
-      client.release();
-    }
-  }
-);
-
-// ==========================================
-// SELLERS / VENDEDORES
-// ==========================================
-
-app.get(
-  '/api/sellers',
-  authMiddleware,
-  async (req, res) => {
-    const r =
-      await pool.query(
-        `
-        SELECT
-          id,
-          name,
-          commission_pct
-        FROM sellers
-        WHERE user_id = $1
-        ORDER BY created_at
-        `,
-        [req.user.id]
-      );
-
-    res.json(
-      r.rows.map(s => ({
-        id: s.id,
-        name: s.name,
-
-        commissionPct:
-          Number(
-            s.commission_pct ?? 5
-          ),
-
-        commission_pct:
-          Number(
-            s.commission_pct ?? 5
-          )
-      }))
-    );
-  }
-);
-
-app.get(
-  '/api/vendedores',
-  authMiddleware,
-  async (req, res) => {
-    const r =
-      await pool.query(
-        `
-        SELECT
-          id,
-          name,
-          commission_pct
-        FROM sellers
-        WHERE user_id = $1
-        ORDER BY created_at
-        `,
-        [req.user.id]
-      );
-
-    res.json(
-      r.rows.map(s => ({
-        id: s.id,
-        name: s.name,
-
-        commissionPct:
-          Number(
-            s.commission_pct ?? 5
-          ),
-
-        commission_pct:
-          Number(
-            s.commission_pct ?? 5
-          )
-      }))
-    );
-  }
-);
-
-async function saveOrUpdateSeller(
-  req,
-  res
-) {
-  try {
-    const s =
-      req.body || {};
-
-    const id =
-      req.params.id ||
-      s.id ||
-      `sel_${crypto.randomUUID()}`;
-
-    const name =
-      String(
-        s.name ||
-        'Vendedor'
-      ).trim();
-
-    const rawCommission =
-      s.commissionPct !== undefined &&
-      s.commissionPct !== null
-        ? s.commissionPct
-        : s.commission_pct;
-
-    let commissionPct = 5;
-
-    if (
-      rawCommission !== undefined &&
-      rawCommission !== null &&
-      String(
-        rawCommission
-      ).trim() !== ''
-    ) {
-      const parsed =
-        parseFloat(
-          rawCommission
+        await client.query(
+          `UPDATE products
+           SET stocks=$1
+           WHERE id=$2 AND user_id=$3`,
+          [
+            JSON.stringify(
+              stocks
+            ),
+            pid,
+            req.user.id
+          ]
         );
-
-      if (!isNaN(parsed)) {
-        commissionPct =
-          parsed;
       }
     }
 
-    const existing =
-      await pool.query(
-        `
-        SELECT id
-        FROM sellers
-        WHERE id = $1
-        AND user_id = $2
-        `,
-        [
-          id,
-          req.user.id
-        ]
-      );
+    await client.query('COMMIT');
 
-    if (
-      existing.rows.length > 0
-    ) {
-      await pool.query(
-        `
-        UPDATE sellers
-        SET
-          name = $1,
-          commission_pct = $2
-        WHERE id = $3
-        AND user_id = $4
-        `,
-        [
-          name,
-          commissionPct,
-          id,
-          req.user.id
-        ]
-      );
-
-    } else {
-      await pool.query(
-        `
-        INSERT INTO sellers
-        (
-          id,
-          user_id,
-          name,
-          commission_pct
-        )
-        VALUES
-        (
-          $1,$2,$3,$4
-        )
-        `,
-        [
-          id,
-          req.user.id,
-          name,
-          commissionPct
-        ]
-      );
-    }
-
-    res.json({
+    res.status(201).json({
       success: true,
-      id,
-      name,
-      commissionPct,
-      commission_pct:
-        commissionPct
+      saleId: id,
+      customerPhone,
+      earnedCashback: cashback
     });
-
   } catch (e) {
+    await client.query('ROLLBACK');
+
     console.error(
-      '[SELLER SAVE ERROR]',
+      '[SALE]',
       e
     );
 
     res.status(500).json({
-      error:
-        'Erro ao salvar vendedor no banco de dados.',
-      details:
-        e.message
+      error: 'Erro ao registrar venda.'
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ==========================================
+// VENDEDORES
+// ==========================================
+
+// ==========================================
+// VENDEDORES
+// ==========================================
+
+async function getSellers(req, res) {
+  try {
+    const r = await pool.query(`
+      SELECT id, name, commission_pct
+      FROM sellers
+      WHERE user_id = $1
+      ORDER BY name ASC
+    `, [req.user.id]);
+
+    res.json(
+      r.rows.map(s => ({
+        id: s.id,
+        name: s.name,
+        commissionPct: Number(s.commission_pct ?? 5),
+        commission_pct: Number(s.commission_pct ?? 5)
+      }))
+    );
+  } catch (e) {
+    console.error('[SELLER GET ERROR]', e);
+
+    res.status(500).json({
+      error: 'Erro ao carregar vendedores.',
+      details: e.message
     });
   }
 }
 
+async function saveOrUpdateSeller(req, res) {
+  try {
+    const s = req.body || {};
+    const uid = req.user.id;
+
+    const id = String(
+      req.params.id ||
+      s.id ||
+      `sel_${crypto.randomUUID()}`
+    );
+
+    const name = String(
+      s.name || 'Vendedor'
+    ).trim();
+
+    if (!name) {
+      return res.status(400).json({
+        error: 'Nome do vendedor é obrigatório.'
+      });
+    }
+
+    const raw =
+      s.commissionPct != null
+        ? s.commissionPct
+        : s.commission_pct;
+
+    const n = parseFloat(raw);
+
+    const commissionPct =
+      Number.isFinite(n) ? n : 5;
+
+    const r = await pool.query(`
+      INSERT INTO sellers (
+        id,
+        user_id,
+        name,
+        commission_pct
+      )
+      VALUES ($1, $2, $3, $4)
+
+      ON CONFLICT ON CONSTRAINT sellers_pkey
+
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        commission_pct = EXCLUDED.commission_pct
+
+      RETURNING
+        id,
+        name,
+        commission_pct
+    `, [
+      id,
+      uid,
+      name,
+      commissionPct
+    ]);
+
+    const v = r.rows[0];
+
+    res.json({
+      success: true,
+      id: v.id,
+      name: v.name,
+      commissionPct: Number(
+        v.commission_pct ?? 5
+      ),
+      commission_pct: Number(
+        v.commission_pct ?? 5
+      )
+    });
+
+  } catch (e) {
+    console.error('[SELLER SAVE ERROR]', e);
+
+    res.status(500).json({
+      error: 'Erro ao salvar vendedor no banco de dados.',
+      details: e.message
+    });
+  }
+}
+
+async function deleteSeller(req, res) {
+  try {
+    const id = String(req.params.id);
+
+    const r = await pool.query(`
+      DELETE FROM sellers
+      WHERE id = $1
+        AND user_id = $2
+      RETURNING id
+    `, [
+      id,
+      req.user.id
+    ]);
+
+    if (!r.rowCount) {
+      return res.status(404).json({
+        error: 'Vendedor não encontrado para este usuário.'
+      });
+    }
+
+    console.log(
+      `[SELLER DELETE] vendedor=${id} usuario=${req.user.id} excluido do banco`
+    );
+
+    res.json({
+      success: true,
+      id: r.rows[0].id
+    });
+
+  } catch (e) {
+    console.error('[SELLER DELETE ERROR]', e);
+
+    res.status(500).json({
+      error: 'Erro ao excluir vendedor do banco de dados.',
+      details: e.message
+    });
+  }
+}
+
+// GET
+app.get(
+  '/api/sellers',
+  authMiddleware,
+  getSellers
+);
+
+app.get(
+  '/api/vendedores',
+  authMiddleware,
+  getSellers
+);
+
+// POST
 app.post(
   '/api/sellers',
   authMiddleware,
@@ -2414,6 +1646,7 @@ app.post(
   saveOrUpdateSeller
 );
 
+// PUT
 app.put(
   '/api/sellers/:id',
   authMiddleware,
@@ -2426,206 +1659,130 @@ app.put(
   saveOrUpdateSeller
 );
 
+// DELETE
 app.delete(
   '/api/sellers/:id',
   authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      `
-      DELETE FROM sellers
-      WHERE id = $1
-      AND user_id = $2
-      `,
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
-
-    res.json({
-      success: true
-    });
-  }
+  deleteSeller
 );
 
 app.delete(
   '/api/vendedores/:id',
   authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      `
-      DELETE FROM sellers
-      WHERE id = $1
-      AND user_id = $2
-      `,
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
-
-    res.json({
-      success: true
-    });
-  }
+  deleteSeller
 );
-
 // ==========================================
 // FIADOS
 // ==========================================
 
-app.get(
-  '/api/fiados',
-  authMiddleware,
-  async (req, res) => {
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM fiados
-        WHERE user_id=$1
-        ORDER BY created_at DESC
-        `,
-        [req.user.id]
-      );
+app.get('/api/fiados', authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    'SELECT * FROM fiados WHERE user_id=$1 ORDER BY created_at DESC',
+    [req.user.id]
+  );
 
-    res.json(
-      r.rows.map(f => ({
-        ...f,
+  res.json(
+    r.rows.map(f => ({
+      ...f,
+      id: f.id,
+      customerId: f.customer_id,
+      customerName: f.customer_name,
+      customerPhone: f.customer_phone,
+      installments:
+        json(
+          f.installments,
+          []
+        ),
+      date: f.created_at
+    }))
+  );
+});
 
-        id: f.id,
+app.post('/api/fiados', authMiddleware, async (req, res) => {
+  const f = req.body || {};
 
-        customerId:
-          f.customer_id,
+  const id =
+    f.id ||
+    `fiado_${crypto.randomUUID()}`;
 
-        customerName:
-          f.customer_name,
+  let phone =
+    f.customerPhone ||
+    f.customer_phone ||
+    null;
 
-        customerPhone:
-          f.customer_phone,
-
-        installments:
-          json(
-            f.installments,
-            []
-          ),
-
-        date:
-          f.created_at
-      }))
-    );
-  }
-);
-
-app.post(
-  '/api/fiados',
-  authMiddleware,
-  async (req, res) => {
-    const f =
-      req.body || {};
-
-    const id =
-      f.id ||
-      `fiado_${crypto.randomUUID()}`;
-
-    let phone =
-      f.customerPhone ||
-      f.customer_phone ||
-      null;
-
-    if (
-      f.customerId ||
-      f.customer_id
-    ) {
-      const c =
-        await pool.query(
-          `
-          SELECT phone
-          FROM customers
-          WHERE id=$1
-          AND user_id=$2
-          `,
-          [
-            f.customerId ||
-              f.customer_id,
-            req.user.id
-          ]
-        );
-
-      phone =
-        c.rows[0]?.phone ||
-        phone;
-    }
-
-    await pool.query(
-      `
-      INSERT INTO fiados
-      (
-        id,
-        user_id,
-        customer_id,
-        customer_name,
-        customer_phone,
-        products,
-        origin,
-        installments
-      )
-      VALUES
-      (
-        $1,$2,$3,$4,$5,$6,$7,$8
-      )
-      ON CONFLICT(id,user_id)
-      DO UPDATE SET
-        customer_id=$3,
-        customer_name=$4,
-        customer_phone=$5,
-        products=$6,
-        origin=$7,
-        installments=$8
-      `,
+  if (
+    f.customerId ||
+    f.customer_id
+  ) {
+    const c = await pool.query(
+      `SELECT phone
+       FROM customers
+       WHERE id=$1
+       AND user_id=$2`,
       [
-        id,
-        req.user.id,
         f.customerId ||
-          f.customer_id ||
-          null,
-        f.customerName ||
-          f.customer_name ||
-          'Cliente',
-        phone,
-
-        typeof f.products === 'string'
-          ? f.products
-          : JSON.stringify(
-              f.products || []
-            ),
-
-        f.origin ||
-          'manual',
-
-        JSON.stringify(
-          f.installments || []
-        )
+          f.customer_id,
+        req.user.id
       ]
     );
 
-    res.status(201).json({
-      success: true,
-      id
-    });
+    phone =
+      c.rows[0]?.phone ||
+      phone;
   }
-);
+
+  await pool.query(
+    `INSERT INTO fiados(
+      id,user_id,customer_id,
+      customer_name,customer_phone,
+      products,origin,installments
+    )
+    VALUES(
+      $1,$2,$3,$4,$5,$6,$7,$8
+    )
+    ON CONFLICT(id,user_id)
+    DO UPDATE SET
+      customer_id=$3,
+      customer_name=$4,
+      customer_phone=$5,
+      products=$6,
+      origin=$7,
+      installments=$8`,
+    [
+      id,
+      req.user.id,
+      f.customerId ||
+        f.customer_id ||
+        null,
+      f.customerName ||
+        f.customer_name ||
+        'Cliente',
+      phone,
+      typeof f.products === 'string'
+        ? f.products
+        : JSON.stringify(
+            f.products || []
+          ),
+      f.origin ||
+        'manual',
+      JSON.stringify(
+        f.installments || []
+      )
+    ]
+  );
+
+  res.status(201).json({
+    success: true,
+    id
+  });
+});
 
 app.delete(
   '/api/fiados/:id',
   authMiddleware,
   async (req, res) => {
     await pool.query(
-      `
-      DELETE FROM fiados
-      WHERE id=$1
-      AND user_id=$2
-      `,
+      'DELETE FROM fiados WHERE id=$1 AND user_id=$2',
       [
         req.params.id,
         req.user.id
@@ -2645,14 +1802,11 @@ app.delete(
 const defaultPdv = {
   messageTemplate:
     'Olá {nome}, você realizou uma compra e ganhou R$ {cashback} de cashback!',
-
   reminderDays1: 1,
   reminderDays2: 7,
   reminderDays3: 15,
-
   cashbackPercentage: 3,
   cashbackValidityDays: 30,
-
   activeReminderButton: false
 };
 
@@ -2660,11 +1814,7 @@ const handleGetConfig =
   async (req, res) => {
     const r =
       await pool.query(
-        `
-        SELECT pdv_config
-        FROM user_pdv_configs
-        WHERE user_id=$1
-        `,
+        'SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',
         [req.user.id]
       );
 
@@ -2678,17 +1828,14 @@ const handleGetConfig =
 
     res.json({
       ...c,
-
       cashbackPercentage:
         Number(
           c.cashbackPercentage ?? 3
         ),
-
       cashbackValidityDays:
         Number(
           c.cashbackValidityDays ?? 30
         ),
-
       cashbackMessage:
         c.cashbackMessage ||
         c.messageTemplate ||
@@ -2700,11 +1847,7 @@ const handleSaveConfig =
   async (req, res) => {
     const r =
       await pool.query(
-        `
-        SELECT pdv_config
-        FROM user_pdv_configs
-        WHERE user_id=$1
-        `,
+        'SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',
         [req.user.id]
       );
 
@@ -2718,28 +1861,24 @@ const handleSaveConfig =
       ...defaultPdv,
       ...currentConfig,
       ...req.body,
-
       cashbackPercentage:
         Number(
           req.body.cashbackPercentage ??
           currentConfig.cashbackPercentage ??
           defaultPdv.cashbackPercentage
         ),
-
       cashbackValidityDays:
         Number(
           req.body.cashbackValidityDays ??
           currentConfig.cashbackValidityDays ??
           defaultPdv.cashbackValidityDays
         ),
-
       cashbackMessage:
         req.body.cashbackMessage ||
         req.body.messageTemplate ||
         currentConfig.cashbackMessage ||
         currentConfig.messageTemplate ||
         defaultPdv.messageTemplate,
-
       messageTemplate:
         req.body.messageTemplate ||
         req.body.cashbackMessage ||
@@ -2748,20 +1887,12 @@ const handleSaveConfig =
     };
 
     await pool.query(
-      `
-      INSERT INTO user_pdv_configs
-      (
-        user_id,
-        pdv_config
+      `INSERT INTO user_pdv_configs(
+        user_id,pdv_config
       )
-      VALUES
-      (
-        $1,$2
-      )
+      VALUES($1,$2)
       ON CONFLICT(user_id)
-      DO UPDATE SET
-        pdv_config=$2
-      `,
+      DO UPDATE SET pdv_config=$2`,
       [
         req.user.id,
         JSON.stringify(
@@ -2812,7 +1943,7 @@ app.put(
 );
 
 // ==========================================
-// PRE-TREINO
+// PRÉ-TREINO
 // ==========================================
 
 app.get(
@@ -2820,51 +1951,33 @@ app.get(
   authMiddleware,
   async (req, res) => {
     try {
-      const r =
-        await pool.query(
-          `
-          SELECT
-            id,
-            name,
-            cost,
-            price,
-            stock
-          FROM pre_treino_produtos
-          WHERE user_id=$1
-          ORDER BY created_at DESC
-          `,
-          [req.user.id]
-        );
+      const r = await pool.query(
+        `SELECT id,name,cost,price,stock
+         FROM pre_treino_produtos
+         WHERE user_id=$1
+         ORDER BY created_at DESC`,
+        [req.user.id]
+      );
 
       res.json(
         r.rows.map(p => ({
           id: p.id,
-
           name: p.name,
           nome: p.name,
-
-          cost:
-            Number(
-              p.cost || 0
-            ),
-
-          custo:
-            Number(
-              p.cost || 0
-            ),
-
-          price:
-            Number(
-              p.price || 0
-            ),
-
-          stock:
-            Number(
-              p.stock || 0
-            )
+          cost: Number(
+            p.cost || 0
+          ),
+          custo: Number(
+            p.cost || 0
+          ),
+          price: Number(
+            p.price || 0
+          ),
+          stock: Number(
+            p.stock || 0
+          )
         }))
       );
-
     } catch (e) {
       console.error(
         '[PRE-TREINO PRODUCTS GET]',
@@ -2884,8 +1997,7 @@ app.post(
   authMiddleware,
   async (req, res) => {
     try {
-      const p =
-        req.body || {};
+      const p = req.body || {};
 
       const id =
         p.id ||
@@ -2898,26 +2010,17 @@ app.post(
           ''
         ).trim();
 
-      if (!name) {
+      if (!name)
         return res.status(400).json({
           error:
             'Nome do produto é obrigatório.'
         });
-      }
 
       await pool.query(
-        `
-        INSERT INTO pre_treino_produtos
-        (
-          id,
-          user_id,
-          name,
-          cost,
-          price,
-          stock
+        `INSERT INTO pre_treino_produtos(
+          id,user_id,name,cost,price,stock
         )
-        VALUES
-        (
+        VALUES(
           $1,$2,$3,$4,$5,$6
         )
         ON CONFLICT(id,user_id)
@@ -2925,25 +2028,21 @@ app.post(
           name=$3,
           cost=$4,
           price=$5,
-          stock=$6
-        `,
+          stock=$6`,
         [
           id,
           req.user.id,
           name,
-
           Number(
             p.cost ??
             p.custo ??
             0
           ),
-
           Number(
             p.price ??
             p.preco ??
             0
           ),
-
           Number(
             p.stock ??
             p.estoque ??
@@ -2952,44 +2051,28 @@ app.post(
         ]
       );
 
-      const r =
-        await pool.query(
-          `
-          SELECT
-            id,
-            name,
-            cost,
-            price,
-            stock
-          FROM pre_treino_produtos
-          WHERE id=$1
-          AND user_id=$2
-          `,
-          [
-            id,
-            req.user.id
-          ]
-        );
+      const r = await pool.query(
+        `SELECT id,name,cost,price,stock
+         FROM pre_treino_produtos
+         WHERE id=$1 AND user_id=$2`,
+        [
+          id,
+          req.user.id
+        ]
+      );
 
       res.status(201).json({
         ...r.rows[0],
-
-        cost:
-          Number(
-            r.rows[0].cost || 0
-          ),
-
-        price:
-          Number(
-            r.rows[0].price || 0
-          ),
-
-        stock:
-          Number(
-            r.rows[0].stock || 0
-          )
+        cost: Number(
+          r.rows[0].cost || 0
+        ),
+        price: Number(
+          r.rows[0].price || 0
+        ),
+        stock: Number(
+          r.rows[0].stock || 0
+        )
       });
-
     } catch (e) {
       console.error(
         '[PRE-TREINO PRODUCTS POST]',
@@ -3010,11 +2093,8 @@ app.delete(
   async (req, res) => {
     try {
       await pool.query(
-        `
-        DELETE FROM pre_treino_produtos
-        WHERE id=$1
-        AND user_id=$2
-        `,
+        `DELETE FROM pre_treino_produtos
+         WHERE id=$1 AND user_id=$2`,
         [
           req.params.id,
           req.user.id
@@ -3024,7 +2104,6 @@ app.delete(
       res.json({
         success: true
       });
-
     } catch (e) {
       console.error(
         '[PRE-TREINO PRODUCTS DELETE]',
@@ -3044,16 +2123,13 @@ app.get(
   authMiddleware,
   async (req, res) => {
     try {
-      const r =
-        await pool.query(
-          `
-          SELECT *
-          FROM pre_treino_clientes
-          WHERE user_id=$1
-          ORDER BY created_at DESC
-          `,
-          [req.user.id]
-        );
+      const r = await pool.query(
+        `SELECT *
+         FROM pre_treino_clientes
+         WHERE user_id=$1
+         ORDER BY created_at DESC`,
+        [req.user.id]
+      );
 
       res.json(
         r.rows.map(c => {
@@ -3078,38 +2154,32 @@ app.get(
             'Pendente (Não Pago)';
 
           const tipo =
-            c.tipo || 'mensal';
+            c.tipo ||
+            'mensal';
 
           return {
             id: c.id,
             name: c.name,
             phone: c.phone,
-
             tipo,
-
             valorMensalidade,
             valor_mensalidade:
               valorMensalidade,
-
             dataInicio,
             data_inicio:
               dataInicio,
-
             dataFim,
             data_fim:
               dataFim,
-
             valorAvulso,
             valor_avulso:
               valorAvulso,
-
             statusMensalidade,
             status_mensalidade:
               statusMensalidade
           };
         })
       );
-
     } catch (e) {
       console.error(
         '[PRE-TREINO CUSTOMERS GET]',
@@ -3129,8 +2199,7 @@ app.post(
   authMiddleware,
   async (req, res) => {
     try {
-      const c =
-        req.body || {};
+      const c = req.body || {};
 
       const id =
         c.id ||
@@ -3150,12 +2219,11 @@ app.post(
           ''
         ).trim();
 
-      if (!name || !phone) {
+      if (!name || !phone)
         return res.status(400).json({
           error:
             'Nome e telefone são obrigatórios.'
         });
-      }
 
       const tipo =
         c.tipo ||
@@ -3191,24 +2259,14 @@ app.post(
         'Pendente (Não Pago)';
 
       await pool.query(
-        `
-        INSERT INTO pre_treino_clientes
-        (
-          id,
-          user_id,
-          name,
-          phone,
-          tipo,
-          valor_mensalidade,
-          data_inicio,
-          data_fim,
-          valor_avulso,
+        `INSERT INTO pre_treino_clientes(
+          id,user_id,name,phone,tipo,
+          valor_mensalidade,data_inicio,
+          data_fim,valor_avulso,
           status_mensalidade
         )
-        VALUES
-        (
-          $1,$2,$3,$4,$5,
-          $6,$7,$8,$9,$10
+        VALUES(
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
         )
         ON CONFLICT(id,user_id)
         DO UPDATE SET
@@ -3219,8 +2277,7 @@ app.post(
           data_inicio=$7,
           data_fim=$8,
           valor_avulso=$9,
-          status_mensalidade=$10
-        `,
+          status_mensalidade=$10`,
         [
           id,
           req.user.id,
@@ -3235,19 +2292,13 @@ app.post(
         ]
       );
 
-      const r =
-        await pool.query(
-          `
-          SELECT *
-          FROM pre_treino_clientes
-          WHERE id=$1
-          AND user_id=$2
-          `,
-          [
-            id,
-            req.user.id
-          ]
-        );
+      const r = await pool.query(
+        'SELECT * FROM pre_treino_clientes WHERE id=$1 AND user_id=$2',
+        [
+          id,
+          req.user.id
+        ]
+      );
 
       const saved =
         r.rows[0];
@@ -3256,50 +2307,38 @@ app.post(
         id: saved.id,
         name: saved.name,
         phone: saved.phone,
-
         tipo: saved.tipo,
-
         valorMensalidade:
           Number(
             saved.valor_mensalidade || 0
           ),
-
         valor_mensalidade:
           Number(
             saved.valor_mensalidade || 0
           ),
-
         dataInicio:
           saved.data_inicio || '',
-
         data_inicio:
           saved.data_inicio || '',
-
         dataFim:
           saved.data_fim || '',
-
         data_fim:
           saved.data_fim || '',
-
         valorAvulso:
           Number(
             saved.valor_avulso || 0
           ),
-
         valor_avulso:
           Number(
             saved.valor_avulso || 0
           ),
-
         statusMensalidade:
           saved.status_mensalidade ||
           'Pendente (Não Pago)',
-
         status_mensalidade:
           saved.status_mensalidade ||
           'Pendente (Não Pago)'
       });
-
     } catch (e) {
       console.error(
         '[PRE-TREINO CUSTOMERS POST]',
@@ -3320,11 +2359,8 @@ app.delete(
   async (req, res) => {
     try {
       await pool.query(
-        `
-        DELETE FROM pre_treino_clientes
-        WHERE id=$1
-        AND user_id=$2
-        `,
+        `DELETE FROM pre_treino_clientes
+         WHERE id=$1 AND user_id=$2`,
         [
           req.params.id,
           req.user.id
@@ -3334,7 +2370,6 @@ app.delete(
       res.json({
         success: true
       });
-
     } catch (e) {
       console.error(
         '[PRE-TREINO CUSTOMERS DELETE]',
@@ -3353,103 +2388,56 @@ app.get(
   '/api/pre-treino/records',
   authMiddleware,
   async (req, res) => {
-    const r =
-      await pool.query(
-        `
-        SELECT *
-        FROM pre_treino_registros
-        WHERE user_id=$1
-        ORDER BY created_at DESC
-        `,
-        [req.user.id]
-      );
+    const r = await pool.query(
+      `SELECT *
+       FROM pre_treino_registros
+       WHERE user_id=$1
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
 
     res.json(
       r.rows.map(x => ({
         id: x.id,
-
-        customerId:
-          x.customer_id,
-
-        customer_id:
-          x.customer_id,
-
-        customerName:
-          x.nome_cliente,
-
-        customer_name:
-          x.nome_cliente,
-
-        nome_cliente:
-          x.nome_cliente,
-
+        customerId: x.customer_id,
+        customer_id: x.customer_id,
+        customerName: x.nome_cliente,
+        customer_name: x.nome_cliente,
+        nome_cliente: x.nome_cliente,
         customerPhone:
           x.telefone_cliente,
-
         customer_phone:
           x.telefone_cliente,
-
         telefone_cliente:
           x.telefone_cliente,
-
-        productId:
-          x.produto_id,
-
-        produto_id:
-          x.produto_id,
-
+        productId: x.produto_id,
+        produto_id: x.produto_id,
         productName:
           x.nome_produto,
-
         product_name:
           x.nome_produto,
-
         nome_produto:
           x.nome_produto,
-
         cost:
-          Number(
-            x.custo || 0
-          ),
-
+          Number(x.custo || 0),
         custo:
-          Number(
-            x.custo || 0
-          ),
-
+          Number(x.custo || 0),
         value:
-          Number(
-            x.valor || 0
-          ),
-
+          Number(x.valor || 0),
         valor:
-          Number(
-            x.valor || 0
-          ),
-
+          Number(x.valor || 0),
         type:
           x.tipo_consumo ||
           'avulso',
-
         tipo_consumo:
           x.tipo_consumo ||
           'avulso',
-
-        date:
-          x.data,
-
-        data:
-          x.data,
-
-        time:
-          x.horario,
-
-        horario:
-          x.horario,
-
+        date: x.data,
+        data: x.data,
+        time: x.horario,
+        horario: x.horario,
         createdAt:
           x.created_at,
-
         created_at:
           x.created_at
       }))
@@ -3488,12 +2476,10 @@ app.post(
     if (cid) {
       const c =
         await pool.query(
-          `
-          SELECT name,phone
-          FROM pre_treino_clientes
-          WHERE id=$1
-          AND user_id=$2
-          `,
+          `SELECT name,phone
+           FROM pre_treino_clientes
+           WHERE id=$1
+           AND user_id=$2`,
           [
             cid,
             req.user.id
@@ -3510,26 +2496,15 @@ app.post(
     }
 
     await pool.query(
-      `
-      INSERT INTO pre_treino_registros
-      (
-        id,
-        user_id,
-        customer_id,
-        nome_cliente,
-        telefone_cliente,
-        produto_id,
-        nome_produto,
-        custo,
-        valor,
-        tipo_consumo,
-        data,
-        horario
+      `INSERT INTO pre_treino_registros(
+        id,user_id,customer_id,
+        nome_cliente,telefone_cliente,
+        produto_id,nome_produto,
+        custo,valor,tipo_consumo,
+        data,horario
       )
-      VALUES
-      (
-        $1,$2,$3,$4,$5,$6,
-        $7,$8,$9,$10,$11,$12
+      VALUES(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
       )
       ON CONFLICT(id,user_id)
       DO UPDATE SET
@@ -3542,56 +2517,47 @@ app.post(
         valor=$9,
         tipo_consumo=$10,
         data=$11,
-        horario=$12
-      `,
+        horario=$12`,
       [
         id,
         req.user.id,
         cid,
         customerName,
         phone,
-
         r.productId ||
           r.produto_id ||
           null,
-
         r.productName ||
           r.nomeProduto ||
           r.nome_produto ||
           '',
-
         Number(
           r.cost ??
           r.custo ??
           0
         ),
-
         Number(
           r.value ??
           r.valor ??
           0
         ),
-
         r.type ||
           r.tipo_consumo ||
           'avulso',
-
         r.date ||
           r.data ||
           new Date()
             .toISOString()
             .slice(0, 10),
-
         r.time ||
           r.horario ||
-          new Date()
-            .toLocaleTimeString(
-              'pt-BR',
-              {
-                hour: '2-digit',
-                minute: '2-digit'
-              }
-            )
+          new Date().toLocaleTimeString(
+            'pt-BR',
+            {
+              hour: '2-digit',
+              minute: '2-digit'
+            }
+          )
       ]
     );
 
@@ -3600,17 +2566,15 @@ app.post(
       r.produto_id
     ) {
       await pool.query(
-        `
-        UPDATE pre_treino_produtos
-        SET stock=
-          GREATEST(
-            0,
-            COALESCE(stock,0)-1
-          )
-        WHERE id=$1
-        AND user_id=$2
-        AND COALESCE(stock,0)>0
-        `,
+        `UPDATE pre_treino_produtos
+         SET stock=
+           GREATEST(
+             0,
+             COALESCE(stock,0)-1
+           )
+         WHERE id=$1
+         AND user_id=$2
+         AND COALESCE(stock,0)>0`,
         [
           r.productId ||
             r.produto_id,
@@ -3631,11 +2595,8 @@ app.delete(
   authMiddleware,
   async (req, res) => {
     await pool.query(
-      `
-      DELETE FROM pre_treino_registros
-      WHERE id=$1
-      AND user_id=$2
-      `,
+      `DELETE FROM pre_treino_registros
+       WHERE id=$1 AND user_id=$2`,
       [
         req.params.id,
         req.user.id
@@ -3655,45 +2616,28 @@ app.get(
     const baseQuery = `
       SELECT
         (
-          SELECT
-            COALESCE(
-              SUM(valor),
-              0
-            )
+          SELECT COALESCE(SUM(valor),0)
           FROM pre_treino_registros
           WHERE user_id=$1
-        )
-        +
+        ) +
         (
-          SELECT
-            COALESCE(
-              SUM(valor_mensalidade),
-              0
-            )
+          SELECT COALESCE(SUM(valor_mensalidade),0)
           FROM pre_treino_clientes
           WHERE user_id=$1
           AND status_mensalidade='Pago'
-        )
-        AS faturamento,
+        ) AS faturamento,
 
         (
-          SELECT
-            COUNT(*)::int
+          SELECT COUNT(*)::int
           FROM pre_treino_registros
           WHERE user_id=$1
-        )
-        AS total_consumos,
+        ) AS total_consumos,
 
         (
-          SELECT
-            COALESCE(
-              SUM(custo),
-              0
-            )
+          SELECT COALESCE(SUM(custo),0)
           FROM pre_treino_registros
           WHERE user_id=$1
-        )
-        AS custo
+        ) AS custo
     `;
 
     const base =
@@ -3704,84 +2648,68 @@ app.get(
 
     const clients =
       await pool.query(
-        `
-        SELECT
+        `SELECT
           nome_cliente,
           telefone_cliente,
           COUNT(*)::int AS consumos,
-          COALESCE(
-            SUM(valor),
-            0
-          ) AS valor
-        FROM pre_treino_registros
-        WHERE user_id=$1
-        GROUP BY
-          nome_cliente,
-          telefone_cliente
-        ORDER BY
-          consumos DESC,
-          valor DESC
-        LIMIT 20
-        `,
+          COALESCE(SUM(valor),0) AS valor
+         FROM pre_treino_registros
+         WHERE user_id=$1
+         GROUP BY
+           nome_cliente,
+           telefone_cliente
+         ORDER BY
+           consumos DESC,
+           valor DESC
+         LIMIT 20`,
         [req.user.id]
       );
 
     const products =
       await pool.query(
-        `
-        SELECT
+        `SELECT
           produto_id,
           nome_produto,
           COUNT(*)::int AS consumos,
-          COALESCE(
-            SUM(valor),
-            0
-          ) AS valor
-        FROM pre_treino_registros
-        WHERE user_id=$1
-        GROUP BY
-          produto_id,
-          nome_produto
-        ORDER BY
-          consumos DESC,
-          valor DESC
-        LIMIT 20
-        `,
+          COALESCE(SUM(valor),0) AS valor
+         FROM pre_treino_registros
+         WHERE user_id=$1
+         GROUP BY
+           produto_id,
+           nome_produto
+         ORDER BY
+           consumos DESC,
+           valor DESC
+         LIMIT 20`,
         [req.user.id]
       );
 
     const faturamentoTotal =
       Number(
-        base.rows[0]
-          .faturamento || 0
+        base.rows[0].faturamento ||
+        0
       );
 
     const custoTotal =
       Number(
-        base.rows[0]
-          .custo || 0
+        base.rows[0].custo ||
+        0
       );
 
     res.json({
       summary: {
         totalConsumos:
-          base.rows[0]
-            .total_consumos,
-
+          base.rows[0].total_consumos,
         faturamento:
           faturamentoTotal,
-
         custo:
           custoTotal,
-
         lucro:
           faturamentoTotal -
           custoTotal
       },
-
       topClients:
         clients.rows,
-
       topProducts:
         products.rows
     });
@@ -3792,29 +2720,21 @@ app.get(
 // WHATSAPP
 // ==========================================
 
-async function createWhatsAppSession(
-  userId
-) {
-  if (
-    sessions.has(userId)
-  ) {
+async function createWhatsAppSession(userId) {
+  if (sessions.has(userId))
     return sessions.get(userId);
-  }
 
-  const dir =
-    path.join(
-      authRoot,
-      crypto
-        .createHash('sha256')
-        .update(userId)
-        .digest('hex')
-    );
+  const dir = path.join(
+    authRoot,
+    crypto
+      .createHash('sha256')
+      .update(userId)
+      .digest('hex')
+  );
 
   fs.mkdirSync(
     dir,
-    {
-      recursive: true
-    }
+    { recursive: true }
   );
 
   const {
@@ -3874,9 +2794,7 @@ async function createWhatsAppSession(
           );
       }
 
-      if (
-        connection === 'open'
-      ) {
+      if (connection === 'open') {
         session.status =
           'connected';
 
@@ -3888,9 +2806,7 @@ async function createWhatsAppSession(
           null;
       }
 
-      if (
-        connection === 'close'
-      ) {
+      if (connection === 'close') {
         const code =
           lastDisconnect
             ?.error
@@ -3938,14 +2854,9 @@ app.get(
       );
 
     res.json({
-      status:
-        s.status,
-
-      qr:
-        s.qr,
-
-      phone:
-        s.phone
+      status: s.status,
+      qr: s.qr,
+      phone: s.phone
     });
   }
 );
@@ -3970,12 +2881,8 @@ app.get(
     }
 
     res.json({
-      success:
-        Boolean(s.qr),
-
-      qr:
-        s.qr,
-
+      success: Boolean(s.qr),
+      qr: s.qr,
       message:
         s.qr
           ? 'QR pronto.'
@@ -3995,11 +2902,10 @@ app.post(
       sessions.get(uid);
 
     try {
-      if (s?.sock) {
+      if (s?.sock)
         await s.sock
           .logout()
           .catch(() => {});
-      }
 
       sessions.delete(
         uid
@@ -4029,7 +2935,6 @@ app.post(
       res.json({
         success: true
       });
-
     } catch (e) {
       console.error(e);
 
@@ -4047,11 +2952,7 @@ app.get(
   async (req, res) => {
     const r =
       await pool.query(
-        `
-        SELECT schedules
-        FROM user_whatsapp_schedules
-        WHERE user_id=$1
-        `,
+        'SELECT schedules FROM user_whatsapp_schedules WHERE user_id=$1',
         [req.user.id]
       );
 
@@ -4074,22 +2975,14 @@ app.post(
         : [];
 
     await pool.query(
-      `
-      INSERT INTO user_whatsapp_schedules
-      (
-        user_id,
-        schedules,
-        updated_at
+      `INSERT INTO user_whatsapp_schedules(
+        user_id,schedules,updated_at
       )
-      VALUES
-      (
-        $1,$2,NOW()
-      )
+      VALUES($1,$2,NOW())
       ON CONFLICT(user_id)
       DO UPDATE SET
         schedules=$2,
-        updated_at=NOW()
-      `,
+        updated_at=NOW()`,
       [
         req.user.id,
         JSON.stringify(
@@ -4124,11 +3017,13 @@ app.post(
     }
 
     let sql =
-      "SELECT id,name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>''";
+      `SELECT id,name,phone,cashback
+       FROM customers
+       WHERE user_id=$1
+       AND phone<>''`;
 
-    const params = [
-      req.user.id
-    ];
+    const params =
+      [req.user.id];
 
     if (
       !req.body.sendToAll &&
@@ -4164,9 +3059,8 @@ app.post(
           ''
         );
 
-      if (!phone) {
+      if (!phone)
         continue;
-      }
 
       const msg =
         String(
@@ -4205,7 +3099,6 @@ app.post(
               1500
             )
         );
-
       } catch (e) {
         console.error(
           '[WA SEND]',
@@ -4216,17 +3109,15 @@ app.post(
 
     res.json({
       success: true,
-
       message:
         `${sent} mensagem(ns) enviada(s).`,
-
       sent
     });
   }
 );
 
 // ==========================================
-// SCHEDULER WHATSAPP
+// AGENDADOR WHATSAPP
 // ==========================================
 
 cron.schedule(
@@ -4235,28 +3126,24 @@ cron.schedule(
     try {
       const rows =
         await pool.query(
-          `
-          SELECT
-            user_id,
-            schedules
-          FROM user_whatsapp_schedules
-          `
+          'SELECT user_id,schedules FROM user_whatsapp_schedules'
         );
 
       const now =
         new Date();
 
-      const day = [
-        'domingo',
-        'segunda',
-        'terça',
-        'quarta',
-        'quinta',
-        'sexta',
-        'sábado'
-      ][
-        now.getDay()
-      ];
+      const day =
+        [
+          'domingo',
+          'segunda',
+          'terça',
+          'quarta',
+          'quinta',
+          'sexta',
+          'sábado'
+        ][
+          now.getDay()
+        ];
 
       const time =
         now.toLocaleTimeString(
@@ -4285,9 +3172,7 @@ cron.schedule(
             !Array.isArray(
               sch.days
             ) ||
-            !sch.days.includes(
-              day
-            )
+            !sch.days.includes(day)
           ) {
             continue;
           }
@@ -4306,11 +3191,13 @@ cron.schedule(
           }
 
           let sql =
-            "SELECT name,phone,cashback FROM customers WHERE user_id=$1 AND phone<>''";
+            `SELECT name,phone,cashback
+             FROM customers
+             WHERE user_id=$1
+             AND phone<>''`;
 
-          const params = [
-            row.user_id
-          ];
+          const params =
+            [row.user_id];
 
           if (
             !sch.sendToAll &&
@@ -4344,9 +3231,8 @@ cron.schedule(
                 ''
               );
 
-            if (!phone) {
+            if (!phone)
               continue;
-            }
 
             const msg =
               String(
@@ -4360,15 +3246,16 @@ cron.schedule(
                 .replaceAll(
                   '{saldo}',
                   `R$ ${Number(
-                    c.cashback ||
-                    0
+                    c.cashback || 0
                   ).toFixed(2)}`
                 );
 
             await s.sock
               .sendMessage(
                 `${
-                  phone.startsWith('55')
+                  phone.startsWith(
+                    '55'
+                  )
                     ? phone
                     : '55' + phone
                 }@s.whatsapp.net`,
@@ -4393,7 +3280,6 @@ cron.schedule(
           }
         }
       }
-
     } catch (e) {
       console.error(
         '[WA CRON]',
@@ -4408,7 +3294,7 @@ cron.schedule(
 );
 
 // ==========================================
-// INICIALIZAÇÃO DO BANCO
+// INICIALIZAÇÃO
 // ==========================================
 
 try {
@@ -4420,27 +3306,19 @@ try {
   );
 }
 
-// ==========================================
-// SERVIDOR
-// ==========================================
-
 const httpServer =
   app.listen(
     PORT,
     '0.0.0.0',
     () => {
       console.log(
-        `BYSE PRO API em http://0.0.0.0:${PORT} | frontend esperado: ${FRONTEND_URL}`
+        `BYSE PRO API em http://0.0.0.0:${PORT} | frontend esperado:${FRONTEND_URL}`
       );
     }
   );
 
-// ==========================================
-// SHUTDOWN
-// ==========================================
-
 const shutdown =
-  async (signal) => {
+  async signal => {
     console.log(
       `Encerrando servidor (${signal})...`
     );
@@ -4465,26 +3343,17 @@ const shutdown =
     httpServer.close(
       async () => {
         await pool.end();
-
-        process.exit(
-          0
-        );
+        process.exit(0);
       }
     );
   };
 
 process.on(
   'SIGINT',
-  () =>
-    shutdown(
-      'SIGINT'
-    )
+  () => shutdown('SIGINT')
 );
 
 process.on(
   'SIGTERM',
-  () =>
-    shutdown(
-      'SIGTERM'
-    )
+  () => shutdown('SIGTERM')
 );
