@@ -850,7 +850,7 @@ function SupplementSystem() {
           setCustomers={handleUpdateCustomers}
           sellers={sellers}
           sales={sales}
-          setSales={handleUpdateSales}
+          setSales={setSales}
           onSaleCompleted={fetchUserData}
           fiados={fiados}
           setFiados={handleUpdateFiados}
