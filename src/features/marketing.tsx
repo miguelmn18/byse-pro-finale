@@ -135,9 +135,11 @@ function TrafegoPago({
   text
 }) {
   const today = new Date();
+
   const [periodStart, setPeriodStart] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1)
   );
+
   const [periodEnd, setPeriodEnd] = useState(today);
 
   const setPeriod = (s, e) => {
@@ -146,50 +148,189 @@ function TrafegoPago({
   };
 
   const [showForm, setShowForm] = useState(false);
+
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     leads: "",
-    spend: ""
+    spend: "",
+    revenue: ""
   });
-  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/$/, "");
-  const authHeaders = () => ({ "Content-Type":"application/json", "Authorization":`Bearer ${localStorage.getItem("byse_token")||""}` });
+
+  const API_URL = (
+    import.meta.env.VITE_API_URL || "http://localhost:3333"
+  ).replace(/\/+$/, "");
+
+  const authHeaders = () => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${localStorage.getItem("byse_token") || ""}`
+  });
+
   const [stateLoaded, setStateLoaded] = useState(false);
-  useEffect(() => { (async()=>{ try { const r=await fetch(`${API_URL}/api/app-state/marketing`,{headers:authHeaders()}); if(r.ok){const d=await r.json(); if(Array.isArray(d.adEntries))setAdEntries(d.adEntries.map((x:any)=>({...x,date:new Date(x.date)}))); setStateLoaded(true);} } catch(e){console.error(e);} })(); }, []);
-  useEffect(() => { if(!stateLoaded)return; const serializable=adEntries.map((x:any)=>({...x,date:new Date(x.date).toISOString()})); fetch(`${API_URL}/api/app-state/marketing`,{method:"PUT",headers:authHeaders(),body:JSON.stringify({adEntries:serializable})}).catch(()=>{}); }, [adEntries]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(
+          `${API_URL}/api/app-state/marketing`,
+          {
+            headers: authHeaders()
+          }
+        );
+
+        if (r.ok) {
+          const d = await r.json();
+
+          if (Array.isArray(d.adEntries)) {
+            setAdEntries(
+              d.adEntries.map((x) => ({
+                ...x,
+                date: new Date(x.date),
+                leads: Number(x.leads || 0),
+                spend: Number(x.spend || 0),
+                revenue: Number(
+                  x.revenue ??
+                  x.faturamento ??
+                  0
+                )
+              }))
+            );
+          }
+
+          setStateLoaded(true);
+        }
+      } catch (e) {
+        console.error("Erro ao carregar marketing:", e);
+        setStateLoaded(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!stateLoaded) return;
+
+    const serializable = adEntries.map((x) => ({
+      ...x,
+      date: new Date(x.date).toISOString(),
+      leads: Number(x.leads || 0),
+      spend: Number(x.spend || 0),
+      revenue: Number(
+        x.revenue ??
+        x.faturamento ??
+        0
+      )
+    }));
+
+    fetch(
+      `${API_URL}/api/app-state/marketing`,
+      {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          adEntries: serializable
+        })
+      }
+    ).catch(() => {});
+  }, [adEntries, stateLoaded]);
 
   const addEntry = () => {
-    if (!form.leads && !form.spend) return;
-    const d = new Date(form.date + "T12:00:00");
+    if (
+      !form.leads &&
+      !form.spend &&
+      !form.revenue
+    ) {
+      return;
+    }
+
+    const d = new Date(
+      form.date + "T12:00:00"
+    );
+
+    const newEntry = {
+      date: d,
+      leads: parseInt(form.leads) || 0,
+      spend: parseFloat(form.spend) || 0,
+      revenue: parseFloat(form.revenue) || 0
+    };
+
     setAdEntries([
       ...adEntries,
-      {
-        date: d,
-        leads: parseInt(form.leads) || 0,
-        spend: parseFloat(form.spend) || 0
-      }
+      newEntry
     ]);
+
     setForm({
-      date: new Date().toISOString().slice(0, 10),
+      date: new Date()
+        .toISOString()
+        .slice(0, 10),
       leads: "",
-      spend: ""
+      spend: "",
+      revenue: ""
     });
+
     setShowForm(false);
   };
 
   const periodAd = adEntries
-    .filter((e) => inPeriod(e.date, periodStart, periodEnd))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .filter((e) =>
+      inPeriod(
+        e.date,
+        periodStart,
+        periodEnd
+      )
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.date) -
+        new Date(b.date)
+    );
 
   const periodSales = sales.filter((s) =>
-    inPeriod(s.date, periodStart, periodEnd)
+    inPeriod(
+      s.date,
+      periodStart,
+      periodEnd
+    )
   );
 
-  const totalLeads = periodAd.reduce((s, e) => s + e.leads, 0);
-  const totalSpend = periodAd.reduce((s, e) => s + e.spend, 0);
-  const totalRev = periodSales.reduce((s, v) => s + v.total, 0);
+  const totalLeads = periodAd.reduce(
+    (s, e) =>
+      s + Number(e.leads || 0),
+    0
+  );
+
+  const totalSpend = periodAd.reduce(
+    (s, e) =>
+      s + Number(e.spend || 0),
+    0
+  );
+
+  const totalRev = periodAd.reduce(
+    (s, e) =>
+      s +
+      Number(
+        e.revenue ??
+        e.faturamento ??
+        0
+      ),
+    0
+  );
+
+  const totalSalesRevenue = periodSales.reduce(
+    (s, v) =>
+      s + Number(v.total || 0),
+    0
+  );
+
   const roi =
-    totalSpend > 0 ? ((totalRev - totalSpend) / totalSpend) * 100 : 0;
-  const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+    totalSpend > 0
+      ? ((totalRev - totalSpend) /
+          totalSpend) *
+        100
+      : 0;
+
+  const cpl =
+    totalLeads > 0
+      ? totalSpend / totalLeads
+      : 0;
 
   return (
     <div>
@@ -210,34 +351,73 @@ function TrafegoPago({
         <StatCard
           label="Leads no período"
           value={totalLeads}
-          {...{ card, border, subtext, accent }}
+          {...{
+            card,
+            border,
+            subtext,
+            accent
+          }}
         />
+
         <StatCard
           label="Investido no período"
           value={money(totalSpend)}
-          {...{ card, border, subtext, accent }}
+          {...{
+            card,
+            border,
+            subtext,
+            accent
+          }}
         />
+
         <StatCard
           label="Custo por lead"
           value={money(cpl)}
-          {...{ card, border, subtext, accent }}
+          {...{
+            card,
+            border,
+            subtext,
+            accent
+          }}
         />
+
         <StatCard
           label="ROI do período"
           value={`${roi.toFixed(0)}%`}
-          sub={roi >= 0 ? "Positivo" : "Negativo"}
-          {...{ card, border, subtext, accent }}
+          sub={
+            roi >= 0
+              ? "Positivo"
+              : "Negativo"
+          }
+          {...{
+            card,
+            border,
+            subtext,
+            accent
+          }}
         />
+
         <StatCard
           label="Faturamento do período"
-          value={`${roi.toFixed(0)}%`}
-          sub={roi >= 0 ? "Positivo" : "Negativo"}
-          {...{ card, border, subtext, accent }}
+          value={money(totalRev)}
+          sub={
+            totalRev > 0
+              ? "Faturamento informado"
+              : "Nenhum faturamento lançado"
+          }
+          {...{
+            card,
+            border,
+            subtext,
+            accent
+          }}
         />
       </div>
 
       <button
-        onClick={() => setShowForm(!showForm)}
+        onClick={() =>
+          setShowForm(!showForm)
+        }
         style={{
           background: accent,
           color: "#fff",
@@ -253,7 +433,8 @@ function TrafegoPago({
           marginBottom: 16
         }}
       >
-        <Plus size={15} /> Lançar leads e investimento do dia
+        <Plus size={15} />
+        Lançar leads e investimento do dia
       </button>
 
       {showForm && (
@@ -273,28 +454,67 @@ function TrafegoPago({
             type="date"
             value={form.date}
             onChange={(e) =>
-              setForm({ ...form, date: e.target.value })
+              setForm({
+                ...form,
+                date: e.target.value
+              })
             }
-            style={inputStyle(border, text)}
+            style={inputStyle(
+              border,
+              text
+            )}
           />
+
           <input
             placeholder="Leads"
             type="number"
             value={form.leads}
             onChange={(e) =>
-              setForm({ ...form, leads: e.target.value })
+              setForm({
+                ...form,
+                leads: e.target.value
+              })
             }
-            style={inputStyle(border, text)}
+            style={inputStyle(
+              border,
+              text
+            )}
           />
+
           <input
             placeholder="Investido (R$)"
             type="number"
+            step="0.01"
             value={form.spend}
             onChange={(e) =>
-              setForm({ ...form, spend: e.target.value })
+              setForm({
+                ...form,
+                spend: e.target.value
+              })
             }
-            style={inputStyle(border, text)}
+            style={inputStyle(
+              border,
+              text
+            )}
           />
+
+          <input
+            placeholder="Faturamento (R$)"
+            type="number"
+            step="0.01"
+            value={form.revenue}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                revenue: e.target.value
+              })
+            }
+            style={inputStyle(
+              border,
+              text
+            )}
+          />
+
           <button
             onClick={addEntry}
             style={{
@@ -321,7 +541,9 @@ function TrafegoPago({
           padding: 16
         }}
       >
-        <SLabel subtext={subtext}>Período do relatório</SLabel>
+        <SLabel subtext={subtext}>
+          Período do relatório
+        </SLabel>
 
         <PeriodHeader
           start={periodStart}
@@ -336,7 +558,12 @@ function TrafegoPago({
 
         <div style={{ marginTop: 14 }}>
           {periodAd.length === 0 && (
-            <div style={{ fontSize: 12.5, color: subtext }}>
+            <div
+              style={{
+                fontSize: 12.5,
+                color: subtext
+              }}
+            >
               Nenhum lançamento nesse período.
             </div>
           )}
@@ -346,16 +573,44 @@ function TrafegoPago({
               key={i}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateColumns:
+                  "1fr 1fr 1fr 1fr",
                 padding: "8px 0",
-                borderBottom: `1px solid ${border}`,
-                fontSize: 12.5
+                borderBottom:
+                  `1px solid ${border}`,
+                fontSize: 12.5,
+                gap: 8
               }}
             >
-              <span>{new Date(e.date).toLocaleDateString("pt-BR")}</span>
-              <span>{e.leads} lead(s)</span>
-              <span style={{ textAlign: "right", fontWeight: 700 }}>
+              <span>
+                {new Date(
+                  e.date
+                ).toLocaleDateString(
+                  "pt-BR"
+                )}
+              </span>
+
+              <span>
+                {e.leads} lead(s)
+              </span>
+
+              <span>
+                Investido:{" "}
                 {money(e.spend)}
+              </span>
+
+              <span
+                style={{
+                  textAlign: "right",
+                  fontWeight: 700
+                }}
+              >
+                Faturamento:{" "}
+                {money(
+                  e.revenue ??
+                  e.faturamento ??
+                  0
+                )}
               </span>
             </div>
           ))}
@@ -364,7 +619,6 @@ function TrafegoPago({
     </div>
   );
 }
-
 
 function CanaisDeVenda({
   sales,
