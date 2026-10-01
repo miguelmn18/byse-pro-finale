@@ -363,6 +363,10 @@ export function PDV({
         price: Number(item.price || 0),
         qty: Number(item.qty || 1),
         quantity: Number(item.qty || 1),
+        // ID REAL DO ESTOQUE SELECIONADO
+        stockLocation: selectedStockLoc,
+        stock_location: selectedStockLoc,
+        
         local: localName,
         location: localName,
         variationName: varName,
