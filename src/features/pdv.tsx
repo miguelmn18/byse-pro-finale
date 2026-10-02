@@ -73,6 +73,7 @@ export function PDV({
   const [cashbackPercent, setCashbackPercent] = useState(0);
   const [cashbackValidityDays, setCashbackValidityDays] = useState(30);
   const [cashbackMessage, setCashbackMessage] = useState('Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁');
+  const [saleWhatsappMessage, setSaleWhatsappMessage] = useState('Olá {nome}! Obrigado pela sua compra na BYSE PRO. Você ganhou {cashback} de cashback. Seu saldo já está disponível para a próxima compra. 🎁');
   const [activeReminderButton, setActiveReminderButton] = useState(false);
 
   useEffect(() => {
@@ -106,6 +107,8 @@ export function PDV({
         if (data.cashbackPercentage !== undefined) setCashbackPercent(Number(data.cashbackPercentage));
         if (data.cashbackValidityDays !== undefined) setCashbackValidityDays(Number(data.cashbackValidityDays));
         if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
+        if (data.saleWhatsappMessage) setSaleWhatsappMessage(data.saleWhatsappMessage);
+        else if (data.salesWhatsappMessage) setSaleWhatsappMessage(data.salesWhatsappMessage);
         if (data.activeReminderButton !== undefined) setActiveReminderButton(Boolean(data.activeReminderButton));
       }
     } catch (e) {
@@ -127,6 +130,7 @@ export function PDV({
         cashbackPercentage: cashbackPercent,
         cashbackValidityDays,
         cashbackMessage,
+        saleWhatsappMessage,
         activeReminderButton,
         ...updatedSettings
       };
@@ -363,12 +367,13 @@ export function PDV({
         price: Number(item.price || 0),
         qty: Number(item.qty || 1),
         quantity: Number(item.qty || 1),
-        // ID REAL DO ESTOQUE SELECIONADO
-        stockLocation: selectedStockLoc,
-        stock_location: selectedStockLoc,
-        
+
+        stockLocations: selectedStockLoc,
+        stock_locations: selectedStockLoc,
+
         local: localName,
         location: localName,
+
         variationName: varName,
         variation: varName
       };
@@ -449,10 +454,12 @@ export function PDV({
           const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
           const vencimentoFormatado = new Date(Date.now() + Number(cashbackValidityDays || 30) * 86400000).toLocaleDateString('pt-BR');
           
-          const mensagemPronta = cashbackMessage
+          const mensagemPronta = (saleWhatsappMessage || cashbackMessage)
             .replace(/{nome}/g, nomeCliente)
             .replace(/{saldo}/g, cashbackGanhoFormatado)
-            .replace(/{vencimento}/g, vencimentoFormatado);
+            .replace(/{cashback}/g, cashbackGanhoFormatado)
+            .replace(/{vencimento}/g, vencimentoFormatado)
+            .replace(/{total}/g, total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
           
           window.open(`https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagemPronta)}`, '_blank');
         }
@@ -643,6 +650,22 @@ export function PDV({
                 padding: 20
               }}
             >
+              <div style={{ marginBottom: 20, padding: 14, background: `${border}15`, border: `1px solid ${border}`, borderRadius: 10 }}>
+                <label style={lbl(subtext)}>MENSAGEM ENVIADA PELO WHATSAPP AO FINALIZAR A VENDA</label>
+                <textarea
+                  value={saleWhatsappMessage}
+                  onChange={(e) => setSaleWhatsappMessage(e.target.value)}
+                  onBlur={() => saveUserSettings({ saleWhatsappMessage })}
+                  rows={5}
+                  placeholder="Digite a mensagem que será enviada ao cliente após finalizar a venda..."
+                  style={{ ...inputStyle(border, text), width: "100%", minHeight: 110, marginTop: 8, resize: "vertical", boxSizing: "border-box" }}
+                />
+                <div style={{ color: subtext, fontSize: 11, marginTop: 6, lineHeight: 1.4 }}>
+                  Variáveis disponíveis: <strong>{"{nome}"}</strong>, <strong>{"{cashback}"}</strong>, <strong>{"{saldo}"}</strong>, <strong>{"{vencimento}"}</strong> e <strong>{"{total}"}</strong>.
+                  A mensagem é salva automaticamente ao sair do campo.
+                </div>
+              </div>
+
               <button
                 onClick={startOrderWithoutCustomer}
                 style={{

@@ -756,11 +756,11 @@ async function saveProduct(req, res) {
     const p = req.body || {};
 
     const name = String(
-      p.name || ''
+      p.name || p.nome || ''
     ).trim();
 
     const price = Number(
-      p.price || 0
+      p.price || p.preco || 0
     );
 
     const id =

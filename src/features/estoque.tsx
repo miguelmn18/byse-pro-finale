@@ -1,15 +1,18 @@
+
 // @ts-nocheck
-import React, { useState, useEffect, useMemo } from "react";
+
+import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, Edit2, X, Eye } from "lucide-react";
+
 import { FONT_BODY } from "../data/constants";
 import { money, inputStyle, ghostBtn } from "../utils/helpers";
 import { SectionTitle, HBar } from "../components/common";
 
 export function Estoque({
-  products,
+  products = [],
   setProducts,
   onCreateProduct,
-  stockLocations,
+  stockLocations = [],
   setStockLocations,
   onDeleteProduct,
   onEditProduct,
@@ -19,270 +22,524 @@ export function Estoque({
   accent,
   text,
 }) {
+  /* =========================================================
+     ESTADOS PRINCIPAIS
+  ========================================================= */
+
   const [showLocations, setShowLocations] = useState(false);
   const [newLocName, setNewLocName] = useState("");
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Estado para armazenar a categoria selecionada no filtro
   const [selectedCategory, setSelectedCategory] = useState("Todas");
 
-  // Histórico de categorias criadas/identificadas no front.
-  // O armazenamento é separado por usuário quando possível, evitando
-  // misturar categorias entre logins no mesmo navegador.
+  const [savedCategories, setSavedCategories] = useState([]);
+
+  const [viewingProduct, setViewingProduct] = useState(null);
+
+  /* =========================================================
+     FORMULÁRIO INICIAL
+  ========================================================= */
+
+  const blankForm = useMemo(
+    () => ({
+      name: "",
+      category: "",
+      cost: "",
+      price: "",
+      imposto: "",
+      frete: "",
+      vipPrice: "",
+      vipPrice3x: "",
+      barcode: "",
+      code: "",
+      description: "",
+      controlStock: true,
+      stocks: {},
+      variations: [],
+      imageUrl: null,
+    }),
+    [],
+  );
+
+  const [form, setForm] = useState(blankForm);
+
+  /* =========================================================
+     CHAVE DO LOCALSTORAGE DAS SUGESTÕES
+     
+     IMPORTANTE:
+     As categorias de sugestão NÃO são a fonte oficial dos
+     produtos. Elas existem apenas no navegador.
+
+     A categoria oficial do produto continua sendo enviada
+     normalmente para o backend através do objeto do produto.
+  ========================================================= */
+
   const getCategoryStorageKey = () => {
     try {
-      const token = localStorage.getItem("byse_token");
       const userId =
         localStorage.getItem("byse_user_id") ||
         localStorage.getItem("userId") ||
         localStorage.getItem("byse_user") ||
         "";
-      const tokenPart = token ? token.slice(-24) : "guest";
-      const userPart = userId ? String(userId) : "no-user";
+
+      const token = localStorage.getItem("byse_token") || "";
+
+      const userPart = String(userId || "no-user")
+        .trim()
+        .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+      const tokenPart = token
+        ? token.slice(-24).replace(/[^a-zA-Z0-9_-]/g, "_")
+        : "guest";
+
       return `byse_product_categories_${userPart}_${tokenPart}`;
     } catch {
       return "byse_product_categories_guest";
     }
   };
 
-  const [savedCategories, setSavedCategories] = useState([]);
+  /* =========================================================
+     NORMALIZAÇÃO DE CATEGORIAS
+  ========================================================= */
 
-  // Carrega as categorias salvas no navegador ao abrir o módulo.
+  const normalizeCategory = (value) => {
+    return String(value || "").trim();
+  };
+
+  const isValidSuggestionCategory = (value) => {
+    const normalized = normalizeCategory(value);
+
+    if (!normalized) return false;
+
+    if (normalized.toLowerCase() === "sem categoria") {
+      return false;
+    }
+
+    return true;
+  };
+
+  const sortCategories = (categories) => {
+    return Array.from(
+      new Set(
+        categories
+          .map((category) => normalizeCategory(category))
+          .filter(isValidSuggestionCategory),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  };
+
+  /* =========================================================
+     CARREGAR CATEGORIAS DE SUGESTÃO
+  ========================================================= */
+
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(getCategoryStorageKey());
+      const key = getCategoryStorageKey();
+      const raw = localStorage.getItem(key);
+
       if (!raw) {
         setSavedCategories([]);
         return;
       }
 
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setSavedCategories(
-          Array.from(
-            new Set(
-              parsed
-                .map((cat) => String(cat || "").trim())
-                .filter(Boolean)
-            )
-          ).sort((a, b) => a.localeCompare(b, "pt-BR"))
-        );
+
+      if (!Array.isArray(parsed)) {
+        setSavedCategories([]);
+        return;
       }
+
+      setSavedCategories(sortCategories(parsed));
     } catch (error) {
-      console.error("Erro ao carregar categorias salvas:", error);
+      console.error(
+        "Erro ao carregar categorias salvas no navegador:",
+        error,
+      );
+
       setSavedCategories([]);
     }
   }, []);
 
-  // Mantém no histórico as categorias que já existem nos produtos.
-  useEffect(() => {
-    const productCategories = (Array.isArray(products) ? products : [])
-      .map((p) => String(p?.category || "").trim())
-      .filter(Boolean)
-      .filter((cat) => cat.toLowerCase() !== "sem categoria");
+  /* =========================================================
+     CATEGORIAS EXISTENTES NOS PRODUTOS
+     
+     Produtos vindos do backend também alimentam a lista
+     visual de categorias.
+     
+     Isso NÃO significa que estamos gravando essas categorias
+     automaticamente no backend.
+  ========================================================= */
 
-    if (productCategories.length === 0) return;
-
-    setSavedCategories((current) => {
-      const merged = Array.from(
-        new Set([...current, ...productCategories])
-      )
-        .map((cat) => String(cat).trim())
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-      try {
-        localStorage.setItem(getCategoryStorageKey(), JSON.stringify(merged));
-      } catch (error) {
-        console.error("Erro ao salvar categorias:", error);
-      }
-
-      return merged;
-    });
+  const productCategories = useMemo(() => {
+    return (Array.isArray(products) ? products : [])
+      .map((product) => normalizeCategory(product?.category))
+      .filter(isValidSuggestionCategory);
   }, [products]);
 
-  // Salva uma categoria nova no histórico local.
-  const saveCategoryToHistory = (category) => {
-    const normalized = String(category || "").trim();
-    if (!normalized || normalized.toLowerCase() === "sem categoria") return;
+  /* =========================================================
+     MANTER CATEGORIAS DOS PRODUTOS COMO SUGESTÕES LOCAIS
+  ========================================================= */
+
+  useEffect(() => {
+    if (!productCategories.length) return;
 
     setSavedCategories((current) => {
-      const existing = current.find(
-        (cat) => cat.toLowerCase() === normalized.toLowerCase()
-      );
-
-      if (existing) {
-        return current;
-      }
-
-      const updated = [...current, normalized].sort((a, b) =>
-        a.localeCompare(b, "pt-BR")
-      );
+      const merged = sortCategories([
+        ...current,
+        ...productCategories,
+      ]);
 
       try {
         localStorage.setItem(
           getCategoryStorageKey(),
-          JSON.stringify(updated)
+          JSON.stringify(merged),
         );
       } catch (error) {
-        console.error("Erro ao salvar categoria:", error);
+        console.error(
+          "Erro ao atualizar categorias no localStorage:",
+          error,
+        );
+      }
+
+      return merged;
+    });
+  }, [productCategories]);
+
+  /* =========================================================
+     SALVAR CATEGORIA COMO SUGESTÃO LOCAL
+     
+     Esta função NÃO altera produtos e NÃO envia nada ao backend.
+  ========================================================= */
+
+  const saveCategoryToHistory = (category) => {
+    const normalized = normalizeCategory(category);
+
+    if (!isValidSuggestionCategory(normalized)) {
+      return;
+    }
+
+    setSavedCategories((current) => {
+      const alreadyExists = current.some(
+        (item) =>
+          normalizeCategory(item).toLowerCase() ===
+          normalized.toLowerCase(),
+      );
+
+      if (alreadyExists) {
+        return current;
+      }
+
+      const updated = sortCategories([
+        ...current,
+        normalized,
+      ]);
+
+      try {
+        localStorage.setItem(
+          getCategoryStorageKey(),
+          JSON.stringify(updated),
+        );
+      } catch (error) {
+        console.error(
+          "Erro ao salvar sugestão de categoria:",
+          error,
+        );
       }
 
       return updated;
     });
   };
 
-  const blankForm = {
-    name: "",
-    category: "",
-    cost: "",
-    price: "",
-    imposto: "",
-    frete: "",
-    vipPrice: "",
-    vipPrice3x: "",
-    barcode: "",
-    code: "",
-    description: "",
-    controlStock: true,
-    stocks: {},
-    variations: [],
-    imageUrl: null,
+  /* =========================================================
+     EXCLUIR SOMENTE A SUGESTÃO DA CATEGORIA
+     
+     IMPORTANTE:
+     NÃO altera os produtos.
+     NÃO chama onEditProduct.
+     NÃO chama onCreateProduct.
+     NÃO remove categoria do banco.
+     
+     Apenas remove a sugestão do navegador.
+  ========================================================= */
+
+  const removeCategory = (categoryToRemove) => {
+    const normalizedTarget =
+      normalizeCategory(categoryToRemove).toLowerCase();
+
+    if (!normalizedTarget) return;
+
+    const confirmed = window.confirm(
+      `Deseja realmente remover "${categoryToRemove}" da lista de sugestões de categorias?`,
+    );
+
+    if (!confirmed) return;
+
+    const updatedCategories = savedCategories.filter(
+      (category) =>
+        normalizeCategory(category).toLowerCase() !==
+        normalizedTarget,
+    );
+
+    setSavedCategories(updatedCategories);
+
+    try {
+      localStorage.setItem(
+        getCategoryStorageKey(),
+        JSON.stringify(updatedCategories),
+      );
+    } catch (error) {
+      console.error(
+        "Erro ao remover sugestão de categoria:",
+        error,
+      );
+    }
+
+    if (
+      selectedCategory !== "Todas" &&
+      selectedCategory.trim().toLowerCase() === normalizedTarget
+    ) {
+      setSelectedCategory("Todas");
+    }
   };
 
-  // O formulário precisa existir antes dos useMemo que leem form.category.
-  const [form, setForm] = useState(blankForm);
+  /* =========================================================
+     TODAS AS CATEGORIAS DISPONÍVEIS PARA O FRONT
+  ========================================================= */
 
-  // Estado para o Modal/Gaveta de Detalhes do Produto
-  const [viewingProduct, setViewingProduct] = useState(null);
-
-  // Todas as categorias disponíveis no sistema:
-  // histórico salvo + categorias atualmente existentes nos produtos.
   const allCategories = useMemo(() => {
-    const productCategories = (Array.isArray(products) ? products : [])
-      .map((p) => String(p?.category || "").trim())
-      .filter(Boolean)
-      .filter((cat) => cat.toLowerCase() !== "sem categoria");
+    return sortCategories([
+      ...savedCategories,
+      ...productCategories,
+    ]);
+  }, [savedCategories, productCategories]);
 
-    return Array.from(
-      new Set([...savedCategories, ...productCategories])
-    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [savedCategories, products]);
+  /* =========================================================
+     SUGESTÕES DE CATEGORIA NO FORMULÁRIO
+  ========================================================= */
 
-  // Categorias filtradas pelo texto digitado no campo de categoria.
   const categorySuggestions = useMemo(() => {
-    const typed = String(form.category || "").trim().toLowerCase();
+    const typed = normalizeCategory(form.category).toLowerCase();
 
-    if (!typed) return allCategories;
+    if (!typed) {
+      return allCategories;
+    }
 
-    return allCategories.filter((cat) =>
-      cat.toLowerCase().includes(typed)
+    return allCategories.filter((category) =>
+      category.toLowerCase().includes(typed),
     );
   }, [form.category, allCategories]);
 
-  const renameLoc = async (id, name) => {
-    const updatedLocs = stockLocations.map((l) =>
-      l.id === id ? { ...l, name } : l,
+  /* =========================================================
+     LOCAIS DE ESTOQUE
+  ========================================================= */
+
+  const renameLoc = (id, name) => {
+    const updatedLocations = (stockLocations || []).map((location) =>
+      location.id === id
+        ? {
+            ...location,
+            name,
+          }
+        : location,
     );
-    setStockLocations(updatedLocs);
+
+    setStockLocations?.(updatedLocations);
   };
 
   const addLoc = () => {
-    if (!newLocName.trim()) return;
-    const newLocs = [
-      ...stockLocations,
-      { id: `loc_${Date.now()}`, name: newLocName.trim() },
+    const name = normalizeCategory(newLocName);
+
+    if (!name) return;
+
+    const newLocation = {
+      id: `loc_${Date.now()}`,
+      name,
+    };
+
+    const updatedLocations = [
+      ...(stockLocations || []),
+      newLocation,
     ];
-    setStockLocations(newLocs);
+
+    setStockLocations?.(updatedLocations);
+
     setNewLocName("");
   };
 
+  /* =========================================================
+     VARIAÇÕES
+  ========================================================= */
+
   const addVariation = () => {
-    setForm((f) => ({
-      ...f,
+    setForm((current) => ({
+      ...current,
       variations: [
-        ...(f.variations || []),
-        { id: `var_${Date.now()}_${Math.random()}`, name: "", stocks: {} },
+        ...(current.variations || []),
+        {
+          id: `var_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2)}`,
+          name: "",
+          stocks: {},
+        },
       ],
     }));
   };
 
-  const updateVariationName = (varId, name) => {
-    setForm((f) => ({
-      ...f,
-      variations: (f.variations || []).map((v) =>
-        v.id === varId ? { ...v, name } : v,
+  const updateVariationName = (variationId, name) => {
+    setForm((current) => ({
+      ...current,
+      variations: (current.variations || []).map((variation) =>
+        variation.id === variationId
+          ? {
+              ...variation,
+              name,
+            }
+          : variation,
       ),
     }));
   };
 
-  const updateVariationStock = (varId, locId, value) => {
-    setForm((f) => ({
-      ...f,
-      variations: (f.variations || []).map((v) => {
-        if (v.id === varId) {
-          return {
-            ...v,
-            stocks: { ...(v.stocks || {}), [locId]: value },
-          };
+  const updateVariationStock = (
+    variationId,
+    locationId,
+    value,
+  ) => {
+    setForm((current) => ({
+      ...current,
+      variations: (current.variations || []).map((variation) => {
+        if (variation.id !== variationId) {
+          return variation;
         }
-        return v;
+
+        return {
+          ...variation,
+          stocks: {
+            ...(variation.stocks || {}),
+            [locationId]: value,
+          },
+        };
       }),
     }));
   };
 
-  const removeVariation = (varId) => {
-    setForm((f) => ({
-      ...f,
-      variations: (f.variations || []).filter((v) => v.id !== varId),
+  const removeVariation = (variationId) => {
+    setForm((current) => ({
+      ...current,
+      variations: (current.variations || []).filter(
+        (variation) => variation.id !== variationId,
+      ),
     }));
   };
 
-  const startEdit = (p) => {
-    setEditingId(p.id);
+  /* =========================================================
+     EDITAR PRODUTO
+  ========================================================= */
 
-    // Normaliza as variações existentes para o formato do form garantindo leitura correta
-    const rawVariations = p.variations || p.subcategories || [];
-    const parsedVariations = rawVariations.map((v, idx) => ({
-      id: v.id || `var_${idx}_${Date.now()}`,
-      name: v.name || "",
-      stocks: Object.fromEntries(
-        Object.entries(v.stocks || {}).map(([k, val]) => [k, String(val)]),
-      ),
-    }));
+  const startEdit = (product) => {
+    if (!product) return;
+
+    setEditingId(product.id);
+
+    const rawVariations =
+      Array.isArray(product.variations)
+        ? product.variations
+        : Array.isArray(product.subcategories)
+          ? product.subcategories
+          : [];
+
+    const parsedVariations = rawVariations.map(
+      (variation, index) => ({
+        id:
+          variation.id ||
+          `var_${index}_${Date.now()}`,
+        name: variation.name || "",
+        stocks: Object.fromEntries(
+          Object.entries(variation.stocks || {}).map(
+            ([locationId, value]) => [
+              locationId,
+              String(value),
+            ],
+          ),
+        ),
+      }),
+    );
 
     setForm({
-      name: p.name || "",
-      category: p.category || "",
-      cost: p.cost != null ? String(p.cost) : "",
-      price: p.price != null ? String(p.price) : "",
-      imposto: p.imposto != null ? String(p.imposto) : "",
-      frete: p.frete != null ? String(p.frete) : "",
+      name: product.name || "",
+
+      category: product.category || "",
+
+      cost:
+        product.cost != null
+          ? String(product.cost)
+          : "",
+
+      price:
+        product.price != null
+          ? String(product.price)
+          : "",
+
+      imposto:
+        product.imposto != null
+          ? String(product.imposto)
+          : "",
+
+      frete:
+        product.frete != null
+          ? String(product.frete)
+          : "",
+
       vipPrice:
-        p.vip_price != null
-          ? String(p.vip_price)
-          : p.vipPrice != null
-            ? String(p.vipPrice)
+        product.vip_price != null
+          ? String(product.vip_price)
+          : product.vipPrice != null
+            ? String(product.vipPrice)
             : "",
+
       vipPrice3x:
-        p.vip_price_3x != null
-          ? String(p.vip_price_3x)
-          : p.vipPrice3x != null
-            ? String(p.vipPrice3x)
+        product.vip_price_3x != null
+          ? String(product.vip_price_3x)
+          : product.vipPrice3x != null
+            ? String(product.vipPrice3x)
             : "",
-      barcode: p.barcode || "",
-      code: p.code || "",
-      description: p.description || "",
-      controlStock: p.control_stock ?? p.controlStock ?? true,
+
+      barcode: product.barcode || "",
+
+      code: product.code || "",
+
+      description: product.description || "",
+
+      controlStock:
+        product.control_stock ??
+        product.controlStock ??
+        true,
+
       stocks: Object.fromEntries(
-        Object.entries(p.stocks || {}).map(([k, v]) => [k, String(v)]),
+        Object.entries(product.stocks || {}).map(
+          ([locationId, value]) => [
+            locationId,
+            String(value),
+          ],
+        ),
       ),
+
       variations: parsedVariations,
-      imageUrl: p.image_url || p.imageUrl || null,
+
+      imageUrl:
+        product.image_url ||
+        product.imageUrl ||
+        null,
     });
+
     setShowForm(true);
   };
+
+  /* =========================================================
+     CANCELAR FORMULÁRIO
+  ========================================================= */
 
   const cancelForm = () => {
     setForm(blankForm);
@@ -290,141 +547,461 @@ export function Estoque({
     setShowForm(false);
   };
 
-  const handleImage = (e) => {
-    const file = e.target.files?.[0];
+  /* =========================================================
+     IMAGEM
+  ========================================================= */
+
+  const handleImage = (event) => {
+    const file = event.target.files?.[0];
+
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = () => setForm((f) => ({ ...f, imageUrl: reader.result }));
+
+    reader.onload = () => {
+      setForm((current) => ({
+        ...current,
+        imageUrl: reader.result,
+      }));
+    };
+
     reader.readAsDataURL(file);
   };
 
-  const pctOfCost = (val) => {
-    const c = parseFloat(form.cost);
-    const v = parseFloat(val);
-    if (!c || !v) return null;
-    return (v / c) * 100;
+  /* =========================================================
+     PERCENTUAL SOBRE CUSTO
+  ========================================================= */
+
+  const pctOfCost = (value) => {
+    const cost = parseFloat(form.cost);
+    const numericValue = parseFloat(value);
+
+    if (!cost || !numericValue) {
+      return null;
+    }
+
+    return (numericValue / cost) * 100;
   };
 
+  /* =========================================================
+     SALVAR PRODUTO
+  ========================================================= */
+
   const saveProduct = async () => {
-    if (!form.name || !form.price) return;
+  try {
+    const name = normalizeCategory(
+      form.name
+    );
 
-    // Registra a categoria assim que o produto é criado/atualizado.
-    saveCategoryToHistory(form.category);
+    const category = normalizeCategory(
+      form.category
+    );
 
-    const validatedVariations = (form.variations || []).map((v) => ({
-      id: v.id || `var_${Date.now()}_${Math.random()}`,
-      name: (v.name || "").trim() || "Padrão",
+    /*
+     * VALIDAÇÃO DO NOME
+     */
+    if (!name) {
+      window.alert(
+        "Informe o nome do produto."
+      );
+      return;
+    }
+
+    /*
+     * VALIDAÇÃO DO PREÇO
+     */
+    if (
+      form.price === "" ||
+      form.price == null ||
+      Number.isNaN(
+        parseFloat(form.price)
+      )
+    ) {
+      window.alert(
+        "Informe o preço de venda do produto."
+      );
+      return;
+    }
+
+    const price = parseFloat(
+      form.price
+    );
+
+    if (!Number.isFinite(price) || price <= 0) {
+      window.alert(
+        "Informe um preço de venda válido."
+      );
+      return;
+    }
+
+    /*
+     * VARIAÇÕES
+     */
+    const validatedVariations = (
+      form.variations || []
+    ).map((variation) => ({
+      id:
+        variation.id ||
+        `var_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2)}`,
+
+      name:
+        normalizeCategory(
+          variation.name
+        ) || "Padrão",
+
       stocks: Object.fromEntries(
-        stockLocations.map((l) => [l.id, parseInt(v.stocks?.[l.id]) || 0]),
+        (stockLocations || []).map(
+          (location) => [
+            location.id,
+            parseInt(
+              variation.stocks?.[
+                location.id
+              ],
+              10
+            ) || 0,
+          ]
+        )
       ),
     }));
 
-    const stocksObj = form.controlStock
-      ? Object.fromEntries(
-          stockLocations.map((l) => [l.id, parseInt(form.stocks[l.id]) || 0]),
-        )
-      : {};
+    /*
+     * ESTOQUE POR LOCAL
+     */
+    const stocksObj =
+      form.controlStock
+        ? Object.fromEntries(
+            (stockLocations || []).map(
+              (location) => [
+                location.id,
+                parseInt(
+                  form.stocks?.[
+                    location.id
+                  ],
+                  10
+                ) || 0,
+              ]
+            )
+          )
+        : {};
 
+    /*
+     * PREÇOS VIP
+     */
+    const vipPrice =
+      form.vipPrice !== "" &&
+      form.vipPrice != null
+        ? parseFloat(
+            form.vipPrice
+          )
+        : null;
+
+    const vipPrice3x =
+      form.vipPrice3x !== "" &&
+      form.vipPrice3x != null
+        ? parseFloat(
+            form.vipPrice3x
+          )
+        : null;
+
+    /*
+     * PRODUTO QUE SERÁ ENVIADO
+     * AO SupplementSystem
+     *
+     * IMPORTANTE:
+     * Produto novo NÃO recebe ID aqui.
+     * O backend cria o ID.
+     */
     const built = {
-      id: editingId || `prod_${Date.now()}`,
-      name: form.name,
-      category: form.category || "Sem categoria",
-      barcode: form.barcode || "",
-      code: form.code || "",
-      cost: parseFloat(form.cost) || 0,
-      price: parseFloat(form.price) || 0,
-      imposto: form.imposto ? parseFloat(form.imposto) : 0,
-      frete: form.frete ? parseFloat(form.frete) : 0,
-      vipPrice:
-        form.vipPrice !== "" && form.vipPrice != null
-          ? parseFloat(form.vipPrice)
-          : null,
-      vip_price:
-        form.vipPrice !== "" && form.vipPrice != null
-          ? parseFloat(form.vipPrice)
-          : null,
-      vipPrice3x:
-        form.vipPrice3x !== "" && form.vipPrice3x != null
-          ? parseFloat(form.vipPrice3x)
-          : null,
+      ...(editingId
+        ? { id: editingId }
+        : {}),
+
+      name,
+
+      category:
+        category || "Sem categoria",
+
+      barcode:
+        form.barcode || null,
+
+      code:
+        form.code || null,
+
+      cost:
+        parseFloat(form.cost) || 0,
+
+      price,
+
+      imposto:
+        form.imposto !== ""
+          ? parseFloat(
+              form.imposto
+            ) || 0
+          : 0,
+
+      frete:
+        form.frete !== ""
+          ? parseFloat(
+              form.frete
+            ) || 0
+          : 0,
+
+      vipPrice,
+
+      vip_price: vipPrice,
+
+      vipPrice3x,
+
       vip_price_3x:
-        form.vipPrice3x !== "" && form.vipPrice3x != null
-          ? parseFloat(form.vipPrice3x)
-          : null,
-      description: form.description || "",
-      controlStock: Boolean(form.controlStock),
-      control_stock: Boolean(form.controlStock),
-      imageUrl: form.imageUrl || null,
-      image_url: form.imageUrl || null,
+        vipPrice3x,
+
+      description:
+        form.description || "",
+
+      controlStock:
+        Boolean(
+          form.controlStock
+        ),
+
+      control_stock:
+        Boolean(
+          form.controlStock
+        ),
+
+      imageUrl:
+        form.imageUrl || null,
+
+      image_url:
+        form.imageUrl || null,
+
       stocks: stocksObj,
-      variations: validatedVariations,
+
+      variations:
+        validatedVariations,
     };
 
-    try {
-      // O SupplementSystem centraliza a persistência no Railway.
-      // Assim evitamos POST duplicado e não tratamos handleUpdateProducts
-      // como se fosse um setter de estado do React.
-      if (editingId) {
-        if (onEditProduct) {
-          await onEditProduct(built);
-        } else if (onCreateProduct) {
-          await onCreateProduct(built);
-        } else if (setProducts) {
-          await setProducts(built);
-        }
-      } else if (onCreateProduct) {
-        await onCreateProduct(built);
+    console.log(
+      "[ESTOQUE] PRODUTO ANTES DO ENVIO:",
+      built
+    );
+
+    /*
+     * =================================================
+     * SALVAMENTO
+     * =================================================
+     *
+     * setProducts recebido pelo Estoque NÃO é
+     * o setter React.
+     *
+     * Ele é o handleUpdateProducts do pai.
+     *
+     * Portanto:
+     *
+     * CORRETO:
+     * await setProducts(built)
+     *
+     * ERRADO:
+     * setProducts([...products, built])
+     */
+    let savedProduct = null;
+
+    if (editingId) {
+      /*
+       * EDIÇÃO
+       */
+      if (onEditProduct) {
+        savedProduct =
+          await onEditProduct(
+            built
+          );
       } else if (setProducts) {
-        // Compatibilidade caso o componente seja usado isoladamente.
-        await setProducts(built);
+        savedProduct =
+          await setProducts(
+            built
+          );
+      } else {
+        throw new Error(
+          "Nenhuma função de atualização de produto foi configurada."
+        );
       }
-    } catch (err) {
-      console.error("Erro ao salvar produto:", err);
+
+    } else {
+      /*
+       * NOVO PRODUTO
+       */
+      if (onCreateProduct) {
+        savedProduct =
+          await onCreateProduct(
+            built
+          );
+      } else if (setProducts) {
+        savedProduct =
+          await setProducts(
+            built
+          );
+      } else {
+        throw new Error(
+          "Nenhuma função de criação de produto foi configurada."
+        );
+      }
     }
 
+    /*
+     * =================================================
+     * CATEGORIA
+     * =================================================
+     *
+     * A categoria só entra nas sugestões depois que
+     * o produto foi efetivamente salvo.
+     */
+    if (
+      savedProduct &&
+      isValidSuggestionCategory(
+        category
+      )
+    ) {
+      saveCategoryToHistory(
+        category
+      );
+    }
+
+    /*
+     * FECHA O FORMULÁRIO SOMENTE
+     * APÓS O SALVAMENTO
+     */
     cancelForm();
-  };
+
+  } catch (error) {
+
+    console.error(
+      "[ESTOQUE] Erro ao salvar produto:",
+      error
+    );
+
+    window.alert(
+      error?.message ||
+      "Não foi possível salvar o produto. Verifique o console para mais detalhes."
+    );
+  }
+};
+
+  /* =========================================================
+     EXCLUIR PRODUTO
+  ========================================================= */
 
   const removeProduct = async (id) => {
-    if (!confirm("Deseja realmente remover este produto?")) return;
-    if (onDeleteProduct) {
-      await onDeleteProduct(id);
+    const confirmed = window.confirm(
+      "Deseja realmente remover este produto?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      if (onDeleteProduct) {
+        await onDeleteProduct(id);
+        return;
+      }
+
+      if (setProducts) {
+        const currentProducts = Array.isArray(products)
+          ? products
+          : [];
+
+        setProducts(
+          currentProducts.filter(
+            (product) => product.id !== id,
+          ),
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Erro ao excluir produto:",
+        error,
+      );
     }
   };
 
-  const categories = ["Todas", ...allCategories];
+  /* =========================================================
+     FILTRO DE CATEGORIA
+  ========================================================= */
 
   useEffect(() => {
     if (
       selectedCategory !== "Todas" &&
-      !allCategories.includes(selectedCategory)
+      !allCategories.some(
+        (category) =>
+          category === selectedCategory,
+      )
     ) {
       setSelectedCategory("Todas");
     }
   }, [selectedCategory, allCategories]);
 
-  const filteredProducts = Array.isArray(products)
-    ? products.filter((p) => {
-        const cat = p.category || "Sem categoria";
-        return selectedCategory === "Todas" || cat === selectedCategory;
-      })
-    : [];
+  const filteredProducts = useMemo(() => {
+    if (!Array.isArray(products)) {
+      return [];
+    }
 
-  const gridCols = `2fr 1fr 0.7fr 0.7fr 0.8fr 0.8fr ${stockLocations
-    .map(() => "0.9fr")
-    .join(" ")} 0.6fr`;
+    return products.filter((product) => {
+      const category =
+        normalizeCategory(product?.category) ||
+        "Sem categoria";
+
+      return (
+        selectedCategory === "Todas" ||
+        category === selectedCategory
+      );
+    });
+  }, [products, selectedCategory]);
+
+  /* =========================================================
+     GRID
+  ========================================================= */
+
+  const gridCols = [
+    "2fr",
+    "1fr",
+    "0.7fr",
+    "0.7fr",
+    "0.8fr",
+    "0.8fr",
+    ...(stockLocations || []).map(() => "0.9fr"),
+    "0.8fr",
+  ].join(" ");
+
+  /* =========================================================
+     RENDER
+  ========================================================= */
 
   return (
-    <div>
+    <div
+      style={{
+        fontFamily: FONT_BODY,
+        width: "100%",
+      }}
+    >
       <SectionTitle
-        title="Controle de estoque"
-        sub="Múltiplos pontos de estoque — Valor Vip À VISTA e VIP 3x s/ juros"
+        title="Estoque"
+        subtitle="Gerencie produtos, categorias, variações e quantidades em estoque."
+        text={text}
         subtext={subtext}
       />
 
+      {/* =====================================================
+          LOCAIS DE ESTOQUE
+      ===================================================== */}
+
       <button
-        onClick={() => setShowLocations(!showLocations)}
-        style={{ ...ghostBtn(border, text), marginBottom: 12 }}
+        type="button"
+        onClick={() =>
+          setShowLocations((current) => !current)
+        }
+        style={{
+          ...ghostBtn(border, text),
+          marginBottom: 12,
+        }}
       >
         {showLocations
           ? "Ocultar locais de estoque"
@@ -438,48 +1015,101 @@ export function Estoque({
             border: `1px solid ${border}`,
             borderRadius: 12,
             padding: 14,
-            marginBottom: 16,
+            marginBottom: 14,
           }}
         >
-          {stockLocations.map((l) => (
-            <input
-              key={l.id}
-              value={l.name}
-              onChange={(e) => renameLoc(l.id, e.target.value)}
-              style={{
-                ...inputStyle(border, text),
-                width: "100%",
-                marginBottom: 6,
-              }}
-            />
-          ))}
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: text,
+              marginBottom: 10,
+            }}
+          >
+            Locais de estoque
+          </div>
+
+          {(stockLocations || []).map(
+            (location) => (
+              <input
+                key={location.id}
+                value={location.name || ""}
+                onChange={(event) =>
+                  renameLoc(
+                    location.id,
+                    event.target.value,
+                  )
+                }
+                style={{
+                  ...inputStyle(border, text),
+                  width: "100%",
+                  marginBottom: 6,
+                }}
+              />
+            ),
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              marginTop: 8,
+            }}
+          >
             <input
               value={newLocName}
-              onChange={(e) => setNewLocName(e.target.value)}
+              onChange={(event) =>
+                setNewLocName(event.target.value)
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  addLoc();
+                }
+              }}
               placeholder="Novo local (ex: Filial Boa Viagem)"
-              style={{ ...inputStyle(border, text), flex: 1 }}
+              style={{
+                ...inputStyle(border, text),
+                flex: 1,
+              }}
             />
+
             <button
+              type="button"
               onClick={addLoc}
               style={{
                 background: accent,
                 color: "#fff",
                 border: "none",
                 borderRadius: 8,
-                padding: "0 14px",
-                fontWeight: 700,
+                padding: "8px 14px",
                 cursor: "pointer",
+                fontWeight: 600,
               }}
             >
-              + Adicionar
+              <Plus
+                size={14}
+                style={{
+                  verticalAlign: "middle",
+                  marginRight: 4,
+                }}
+              />
+              Adicionar
             </button>
           </div>
         </div>
       )}
 
+      {/* =====================================================
+          BOTÃO NOVO PRODUTO
+      ===================================================== */}
+
       <button
-        onClick={() => (showForm ? cancelForm() : setShowForm(true))}
+        type="button"
+        onClick={() =>
+          showForm
+            ? cancelForm()
+            : setShowForm(true)
+        }
         style={{
           background: accent,
           color: "#fff",
@@ -495,9 +1125,20 @@ export function Estoque({
           marginBottom: 16,
         }}
       >
-        <Plus size={15} />{" "}
-        {editingId ? "Editando produto" : "Cadastrar produto"}
+        {showForm ? (
+          <X size={15} />
+        ) : (
+          <Plus size={15} />
+        )}
+
+        {editingId
+          ? "Editando produto"
+          : "Cadastrar produto"}
       </button>
+
+      {/* =====================================================
+          FORMULÁRIO
+      ===================================================== */}
 
       {showForm && (
         <div
@@ -506,163 +1147,363 @@ export function Estoque({
             border: `1px solid ${border}`,
             borderRadius: 12,
             padding: 16,
-            marginBottom: 16,
+            marginBottom: 14,
           }}
         >
+          {/* NOME */}
+
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 700,
+              color: text,
+              marginBottom: 5,
+            }}
+          >
+            Nome do produto
+          </label>
+
+          <input
+            value={form.name}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
+            placeholder="Nome do produto"
+            style={{
+              ...inputStyle(border, text),
+              width: "100%",
+              marginBottom: 10,
+            }}
+          />
+
+          {/* CATEGORIA */}
+
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 700,
+              color: text,
+              marginBottom: 5,
+            }}
+          >
+            Categoria
+          </label>
+
           <div
             style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
+              position: "relative",
               marginBottom: 10,
             }}
           >
             <input
-              placeholder="Nome do produto"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              style={inputStyle(border, text)}
+              list="byse-category-suggestions"
+              value={form.category}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  category: event.target.value,
+                }))
+              }
+              onBlur={(event) => {
+                /*
+                 * A categoria só é adicionada à sugestão
+                 * quando o usuário realmente termina de
+                 * preencher o campo.
+                 */
+                const value = normalizeCategory(
+                  event.target.value,
+                );
+
+                if (
+                  value &&
+                  isValidSuggestionCategory(value)
+                ) {
+                  /*
+                   * Não é obrigatório salvar aqui.
+                   * O saveProduct também garante o registro.
+                   */
+                }
+              }}
+              placeholder="Digite ou selecione uma categoria"
+              style={{
+                ...inputStyle(border, text),
+                width: "100%",
+              }}
             />
+
+            <datalist id="byse-category-suggestions">
+              {categorySuggestions.map(
+                (category) => (
+                  <option
+                    key={category}
+                    value={category}
+                  />
+                ),
+              )}
+            </datalist>
+          </div>
+
+          {allCategories.length > 0 && (
             <div
               style={{
-                position: "relative",
-                flex: "1 1 180px",
-                minWidth: 180,
+                fontSize: 11,
+                color: subtext,
+                marginTop: -4,
+                marginBottom: 10,
               }}
             >
-              <input
-                list="byse-categorias-salvas"
-                placeholder="Categoria"
-                value={form.category}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setForm({ ...form, category: value });
-
-                  // Se o usuário digitar uma categoria nova, ela fica
-                  // disponível imediatamente como sugestão.
-                  const normalized = value.trim();
-                  if (
-                    normalized &&
-                    !allCategories.some(
-                      (cat) => cat.toLowerCase() === normalized.toLowerCase()
-                    )
-                  ) {
-                    setSavedCategories((current) => {
-                      const updated = Array.from(
-                        new Set([...current, normalized])
-                      ).sort((a, b) =>
-                        a.localeCompare(b, "pt-BR")
-                      );
-
-                      try {
-                        localStorage.setItem(
-                          getCategoryStorageKey(),
-                          JSON.stringify(updated)
-                        );
-                      } catch (error) {
-                        console.error(
-                          "Erro ao salvar categoria digitada:",
-                          error
-                        );
-                      }
-
-                      return updated;
-                    });
-                  }
-                }}
-                onBlur={(e) => saveCategoryToHistory(e.target.value)}
-                style={{ ...inputStyle(border, text), width: "100%" }}
-              />
-
-              <datalist id="byse-categorias-salvas">
-                {categorySuggestions.map((cat) => (
-                  <option key={cat} value={cat} />
-                ))}
-              </datalist>
-
-              {allCategories.length > 0 && (
-                <div
-                  style={{
-                    fontSize: 10.5,
-                    color: subtext,
-                    marginTop: 4,
-                  }}
-                >
-                  {allCategories.length} categoria
-                  {allCategories.length !== 1 ? "s" : ""} salva
-                  {allCategories.length !== 1 ? "s" : ""}. Digite para filtrar
-                  as sugestões.
-                </div>
-              )}
+              {allCategories.length} categoria
+              {allCategories.length !== 1
+                ? "s"
+                : ""}{" "}
+              disponível
+              {allCategories.length !== 1
+                ? "s"
+                : ""}. Digite para filtrar as
+              sugestões.
             </div>
-            <input
-              placeholder="Código de barras"
-              value={form.barcode}
-              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-              style={inputStyle(border, text)}
-            />
-            <input
-              placeholder="Código rápido (ex: 30) - Usado no Catálogo"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              style={inputStyle(border, text)}
-            />
-          </div>
+          )}
+
+          {/* CÓDIGOS */}
 
           <div
             style={{
-              display: "flex",
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(180px, 1fr))",
               gap: 10,
-              flexWrap: "wrap",
               marginBottom: 10,
             }}
           >
-            <input
-              placeholder="Custo (R$)"
-              type="number"
-              value={form.cost}
-              onChange={(e) => setForm({ ...form, cost: e.target.value })}
-              style={inputStyle(border, text)}
-            />
-            <input
-              placeholder="Valor de venda (R$)"
-              type="number"
-              value={form.price}
-              onChange={(e) => setForm({ ...form, price: e.target.value })}
-              style={inputStyle(border, text)}
-            />
-            <input
-              placeholder="Valor Vip À VISTA (R$)"
-              type="number"
-              value={form.vipPrice}
-              onChange={(e) => setForm({ ...form, vipPrice: e.target.value })}
-              style={{ ...inputStyle(border, text), borderColor: accent }}
-            />
-            <input
-              placeholder="Valor VIP 3x s/ juros (R$)"
-              type="number"
-              value={form.vipPrice3x}
-              onChange={(e) => setForm({ ...form, vipPrice3x: e.target.value })}
-              style={{ ...inputStyle(border, text), borderColor: accent }}
-            />
-          </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                Código de barras
+              </label>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
-              marginBottom: 10,
-            }}
-          >
-            <div style={{ flex: "1 1 150px" }}>
               <input
-                placeholder="Imposto (R$)"
-                type="number"
-                value={form.imposto}
-                onChange={(e) => setForm({ ...form, imposto: e.target.value })}
-                style={{ ...inputStyle(border, text), width: "100%" }}
+                value={form.barcode}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    barcode: event.target.value,
+                  }))
+                }
+                placeholder="Código de barras"
+                style={inputStyle(border, text)}
               />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                Código rápido
+              </label>
+
+              <input
+                value={form.code}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    code: event.target.value,
+                  }))
+                }
+                placeholder="Código interno"
+                style={inputStyle(border, text)}
+              />
+            </div>
+          </div>
+
+          {/* PREÇOS */}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: 10,
+              marginBottom: 10,
+            }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                Custo
+              </label>
+
+              <input
+                type="number"
+                step="0.01"
+                value={form.cost}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    cost: event.target.value,
+                  }))
+                }
+                placeholder="0,00"
+                style={inputStyle(border, text)}
+              />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                Venda
+              </label>
+
+              <input
+                type="number"
+                step="0.01"
+                value={form.price}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    price: event.target.value,
+                  }))
+                }
+                placeholder="0,00"
+                style={inputStyle(border, text)}
+              />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                VIP à vista
+              </label>
+
+              <input
+                type="number"
+                step="0.01"
+                value={form.vipPrice}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    vipPrice: event.target.value,
+                  }))
+                }
+                placeholder="0,00"
+                style={{
+                  ...inputStyle(border, text),
+                  borderColor: accent,
+                }}
+              />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                VIP 3x
+              </label>
+
+              <input
+                type="number"
+                step="0.01"
+                value={form.vipPrice3x}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    vipPrice3x: event.target.value,
+                  }))
+                }
+                placeholder="0,00"
+                style={{
+                  ...inputStyle(border, text),
+                  borderColor: accent,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* IMPOSTO E FRETE */}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 10,
+              marginBottom: 10,
+            }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                Imposto
+              </label>
+
+              <input
+                type="number"
+                step="0.01"
+                value={form.imposto}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    imposto: event.target.value,
+                  }))
+                }
+                placeholder="0,00"
+                style={{
+                  ...inputStyle(border, text),
+                  width: "100%",
+                }}
+              />
+
               <div
                 style={{
                   fontSize: 10.5,
@@ -671,19 +1512,43 @@ export function Estoque({
                 }}
               >
                 {pctOfCost(form.imposto) != null
-                  ? `${pctOfCost(form.imposto).toFixed(1)}% do custo`
+                  ? `${pctOfCost(
+                      form.imposto,
+                    ).toFixed(1)}% do custo`
                   : "% do custo (automático)"}
               </div>
             </div>
 
-            <div style={{ flex: "1 1 150px" }}>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: text,
+                  marginBottom: 5,
+                }}
+              >
+                Frete
+              </label>
+
               <input
-                placeholder="Frete (R$)"
                 type="number"
+                step="0.01"
                 value={form.frete}
-                onChange={(e) => setForm({ ...form, frete: e.target.value })}
-                style={{ ...inputStyle(border, text), width: "100%" }}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    frete: event.target.value,
+                  }))
+                }
+                placeholder="0,00"
+                style={{
+                  ...inputStyle(border, text),
+                  width: "100%",
+                }}
               />
+
               <div
                 style={{
                   fontSize: 10.5,
@@ -692,17 +1557,38 @@ export function Estoque({
                 }}
               >
                 {pctOfCost(form.frete) != null
-                  ? `${pctOfCost(form.frete).toFixed(1)}% do custo`
+                  ? `${pctOfCost(
+                      form.frete,
+                    ).toFixed(1)}% do custo`
                   : "% do custo (automático)"}
               </div>
             </div>
           </div>
 
+          {/* DESCRIÇÃO */}
+
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 700,
+              color: text,
+              marginBottom: 5,
+            }}
+          >
+            Descrição
+          </label>
+
           <textarea
-            placeholder="Descrição (aparece no catálogo)"
             value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                description: event.target.value,
+              }))
+            }
             rows={2}
+            placeholder="Descrição do produto"
             style={{
               ...inputStyle(border, text),
               width: "100%",
@@ -712,12 +1598,14 @@ export function Estoque({
             }}
           />
 
+          {/* CONTROLE DE ESTOQUE / FOTO */}
+
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 10,
-              marginBottom: 10,
+              gap: 12,
+              marginBottom: 14,
               flexWrap: "wrap",
             }}
           >
@@ -732,13 +1620,21 @@ export function Estoque({
             >
               <input
                 type="checkbox"
-                checked={form.controlStock}
-                onChange={(e) =>
-                  setForm({ ...form, controlStock: e.target.checked })
+                checked={Boolean(
+                  form.controlStock,
+                )}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    controlStock:
+                      event.target.checked,
+                  }))
                 }
-              />{" "}
+              />
+
               Controlar estoque
             </label>
+
             <label
               style={{
                 display: "flex",
@@ -748,30 +1644,41 @@ export function Estoque({
                 color: subtext,
               }}
             >
-              Foto:{" "}
+              Foto:
+
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleImage}
-                style={{ fontSize: 11 }}
+                style={{
+                  fontSize: 11,
+                }}
               />
             </label>
+
             {form.imageUrl && (
               <img
                 src={form.imageUrl}
-                alt="preview"
+                alt="Pré-visualização"
                 style={{
                   width: 40,
                   height: 40,
                   objectFit: "cover",
                   borderRadius: 6,
+                  border: `1px solid ${border}`,
                 }}
               />
             )}
           </div>
 
+          {/* ESTOQUE */}
+
           {form.controlStock && (
-            <div style={{ marginBottom: 14 }}>
+            <div
+              style={{
+                marginBottom: 14,
+              }}
+            >
               <div
                 style={{
                   fontSize: 12,
@@ -780,8 +1687,9 @@ export function Estoque({
                   marginBottom: 6,
                 }}
               >
-                Estoque Principal / Global:
+                Estoque Principal / Global
               </div>
+
               <div
                 style={{
                   display: "flex",
@@ -790,25 +1698,42 @@ export function Estoque({
                   marginBottom: 14,
                 }}
               >
-                {stockLocations.map((l) => (
-                  <input
-                    key={l.id}
-                    placeholder={`Qtd. ${l.name}`}
-                    type="number"
-                    value={form.stocks[l.id] ?? ""}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        stocks: {
-                          ...form.stocks,
-                          [l.id]: e.target.value,
-                        },
-                      })
-                    }
-                    style={inputStyle(border, text)}
-                  />
-                ))}
+                {(stockLocations || []).map(
+                  (location) => (
+                    <input
+                      key={location.id}
+                      placeholder={`Qtd. ${location.name}`}
+                      type="number"
+                      value={
+                        form.stocks?.[
+                          location.id
+                        ] ?? ""
+                      }
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          stocks: {
+                            ...(current.stocks ||
+                              {}),
+                            [location.id]:
+                              event.target.value,
+                          },
+                        }))
+                      }
+                      style={{
+                        ...inputStyle(
+                          border,
+                          text,
+                        ),
+                        flex:
+                          "1 1 140px",
+                      }}
+                    />
+                  ),
+                )}
               </div>
+
+              {/* VARIAÇÕES */}
 
               <div
                 style={{
@@ -820,96 +1745,182 @@ export function Estoque({
                 <div
                   style={{
                     display: "flex",
-                    justifyContent: "space-between",
+                    justifyContent:
+                      "space-between",
                     alignItems: "center",
                     marginBottom: 8,
+                    gap: 10,
+                    flexWrap: "wrap",
                   }}
                 >
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: text }}>
-                    Subcategorias / Variações (ex: Sabores, Cores, Tamanhos)
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      color: text,
+                    }}
+                  >
+                    Subcategorias / Variações
                   </div>
+
                   <button
                     type="button"
                     onClick={addVariation}
                     style={{
-                      background: "transparent",
+                      background:
+                        "transparent",
                       border: `1px solid ${accent}`,
                       color: accent,
                       borderRadius: 6,
-                      padding: "4px 10px",
+                      padding:
+                        "4px 10px",
                       fontSize: 11.5,
                       fontWeight: 600,
-                      cursor: "pointer",
+                      cursor:
+                        "pointer",
                     }}
                   >
                     + Adicionar Variação
                   </button>
                 </div>
 
-                {(form.variations || []).map((v) => (
-                  <div
-                    key={v.id}
-                    style={{
-                      background: card,
-                      border: `1px solid ${border}`,
-                      borderRadius: 8,
-                      padding: 10,
-                      marginBottom: 8,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                    }}
-                  >
+                {(form.variations || []).map(
+                  (variation) => (
                     <div
-                      style={{ display: "flex", gap: 8, alignItems: "center" }}
+                      key={variation.id}
+                      style={{
+                        background: card,
+                        border: `1px solid ${border}`,
+                        borderRadius: 8,
+                        padding: 10,
+                        marginBottom: 8,
+                      }}
                     >
-                      <input
-                        placeholder='Nome da variação (ex: "Chocolate")'
-                        value={v.name}
-                        onChange={(e) =>
-                          updateVariationName(v.id, e.target.value)
-                        }
-                        style={{ ...inputStyle(border, text), flex: 1 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeVariation(v.id)}
+                      <div
                         style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          padding: 4,
+                          display:
+                            "flex",
+                          gap: 8,
+                          alignItems:
+                            "center",
+                          marginBottom: 8,
                         }}
                       >
-                        <Trash2 size={16} color="#ef4444" />
-                      </button>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {stockLocations.map((l) => (
                         <input
-                          key={l.id}
-                          placeholder={`Qtd ${l.name} (${v.name || "Variação"})`}
-                          type="number"
-                          value={v.stocks?.[l.id] ?? ""}
-                          onChange={(e) =>
-                            updateVariationStock(v.id, l.id, e.target.value)
+                          placeholder='Nome da variação (ex: "Chocolate")'
+                          value={
+                            variation.name
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            updateVariationName(
+                              variation.id,
+                              event.target
+                                .value,
+                            )
                           }
                           style={{
-                            ...inputStyle(border, text),
-                            flex: "1 1 120px",
+                            ...inputStyle(
+                              border,
+                              text,
+                            ),
+                            flex: 1,
                           }}
                         />
-                      ))}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeVariation(
+                              variation.id,
+                            )
+                          }
+                          title="Remover variação"
+                          style={{
+                            background:
+                              "none",
+                            border:
+                              "none",
+                            cursor:
+                              "pointer",
+                            padding: 4,
+                          }}
+                        >
+                          <Trash2
+                            size={16}
+                            color="#ef4444"
+                          />
+                        </button>
+                      </div>
+
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          gap: 8,
+                          flexWrap:
+                            "wrap",
+                        }}
+                      >
+                        {(
+                          stockLocations ||
+                          []
+                        ).map(
+                          (location) => (
+                            <input
+                              key={
+                                location.id
+                              }
+                              placeholder={`Qtd ${location.name}`}
+                              type="number"
+                              value={
+                                variation
+                                  .stocks?.[
+                                  location.id
+                                ] ?? ""
+                              }
+                              onChange={(
+                                event,
+                              ) =>
+                                updateVariationStock(
+                                  variation.id,
+                                  location.id,
+                                  event
+                                    .target
+                                    .value,
+                                )
+                              }
+                              style={{
+                                ...inputStyle(
+                                  border,
+                                  text,
+                                ),
+                                flex:
+                                  "1 1 120px",
+                              }}
+                            />
+                          ),
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ),
+                )}
               </div>
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 8 }}>
+          {/* BOTÕES */}
+
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
             <button
+              type="button"
               onClick={saveProduct}
               style={{
                 background: accent,
@@ -924,28 +1935,31 @@ export function Estoque({
             >
               Salvar produto
             </button>
-            {editingId && (
-              <button
-                onClick={cancelForm}
-                style={{
-                  background: "transparent",
-                  border: `1px solid ${border}`,
-                  color: text,
-                  borderRadius: 8,
-                  padding: "8px 16px",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Cancelar
-              </button>
-            )}
+
+            <button
+              type="button"
+              onClick={cancelForm}
+              style={{
+                background: "transparent",
+                border: `1px solid ${border}`,
+                color: text,
+                borderRadius: 8,
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
-      {/* Filtro por Categoria */}
+      {/* =====================================================
+          FILTRO E GESTÃO DE CATEGORIAS
+      ===================================================== */}
+
       <div
         style={{
           background: card,
@@ -976,7 +1990,11 @@ export function Estoque({
 
           <select
             value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
+            onChange={(event) =>
+              setSelectedCategory(
+                event.target.value,
+              )
+            }
             style={{
               ...inputStyle(border, text),
               flex: "1 1 240px",
@@ -985,12 +2003,20 @@ export function Estoque({
               background: card,
             }}
           >
-            <option value="Todas">Todas as categorias</option>
-            {allCategories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
+            <option value="Todas">
+              Todas as categorias
+            </option>
+
+            {allCategories.map(
+              (category) => (
+                <option
+                  key={category}
+                  value={category}
+                >
+                  {category}
+                </option>
+              ),
+            )}
           </select>
 
           <div
@@ -1001,10 +2027,17 @@ export function Estoque({
             }}
           >
             {allCategories.length} categoria
-            {allCategories.length !== 1 ? "s" : ""} disponível
-            {allCategories.length !== 1 ? "s" : ""}
+            {allCategories.length !== 1
+              ? "s"
+              : ""}{" "}
+            disponível
+            {allCategories.length !== 1
+              ? "s"
+              : ""}
           </div>
         </div>
+
+        {/* BOTÕES DE CATEGORIA */}
 
         {allCategories.length > 0 && (
           <div
@@ -1015,18 +2048,32 @@ export function Estoque({
               marginTop: 10,
               paddingTop: 10,
               borderTop: `1px solid ${border}`,
+              alignItems: "center",
             }}
           >
             <button
               type="button"
-              onClick={() => setSelectedCategory("Todas")}
+              onClick={() =>
+                setSelectedCategory(
+                  "Todas",
+                )
+              }
               style={{
                 background:
-                  selectedCategory === "Todas" ? accent : card,
+                  selectedCategory ===
+                  "Todas"
+                    ? accent
+                    : card,
                 color:
-                  selectedCategory === "Todas" ? "#fff" : text,
+                  selectedCategory ===
+                  "Todas"
+                    ? "#fff"
+                    : text,
                 border: `1px solid ${
-                  selectedCategory === "Todas" ? accent : border
+                  selectedCategory ===
+                  "Todas"
+                    ? accent
+                    : border
                 }`,
                 borderRadius: 8,
                 padding: "6px 12px",
@@ -1038,33 +2085,103 @@ export function Estoque({
               Todas
             </button>
 
-            {allCategories.map((cat) => (
-              <button
-                type="button"
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                style={{
-                  background:
-                    selectedCategory === cat ? accent : card,
-                  color:
-                    selectedCategory === cat ? "#fff" : text,
-                  border: `1px solid ${
-                    selectedCategory === cat ? accent : border
-                  }`,
-                  borderRadius: 8,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {cat}
-              </button>
-            ))}
+            {allCategories.map(
+              (category) => (
+                <div
+                  key={category}
+                  style={{
+                    display:
+                      "inline-flex",
+                    alignItems:
+                      "center",
+                    background:
+                      selectedCategory ===
+                      category
+                        ? accent
+                        : card,
+                    color:
+                      selectedCategory ===
+                      category
+                        ? "#fff"
+                        : text,
+                    border: `1px solid ${
+                      selectedCategory ===
+                      category
+                        ? accent
+                        : border
+                    }`,
+                    borderRadius: 8,
+                    overflow:
+                      "hidden",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedCategory(
+                        category,
+                      )
+                    }
+                    style={{
+                      background:
+                        "transparent",
+                      color:
+                        "inherit",
+                      border:
+                        "none",
+                      padding:
+                        "6px 8px 6px 12px",
+                      fontSize: 12,
+                      fontWeight:
+                        600,
+                      cursor:
+                        "pointer",
+                    }}
+                  >
+                    {category}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeCategory(
+                        category,
+                      );
+                    }}
+                    title={`Remover "${category}" das sugestões`}
+                    style={{
+                      background:
+                        "transparent",
+                      color:
+                        selectedCategory ===
+                        category
+                          ? "#fff"
+                          : subtext,
+                      border:
+                        "none",
+                      padding:
+                        "6px 10px 6px 4px",
+                      cursor:
+                        "pointer",
+                      display:
+                        "flex",
+                      alignItems:
+                        "center",
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ),
+            )}
           </div>
         )}
       </div>
+
+      {/* =====================================================
+          TABELA DE PRODUTOS
+      ===================================================== */}
 
       <div
         style={{
@@ -1074,6 +2191,8 @@ export function Estoque({
           overflow: "auto",
         }}
       >
+        {/* CABEÇALHO */}
+
         <div
           style={{
             display: "grid",
@@ -1093,11 +2212,19 @@ export function Estoque({
           <div>Venda</div>
           <div>VIP À Vista</div>
           <div>VIP 3x</div>
-          {stockLocations.map((l) => (
-            <div key={l.id}>{l.name}</div>
-          ))}
-          <div></div>
+
+          {(stockLocations || []).map(
+            (location) => (
+              <div key={location.id}>
+                {location.name}
+              </div>
+            ),
+          )}
+
+          <div>Ações</div>
         </div>
+
+        {/* VAZIO */}
 
         {filteredProducts.length === 0 && (
           <div
@@ -1108,229 +2235,500 @@ export function Estoque({
               fontSize: 13,
             }}
           >
-            Nenhum produto encontrado nesta categoria.
+            Nenhum produto encontrado
+            nesta categoria.
           </div>
         )}
 
-        {filteredProducts.map((p, i) => {
-          const pVipPrice =
-            p.vip_price !== undefined ? p.vip_price : p.vipPrice;
-          const pVipPrice3x =
-            p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
-          const pControlStock =
-            p.control_stock !== undefined ? p.control_stock : p.controlStock;
-          const pImageUrl = p.image_url || p.imageUrl;
-          const pVariations = Array.isArray(p.variations)
-            ? p.variations
-            : p.subcategories || [];
+        {/* PRODUTOS */}
 
-          return (
-            <div
-              key={p.id}
-              onClick={() => setViewingProduct(p)}
-              style={{
-                display: "grid",
-                gridTemplateColumns: gridCols,
-                padding: "12px 14px",
-                fontSize: 13,
-                alignItems: "center",
-                borderBottom:
-                  i < filteredProducts.length - 1
-                    ? `1px solid ${border}`
-                    : "none",
-                minWidth: 700,
-                cursor: "pointer",
-                transition: "background 0.15s ease",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = `${accent}08`)
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "transparent")
-              }
-            >
+        {filteredProducts.map(
+          (product, index) => {
+            const pVipPrice =
+              product.vip_price !==
+              undefined
+                ? product.vip_price
+                : product.vipPrice;
+
+            const pVipPrice3x =
+              product.vip_price_3x !==
+              undefined
+                ? product.vip_price_3x
+                : product.vipPrice3x;
+
+            const pControlStock =
+              product.control_stock !==
+              undefined
+                ? product.control_stock
+                : product.controlStock;
+
+            const pImageUrl =
+              product.image_url ||
+              product.imageUrl;
+
+            const pVariations =
+              Array.isArray(
+                product.variations,
+              )
+                ? product.variations
+                : Array.isArray(
+                      product.subcategories,
+                    )
+                  ? product.subcategories
+                  : [];
+
+            return (
               <div
+                key={
+                  product.id ||
+                  `product-${index}`
+                }
+                onClick={() =>
+                  setViewingProduct(
+                    product,
+                  )
+                }
                 style={{
-                  fontWeight: 600,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
+                  display: "grid",
+                  gridTemplateColumns:
+                    gridCols,
+                  padding:
+                    "12px 14px",
+                  fontSize: 13,
+                  alignItems:
+                    "center",
+                  borderBottom:
+                    index <
+                    filteredProducts.length -
+                      1
+                      ? `1px solid ${border}`
+                      : "none",
+                  minWidth: 700,
+                  cursor:
+                    "pointer",
+                  transition:
+                    "background 0.15s ease",
+                }}
+                onMouseEnter={(
+                  event,
+                ) => {
+                  event.currentTarget.style.background = `${accent}08`;
+                }}
+                onMouseLeave={(
+                  event,
+                ) => {
+                  event.currentTarget.style.background =
+                    "transparent";
                 }}
               >
-                {pImageUrl && (
-                  <img
-                    src={pImageUrl}
-                    alt={p.name}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      objectFit: "cover",
-                      borderRadius: 4,
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-                <div>
-                  {p.name}
-                  {(p.barcode || p.code) && (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: subtext,
-                        fontWeight: 400,
-                      }}
-                    >
-                      {p.code && `cód. ${p.code}`}
-                      {p.code && p.barcode && " · "}
-                      {p.barcode}
-                    </div>
-                  )}
+                {/* PRODUTO */}
 
-                  {pVariations.length > 0 && (
-                    <div
+                <div
+                  style={{
+                    fontWeight: 600,
+                    display:
+                      "flex",
+                    alignItems:
+                      "center",
+                    gap: 10,
+                  }}
+                >
+                  {pImageUrl && (
+                    <img
+                      src={pImageUrl}
+                      alt={
+                        product.name
+                      }
                       style={{
-                        fontSize: 11,
-                        color: subtext,
-                        marginTop: 3,
-                        fontWeight: 400,
-                      }}
-                    >
-                      {pVariations.map((v, vIdx) => {
-                        const varTotal = Object.values(v.stocks || {}).reduce(
-                          (acc, curr) => acc + (Number(curr) || 0),
+                        width: 32,
+                        height: 32,
+                        objectFit:
+                          "cover",
+                        borderRadius:
+                          4,
+                        flexShrink:
                           0,
-                        );
-                        return (
-                          <span key={vIdx}>
-                            {v.name}: {varTotal}
-                            {vIdx < pVariations.length - 1 ? " | " : ""}
-                          </span>
-                        );
-                      })}
-                    </div>
+                      }}
+                    />
                   )}
-                </div>
-              </div>
-              <div>{p.category}</div>
-              <div>{money(p.cost)}</div>
-              <div style={{ fontWeight: 700 }}>{money(p.price)}</div>
-              <div style={{ fontWeight: 700, color: accent }}>
-                {pVipPrice != null ? money(pVipPrice) : "—"}
-              </div>
-              <div style={{ fontWeight: 700, color: accent }}>
-                {pVipPrice3x != null ? money(pVipPrice3x) : "—"}
-              </div>
 
-              {stockLocations.map((l) => {
-                const pVariations = Array.isArray(p.variations)
-                  ? p.variations
-                  : p.subcategories || [];
-                const variationsLocStock = pVariations.reduce(
-                  (acc, v) => acc + (Number(v.stocks?.[l.id]) || 0),
-                  0,
-                );
+                  <div>
+                    <div>
+                      {product.name}
+                    </div>
 
-                // Se houver variações, exibe o estoque das variações. Caso contrário, exibe o estoque global.
-                const totalLocStock =
-                  pVariations.length > 0
-                    ? variationsLocStock
-                    : Number(p.stocks?.[l.id] || 0);
+                    {(product.barcode ||
+                      product.code) && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: subtext,
+                          fontWeight:
+                            400,
+                        }}
+                      >
+                        {product.code &&
+                          `cód. ${product.code}`}
 
-                return (
-                  <div key={l.id}>
-                    {pControlStock !== false ? (
-                      <>
-                        <div>{totalLocStock}</div>
-                        <div style={{ marginTop: 3 }}>
-                          <HBar
-                            pct={(totalLocStock / 50) * 100}
-                            color={accent}
-                            border={border}
-                            h={4}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <span style={{ color: subtext }}>—</span>
+                        {product.code &&
+                          product.barcode &&
+                          " · "}
+
+                        {product.barcode}
+                      </div>
+                    )}
+
+                    {pVariations.length >
+                      0 && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: subtext,
+                          marginTop: 3,
+                          fontWeight:
+                            400,
+                        }}
+                      >
+                        {pVariations.map(
+                          (
+                            variation,
+                            variationIndex,
+                          ) => {
+                            const total =
+                              Object.values(
+                                variation.stocks ||
+                                  {},
+                              ).reduce(
+                                (
+                                  totalValue,
+                                  value,
+                                ) =>
+                                  totalValue +
+                                  (Number(
+                                    value,
+                                  ) || 0),
+                                0,
+                              );
+
+                            return (
+                              <span
+                                key={
+                                  variationIndex
+                                }
+                              >
+                                {
+                                  variation.name
+                                }
+                                : {total}
+
+                                {variationIndex <
+                                pVariations.length -
+                                  1
+                                  ? " | "
+                                  : ""}
+                              </span>
+                            );
+                          },
+                        )}
+                      </div>
                     )}
                   </div>
-                );
-              })}
+                </div>
 
-              <div
-                style={{ display: "flex", gap: 6 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  onClick={() => setViewingProduct(p)}
+                {/* CATEGORIA */}
+
+                <div>
+                  {product.category ||
+                    "Sem categoria"}
+                </div>
+
+                {/* CUSTO */}
+
+                <div>
+                  {money(product.cost)}
+                </div>
+
+                {/* VENDA */}
+
+                <div
                   style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
+                    fontWeight: 700,
                   }}
-                  title="Ver detalhes"
                 >
-                  <Eye size={14} color={subtext} />
-                </button>
-                <button
-                  onClick={() => startEdit(p)}
+                  {money(
+                    product.price,
+                  )}
+                </div>
+
+                {/* VIP */}
+
+                <div
                   style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
+                    fontWeight: 700,
+                    color: accent,
                   }}
-                  title="Editar"
                 >
-                  <Edit2 size={14} color={subtext} />
-                </button>
-                <button
-                  onClick={() => removeProduct(p.id)}
+                  {pVipPrice != null
+                    ? money(
+                        pVipPrice,
+                      )
+                    : "—"}
+                </div>
+
+                <div
                   style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
+                    fontWeight: 700,
+                    color: accent,
                   }}
-                  title="Excluir"
                 >
-                  <Trash2 size={14} color={subtext} />
-                </button>
+                  {pVipPrice3x !=
+                  null
+                    ? money(
+                        pVipPrice3x,
+                      )
+                    : "—"}
+                </div>
+
+                {/* ESTOQUE POR LOCAL */}
+
+                {(stockLocations || []).map(
+                  (location) => {
+                    const variationsStock =
+                      pVariations.reduce(
+                        (
+                          total,
+                          variation,
+                        ) =>
+                          total +
+                          (Number(
+                            variation
+                              .stocks?.[
+                              location
+                                .id
+                            ],
+                          ) || 0),
+                        0,
+                      );
+
+                    const totalStock =
+                      pVariations.length >
+                      0
+                        ? variationsStock
+                        : Number(
+                            product
+                              .stocks?.[
+                              location
+                                .id
+                            ] || 0,
+                          );
+
+                    return (
+                      <div
+                        key={
+                          location.id
+                        }
+                      >
+                        {pControlStock !==
+                        false ? (
+                          <>
+                            <div>
+                              {
+                                totalStock
+                              }
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 3,
+                              }}
+                            >
+                              <HBar
+                                pct={Math.min(
+                                  100,
+                                  (totalStock /
+                                    50) *
+                                    100,
+                                )}
+                                color={
+                                  accent
+                                }
+                                border={
+                                  border
+                                }
+                                h={4}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <span
+                            style={{
+                              color:
+                                subtext,
+                            }}
+                          >
+                            —
+                          </span>
+                        )}
+                      </div>
+                    );
+                  },
+                )}
+
+                {/* AÇÕES */}
+
+                <div
+                  style={{
+                    display:
+                      "flex",
+                    gap: 6,
+                  }}
+                  onClick={(event) =>
+                    event.stopPropagation()
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewingProduct(
+                        product,
+                      )
+                    }
+                    style={{
+                      background:
+                        "none",
+                      border:
+                        "none",
+                      cursor:
+                        "pointer",
+                    }}
+                    title="Ver detalhes"
+                  >
+                    <Eye
+                      size={14}
+                      color={
+                        subtext
+                      }
+                    />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      startEdit(
+                        product,
+                      )
+                    }
+                    style={{
+                      background:
+                        "none",
+                      border:
+                        "none",
+                      cursor:
+                        "pointer",
+                    }}
+                    title="Editar"
+                  >
+                    <Edit2
+                      size={14}
+                      color={
+                        subtext
+                      }
+                    />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      removeProduct(
+                        product.id,
+                      )
+                    }
+                    style={{
+                      background:
+                        "none",
+                      border:
+                        "none",
+                      cursor:
+                        "pointer",
+                    }}
+                    title="Excluir"
+                  >
+                    <Trash2
+                      size={14}
+                      color={
+                        subtext
+                      }
+                    />
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          },
+        )}
       </div>
 
-      {/* Modal / Gaveta de Detalhes Completos do Produto */}
+      {/* =====================================================
+          MODAL DE DETALHES
+      ===================================================== */}
+
       {viewingProduct &&
         (() => {
-          const vp = viewingProduct;
-          const vpVipPrice =
-            vp.vip_price !== undefined ? vp.vip_price : vp.vipPrice;
-          const vpVipPrice3x =
-            vp.vip_price_3x !== undefined ? vp.vip_price_3x : vp.vipPrice3x;
-          const vpControlStock =
-            vp.control_stock !== undefined ? vp.control_stock : vp.controlStock;
-          const vpImageUrl = vp.image_url || vp.imageUrl;
-          const vpVariations = Array.isArray(vp.variations)
-            ? vp.variations
-            : vp.subcategories || [];
+          const product =
+            viewingProduct;
+
+          const vipPrice =
+            product.vip_price !==
+            undefined
+              ? product.vip_price
+              : product.vipPrice;
+
+          const vipPrice3x =
+            product.vip_price_3x !==
+            undefined
+              ? product.vip_price_3x
+              : product.vipPrice3x;
+
+          const controlStock =
+            product.control_stock !==
+            undefined
+              ? product.control_stock
+              : product.controlStock;
+
+          const imageUrl =
+            product.image_url ||
+            product.imageUrl;
+
+          const variations =
+            Array.isArray(
+              product.variations,
+            )
+              ? product.variations
+              : Array.isArray(
+                    product.subcategories,
+                  )
+                ? product.subcategories
+                : [];
 
           return (
             <div
               style={{
                 position: "fixed",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: "rgba(0,0,0,0.6)",
+                inset: 0,
+                backgroundColor:
+                  "rgba(0,0,0,0.6)",
                 display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
+                justifyContent:
+                  "center",
+                alignItems:
+                  "center",
                 zIndex: 1000,
                 padding: 16,
               }}
-              onClick={() => setViewingProduct(null)}
+              onClick={() =>
+                setViewingProduct(
+                  null,
+                )
+              }
             >
               <div
                 style={{
@@ -1339,24 +2737,42 @@ export function Estoque({
                   borderRadius: 16,
                   width: "100%",
                   maxWidth: 700,
-                  maxHeight: "90vh",
-                  overflowY: "auto",
+                  maxHeight:
+                    "90vh",
+                  overflowY:
+                    "auto",
                   padding: 24,
-                  boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.3)",
-                  position: "relative",
+                  boxShadow:
+                    "0 20px 25px -5px rgba(0, 0, 0, 0.3)",
+                  position:
+                    "relative",
                 }}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(
+                  event,
+                ) =>
+                  event.stopPropagation()
+                }
               >
-                {/* Botão Fechar */}
+                {/* FECHAR */}
+
                 <button
-                  onClick={() => setViewingProduct(null)}
+                  type="button"
+                  onClick={() =>
+                    setViewingProduct(
+                      null,
+                    )
+                  }
                   style={{
-                    position: "absolute",
+                    position:
+                      "absolute",
                     top: 16,
                     right: 16,
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
+                    background:
+                      "none",
+                    border:
+                      "none",
+                    cursor:
+                      "pointer",
                     color: text,
                     padding: 4,
                   }}
@@ -1364,24 +2780,31 @@ export function Estoque({
                   <X size={20} />
                 </button>
 
-                {/* Cabeçalho do Modal */}
+                {/* CABEÇALHO */}
+
                 <div
                   style={{
-                    display: "flex",
+                    display:
+                      "flex",
                     gap: 16,
-                    alignItems: "flex-start",
+                    alignItems:
+                      "flex-start",
                     marginBottom: 20,
                   }}
                 >
-                  {vpImageUrl ? (
+                  {imageUrl ? (
                     <img
-                      src={vpImageUrl}
-                      alt={vp.name}
+                      src={imageUrl}
+                      alt={
+                        product.name
+                      }
                       style={{
                         width: 90,
                         height: 90,
-                        objectFit: "cover",
-                        borderRadius: 10,
+                        objectFit:
+                          "cover",
+                        borderRadius:
+                          10,
                         border: `1px solid ${border}`,
                       }}
                     />
@@ -1391,64 +2814,95 @@ export function Estoque({
                         width: 90,
                         height: 90,
                         background: `${accent}15`,
-                        borderRadius: 10,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
+                        borderRadius:
+                          10,
+                        display:
+                          "flex",
+                        alignItems:
+                          "center",
+                        justifyContent:
+                          "center",
                         color: accent,
-                        fontWeight: 700,
+                        fontWeight:
+                          700,
                         fontSize: 12,
                       }}
                     >
                       Sem foto
                     </div>
                   )}
+
                   <div>
                     <div
                       style={{
                         fontSize: 12,
                         color: accent,
-                        fontWeight: 700,
-                        textTransform: "uppercase",
+                        fontWeight:
+                          700,
+                        textTransform:
+                          "uppercase",
                         marginBottom: 4,
                       }}
                     >
-                      {vp.category || "Sem categoria"}
+                      {product.category ||
+                        "Sem categoria"}
                     </div>
+
                     <h2
                       style={{
                         fontSize: 20,
-                        fontWeight: 700,
+                        fontWeight:
+                          700,
                         color: text,
-                        margin: "0 0 6px 0",
+                        margin:
+                          "0 0 6px 0",
                       }}
                     >
-                      {vp.name}
+                      {
+                        product.name
+                      }
                     </h2>
+
                     <div
                       style={{
                         fontSize: 12,
-                        color: subtext,
-                        display: "flex",
+                        color:
+                          subtext,
+                        display:
+                          "flex",
                         gap: 12,
+                        flexWrap:
+                          "wrap",
                       }}
                     >
-                      {vp.code && (
+                      {product.code && (
                         <span>
-                          Cód. rápido: <strong>{vp.code}</strong>
+                          Cód. rápido:{" "}
+                          <strong>
+                            {
+                              product.code
+                            }
+                          </strong>
                         </span>
                       )}
-                      {vp.barcode && (
+
+                      {product.barcode && (
                         <span>
-                          Cód. barras: <strong>{vp.barcode}</strong>
+                          Cód. barras:{" "}
+                          <strong>
+                            {
+                              product.barcode
+                            }
+                          </strong>
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Descrição */}
-                {vp.description && (
+                {/* DESCRIÇÃO */}
+
+                {product.description && (
                   <div
                     style={{
                       marginBottom: 20,
@@ -1460,25 +2914,40 @@ export function Estoque({
                     <div
                       style={{
                         fontSize: 11,
-                        fontWeight: 700,
-                        color: subtext,
-                        textTransform: "uppercase",
+                        fontWeight:
+                          700,
+                        color:
+                          subtext,
+                        textTransform:
+                          "uppercase",
                         marginBottom: 4,
                       }}
                     >
                       Descrição
                     </div>
-                    <div style={{ fontSize: 13, color: text, lineHeight: 1.4 }}>
-                      {vp.description}
+
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: text,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {
+                        product.description
+                      }
                     </div>
                   </div>
                 )}
 
-                {/* Grid de Preços e Custos */}
+                {/* PREÇOS */}
+
                 <div
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                    display:
+                      "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(130px, 1fr))",
                     gap: 10,
                     marginBottom: 20,
                   }}
@@ -1491,21 +2960,32 @@ export function Estoque({
                     }}
                   >
                     <div
-                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          subtext,
+                        fontWeight:
+                          600,
+                      }}
                     >
                       Custo
                     </div>
+
                     <div
                       style={{
                         fontSize: 14,
-                        fontWeight: 700,
+                        fontWeight:
+                          700,
                         color: text,
                         marginTop: 2,
                       }}
                     >
-                      {money(vp.cost)}
+                      {money(
+                        product.cost,
+                      )}
                     </div>
                   </div>
+
                   <div
                     style={{
                       background: `${border}15`,
@@ -1514,21 +2994,32 @@ export function Estoque({
                     }}
                   >
                     <div
-                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          subtext,
+                        fontWeight:
+                          600,
+                      }}
                     >
                       Venda Padrão
                     </div>
+
                     <div
                       style={{
                         fontSize: 14,
-                        fontWeight: 700,
+                        fontWeight:
+                          700,
                         color: text,
                         marginTop: 2,
                       }}
                     >
-                      {money(vp.price)}
+                      {money(
+                        product.price,
+                      )}
                     </div>
                   </div>
+
                   <div
                     style={{
                       background: `${accent}15`,
@@ -1538,21 +3029,36 @@ export function Estoque({
                     }}
                   >
                     <div
-                      style={{ fontSize: 11, color: accent, fontWeight: 600 }}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          accent,
+                        fontWeight:
+                          600,
+                      }}
                     >
                       VIP À Vista
                     </div>
+
                     <div
                       style={{
                         fontSize: 14,
-                        fontWeight: 700,
-                        color: accent,
+                        fontWeight:
+                          700,
+                        color:
+                          accent,
                         marginTop: 2,
                       }}
                     >
-                      {vpVipPrice != null ? money(vpVipPrice) : "—"}
+                      {vipPrice !=
+                      null
+                        ? money(
+                            vipPrice,
+                          )
+                        : "—"}
                     </div>
                   </div>
+
                   <div
                     style={{
                       background: `${accent}15`,
@@ -1562,27 +3068,45 @@ export function Estoque({
                     }}
                   >
                     <div
-                      style={{ fontSize: 11, color: accent, fontWeight: 600 }}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          accent,
+                        fontWeight:
+                          600,
+                      }}
                     >
                       VIP 3x S/ Juros
                     </div>
+
                     <div
                       style={{
                         fontSize: 14,
-                        fontWeight: 700,
-                        color: accent,
+                        fontWeight:
+                          700,
+                        color:
+                          accent,
                         marginTop: 2,
                       }}
                     >
-                      {vpVipPrice3x != null ? money(vpVipPrice3x) : "—"}
+                      {vipPrice3x !=
+                      null
+                        ? money(
+                            vipPrice3x,
+                          )
+                        : "—"}
                     </div>
                   </div>
                 </div>
 
+                {/* IMPOSTO E FRETE */}
+
                 <div
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
+                    display:
+                      "grid",
+                    gridTemplateColumns:
+                      "1fr 1fr",
                     gap: 10,
                     marginBottom: 20,
                   }}
@@ -1595,21 +3119,32 @@ export function Estoque({
                     }}
                   >
                     <div
-                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          subtext,
+                        fontWeight:
+                          600,
+                      }}
                     >
                       Imposto
                     </div>
+
                     <div
                       style={{
                         fontSize: 13,
-                        fontWeight: 600,
+                        fontWeight:
+                          600,
                         color: text,
                         marginTop: 2,
                       }}
                     >
-                      {money(vp.imposto)}
+                      {money(
+                        product.imposto,
+                      )}
                     </div>
                   </div>
+
                   <div
                     style={{
                       background: `${border}15`,
@@ -1618,165 +3153,297 @@ export function Estoque({
                     }}
                   >
                     <div
-                      style={{ fontSize: 11, color: subtext, fontWeight: 600 }}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          subtext,
+                        fontWeight:
+                          600,
+                      }}
                     >
                       Frete
                     </div>
+
                     <div
                       style={{
                         fontSize: 13,
-                        fontWeight: 600,
+                        fontWeight:
+                          600,
                         color: text,
                         marginTop: 2,
                       }}
                     >
-                      {money(vp.frete)}
+                      {money(
+                        product.frete,
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Distribuição de Estoque */}
+                {/* ESTOQUE */}
+
                 <div
-                  style={{ borderTop: `1px solid ${border}`, paddingTop: 16 }}
+                  style={{
+                    borderTop: `1px solid ${border}`,
+                    paddingTop: 16,
+                  }}
                 >
                   <div
                     style={{
                       fontSize: 13,
-                      fontWeight: 700,
+                      fontWeight:
+                        700,
                       color: text,
                       marginBottom: 12,
                     }}
                   >
-                    Distribuição de Estoque por Local
+                    Distribuição de
+                    Estoque por Local
                   </div>
 
-                  {vpControlStock === false ? (
+                  {controlStock ===
+                  false ? (
                     <div
                       style={{
                         fontSize: 12,
-                        color: subtext,
-                        fontStyle: "italic",
+                        color:
+                          subtext,
+                        fontStyle:
+                          "italic",
                         marginBottom: 12,
                       }}
                     >
-                      Este produto está configurado para **não controlar
-                      estoque**.
+                      Este produto
+                      está
+                      configurado
+                      para não
+                      controlar
+                      estoque.
                     </div>
                   ) : (
                     <>
-                      {/* Totais por Local */}
                       <div
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: `repeat(${stockLocations.length}, 1fr)`,
+                          display:
+                            "grid",
+                          gridTemplateColumns:
+                            `repeat(${
+                              Math.max(
+                                1,
+                                stockLocations.length,
+                              )}, minmax(0, 1fr))`,
                           gap: 8,
                           marginBottom: 16,
                         }}
                       >
-                        {stockLocations.map((l) => {
-                          const variationsLocStock = vpVariations.reduce(
-                            (acc, v) => acc + (Number(v.stocks?.[l.id]) || 0),
-                            0,
-                          );
+                        {(
+                          stockLocations ||
+                          []
+                        ).map(
+                          (
+                            location,
+                          ) => {
+                            const variationStock =
+                              variations.reduce(
+                                (
+                                  total,
+                                  variation,
+                                ) =>
+                                  total +
+                                  (Number(
+                                    variation
+                                      .stocks?.[
+                                      location
+                                        .id
+                                    ],
+                                  ) || 0),
+                                0,
+                              );
 
-                          const totalLocStock =
-                            vpVariations.length > 0
-                              ? variationsLocStock
-                              : Number(vp.stocks?.[l.id] || 0);
-                          return (
-                            <div
-                              key={l.id}
-                              style={{
-                                background: card,
-                                border: `1px solid ${border}`,
-                                padding: 10,
-                                borderRadius: 8,
-                                textAlign: "center",
-                              }}
-                            >
+                            const totalStock =
+                              variations.length >
+                              0
+                                ? variationStock
+                                : Number(
+                                    product
+                                      .stocks?.[
+                                      location
+                                        .id
+                                    ] ||
+                                      0,
+                                  );
+
+                            return (
                               <div
+                                key={
+                                  location.id
+                                }
                                 style={{
-                                  fontSize: 11,
-                                  color: subtext,
-                                  marginBottom: 4,
+                                  background:
+                                    card,
+                                  border: `1px solid ${border}`,
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  textAlign:
+                                    "center",
                                 }}
                               >
-                                {l.name}
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color:
+                                      subtext,
+                                    marginBottom:
+                                      4,
+                                  }}
+                                >
+                                  {
+                                    location.name
+                                  }
+                                </div>
+
+                                <div
+                                  style={{
+                                    fontSize: 16,
+                                    fontWeight:
+                                      700,
+                                    color:
+                                      accent,
+                                  }}
+                                >
+                                  {
+                                    totalStock
+                                  }
+                                </div>
                               </div>
-                              <div
-                                style={{
-                                  fontSize: 16,
-                                  fontWeight: 700,
-                                  color: accent,
-                                }}
-                              >
-                                {totalLocStock}
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          },
+                        )}
                       </div>
 
-                      {/* Variações Detalhadas com Quantidades */}
-                      {vpVariations.length > 0 && (
+                      {/* VARIAÇÕES */}
+
+                      {variations.length >
+                        0 && (
                         <div>
                           <div
                             style={{
                               fontSize: 12,
-                              fontWeight: 700,
-                              color: subtext,
-                              marginBottom: 8,
+                              fontWeight:
+                                700,
+                              color:
+                                subtext,
+                              marginBottom:
+                                8,
                             }}
                           >
-                            Detalhamento por Variações / Subcategorias:
+                            Detalhamento
+                            por
+                            Variações /
+                            Subcategorias
                           </div>
+
                           <div
                             style={{
-                              display: "flex",
-                              flexDirection: "column",
+                              display:
+                                "flex",
+                              flexDirection:
+                                "column",
                               gap: 6,
                             }}
                           >
-                            {vpVariations.map((v, vIdx) => (
-                              <div
-                                key={vIdx}
-                                style={{
-                                  background: `${border}10`,
-                                  padding: 8,
-                                  borderRadius: 6,
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  alignItems: "center",
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontWeight: 600,
-                                    fontSize: 12,
-                                    color: text,
-                                  }}
-                                >
-                                  {v.name}
-                                </span>
+                            {variations.map(
+                              (
+                                variation,
+                                variationIndex,
+                              ) => (
                                 <div
+                                  key={
+                                    variation.id ||
+                                    variationIndex
+                                  }
                                   style={{
-                                    display: "flex",
-                                    gap: 12,
-                                    fontSize: 12,
-                                    color: subtext,
+                                    background: `${border}10`,
+                                    padding: 8,
+                                    borderRadius: 6,
+                                    display:
+                                      "flex",
+                                    justifyContent:
+                                      "space-between",
+                                    alignItems:
+                                      "center",
+                                    gap: 10,
+                                    flexWrap:
+                                      "wrap",
                                   }}
                                 >
-                                  {stockLocations.map((l) => (
-                                    <span key={l.id}>
-                                      {l.name}:{" "}
-                                      <strong style={{ color: text }}>
-                                        {v.stocks?.[l.id] || 0}
-                                      </strong>
-                                    </span>
-                                  ))}
+                                  <span
+                                    style={{
+                                      fontWeight:
+                                        600,
+                                      fontSize:
+                                        12,
+                                      color:
+                                        text,
+                                    }}
+                                  >
+                                    {
+                                      variation.name
+                                    }
+                                  </span>
+
+                                  <div
+                                    style={{
+                                      display:
+                                        "flex",
+                                      gap: 12,
+                                      fontSize:
+                                        12,
+                                      color:
+                                        subtext,
+                                      flexWrap:
+                                        "wrap",
+                                    }}
+                                  >
+                                    {(
+                                      stockLocations ||
+                                      []
+                                    ).map(
+                                      (
+                                        location,
+                                      ) => (
+                                        <span
+                                          key={
+                                            location.id
+                                          }
+                                        >
+                                          {
+                                            location.name
+                                          }
+                                          :{" "}
+                                          <strong
+                                            style={{
+                                              color:
+                                                text,
+                                            }}
+                                          >
+                                            {
+                                              variation
+                                                .stocks?.[
+                                                location
+                                                  .id
+                                              ]
+                                            ??
+                                              0
+                                            }</strong> 
+                                
+                                        </span>
+                                      ),
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              ),
+                            )}
                           </div>
                         </div>
                       )}
@@ -1784,50 +3451,86 @@ export function Estoque({
                   )}
                 </div>
 
-                {/* Ações no Rodapé do Modal */}
+                {/* BOTÕES MODAL */}
+
                 <div
                   style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
+                    display:
+                      "flex",
+                    justifyContent:
+                      "flex-end",
                     gap: 8,
                     marginTop: 24,
                     borderTop: `1px solid ${border}`,
                     paddingTop: 16,
+                    flexWrap:
+                      "wrap",
                   }}
                 >
                   <button
+                    type="button"
                     onClick={() => {
-                      const prodToEdit = viewingProduct;
-                      setViewingProduct(null);
-                      startEdit(prodToEdit);
+                      const productToEdit =
+                        viewingProduct;
+
+                      setViewingProduct(
+                        null,
+                      );
+
+                      startEdit(
+                        productToEdit,
+                      );
                     }}
                     style={{
-                      background: accent,
+                      background:
+                        accent,
                       color: "#fff",
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "8px 16px",
+                      border:
+                        "none",
+                      borderRadius:
+                        8,
+                      padding:
+                        "8px 16px",
                       fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
+                      fontWeight:
+                        600,
+                      cursor:
+                        "pointer",
+                      display:
+                        "flex",
+                      alignItems:
+                        "center",
                       gap: 6,
                     }}
                   >
-                    <Edit2 size={14} /> Editar Produto
+                    <Edit2
+                      size={14}
+                    />
+
+                    Editar Produto
                   </button>
+
                   <button
-                    onClick={() => setViewingProduct(null)}
+                    type="button"
+                    onClick={() =>
+                      setViewingProduct(
+                        null,
+                      )
+                    }
                     style={{
-                      background: "transparent",
+                      background:
+                        "transparent",
                       border: `1px solid ${border}`,
                       color: text,
-                      borderRadius: 8,
-                      padding: "8px 16px",
+                      borderRadius:
+                        8,
+                      padding:
+                        "8px 16px",
                       fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
+                      fontWeight:
+                        600,
+                      cursor:
+                        "pointer",
                     }}
                   >
                     Fechar
@@ -1840,3 +3543,4 @@ export function Estoque({
     </div>
   );
 }
+
