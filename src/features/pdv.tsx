@@ -483,8 +483,8 @@ export function PDV({
       <style>{`
         @media print {
           @page {
-            size: 58mm auto;
-            margin: 0;
+            size: A4 portrait;
+            margin: 10mm;
           }
           body * {
             visibility: hidden !important;
@@ -497,8 +497,9 @@ export function PDV({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 58mm !important;
-            max-width: 58mm !important;
+            width: 190mm !important;
+            max-width: 190mm !important;
+            min-height: 277mm !important;
             font-family: monospace !important;
             padding: 4px !important;
             color: #000 !important;
