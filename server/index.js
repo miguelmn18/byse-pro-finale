@@ -1307,7 +1307,7 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
         item.stockLocation ||
         item.stock_location ||
         Object.keys(stocks)[0] ||
-        'loja-fisica';
+        'loja-fisica'||'degustação';
 
       const cleanTargetVar =
         variationName

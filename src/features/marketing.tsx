@@ -148,6 +148,7 @@ function TrafegoPago({
   };
 
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -182,7 +183,8 @@ function TrafegoPago({
 
           if (Array.isArray(d.adEntries)) {
             setAdEntries(
-              d.adEntries.map((x) => ({
+              d.adEntries.map((x, index) => ({
+                id: x.id || `lead_${Date.now()}_${index}`,
                 ...x,
                 date: new Date(x.date),
                 leads: Number(x.leads || 0),
@@ -232,6 +234,19 @@ function TrafegoPago({
     ).catch(() => {});
   }, [adEntries, stateLoaded]);
 
+  const resetForm = () => {
+    setForm({
+      date: new Date()
+        .toISOString()
+        .slice(0, 10),
+      leads: "",
+      spend: "",
+      revenue: ""
+    });
+    setEditingId(null);
+    setShowForm(false);
+  };
+
   const addEntry = () => {
     if (
       !form.leads &&
@@ -246,27 +261,86 @@ function TrafegoPago({
     );
 
     const newEntry = {
+      id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       date: d,
       leads: parseInt(form.leads) || 0,
       spend: parseFloat(form.spend) || 0,
       revenue: parseFloat(form.revenue) || 0
     };
 
-    setAdEntries([
-      ...adEntries,
+    setAdEntries((current) => [
+      ...current,
       newEntry
     ]);
 
+    resetForm();
+  };
+
+  const startEditEntry = (entry) => {
+    setEditingId(entry.id);
     setForm({
-      date: new Date()
+      date: new Date(entry.date)
         .toISOString()
         .slice(0, 10),
-      leads: "",
-      spend: "",
-      revenue: ""
+      leads: String(entry.leads ?? ""),
+      spend: String(entry.spend ?? ""),
+      revenue: String(
+        entry.revenue ??
+        entry.faturamento ??
+        ""
+      )
     });
+    setShowForm(true);
+  };
 
-    setShowForm(false);
+  const updateEntry = () => {
+    if (!editingId) return;
+
+    const d = new Date(
+      form.date + "T12:00:00"
+    );
+
+    setAdEntries((current) =>
+      current.map((entry) =>
+        entry.id === editingId
+          ? {
+              ...entry,
+              date: d,
+              leads: parseInt(form.leads) || 0,
+              spend: parseFloat(form.spend) || 0,
+              revenue: parseFloat(form.revenue) || 0
+            }
+          : entry
+      )
+    );
+
+    resetForm();
+  };
+
+  const deleteEntry = (id) => {
+    if (!id) return;
+
+    const confirmed = window.confirm(
+      "Tem certeza que deseja excluir este lançamento de leads?"
+    );
+
+    if (!confirmed) return;
+
+    setAdEntries((current) =>
+      current.filter((entry) => entry.id !== id)
+    );
+
+    if (editingId === id) {
+      resetForm();
+    }
+  };
+
+  const handleSubmitEntry = () => {
+    if (editingId) {
+      updateEntry();
+    } else {
+      addEntry();
+    }
   };
 
   const periodAd = adEntries
@@ -434,7 +508,7 @@ function TrafegoPago({
         }}
       >
         <Plus size={15} />
-        Lançar leads e investimento do dia
+        {editingId ? "Editar lançamento" : "Adicionar nova lead / lançamento"}
       </button>
 
       {showForm && (
@@ -516,7 +590,7 @@ function TrafegoPago({
           />
 
           <button
-            onClick={addEntry}
+            onClick={handleSubmitEntry}
             style={{
               background: accent,
               color: "#fff",
@@ -528,8 +602,26 @@ function TrafegoPago({
               cursor: "pointer"
             }}
           >
-            Salvar
+            {editingId ? "Atualizar" : "Salvar"}
           </button>
+
+          {editingId && (
+            <button
+              onClick={resetForm}
+              style={{
+                background: "transparent",
+                color: text,
+                border: `1px solid ${border}`,
+                borderRadius: 8,
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer"
+              }}
+            >
+              Cancelar
+            </button>
+          )}
         </div>
       )}
 
@@ -570,11 +662,11 @@ function TrafegoPago({
 
           {periodAd.map((e, i) => (
             <div
-              key={i}
+              key={e.id || i}
               style={{
                 display: "grid",
                 gridTemplateColumns:
-                  "1fr 1fr 1fr 1fr",
+                  "1fr 1fr 1fr 1fr auto",
                 padding: "8px 0",
                 borderBottom:
                   `1px solid ${border}`,
@@ -612,6 +704,54 @@ function TrafegoPago({
                   0
                 )}
               </span>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 6
+                }}
+              >
+                <button
+                  type="button"
+                  title="Editar lançamento"
+                  onClick={() => startEditEntry(e)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 7,
+                    border: `1px solid ${border}`,
+                    background: "transparent",
+                    color: text,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer"
+                  }}
+                >
+                  <Edit2 size={14} />
+                </button>
+
+                <button
+                  type="button"
+                  title="Excluir lançamento"
+                  onClick={() => deleteEntry(e.id)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 7,
+                    border: `1px solid ${border}`,
+                    background: "transparent",
+                    color: DANGER,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer"
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
