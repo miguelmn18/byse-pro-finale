@@ -390,9 +390,18 @@ export function PublicCatalog() {
       return;
     }
 
-    const cleanPhone = String(
-      data.whatsapp
-    ).replace(/\D/g, '');
+    const digits = String(data.whatsapp).replace(/\D/g, '');
+    const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
+
+    if (cleanPhone.length < 12 || cleanPhone.length > 13) {
+      alert('O WhatsApp desta loja está inválido. Avise o lojista para corrigir o número no Catálogo.');
+      return;
+    }
+
+    if (!cart.length) {
+      alert('Adicione pelo menos um produto ao pedido antes de finalizar.');
+      return;
+    }
 
     const activeProducts =
       data?.products ||

@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 
 import React, { useEffect, useState } from 'react';
@@ -32,8 +31,6 @@ interface Product {
   price: number;
   vip_price?: number;
   vipPrice?: number;
-  vip_price_3x?: number;
-  vipPrice3x?: number;
   description?: string;
   image_url?: string;
   imageUrl?: string;
@@ -49,285 +46,151 @@ export default function Catalogo({
   accent,
   text
 }: any) {
+
   const [cfg, setCfg] = useState<any>({});
   const [vipPassword, setVipPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [query, setQuery] = useState('');
 
-  const [selectedCategory, setSelectedCategory] =
-    useState<string>('Todos');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
 
-  const [cart, setCart] = useState<
-    { product: Product; quantity: number }[]
-  >([]);
-
-  const [isCartOpen, setIsCartOpen] =
-    useState<boolean>(false);
-
-  const [isVipUnlocked, setIsVipUnlocked] =
-    useState<boolean>(false);
-
-  const [vipPasswordInput, setVipPasswordInput] =
-    useState<string>('');
-
-  const [showVipModal, setShowVipModal] =
-    useState<boolean>(false);
+  const [isVipUnlocked, setIsVipUnlocked] = useState<boolean>(false);
+  const [vipPasswordInput, setVipPasswordInput] = useState<string>('');
+  const [showVipModal, setShowVipModal] = useState<boolean>(false);
 
   /*
    * ============================================================
    * CONTROLE DE VISIBILIDADE DO CATÁLOGO
    * ============================================================
    *
-   * true  = preços aparecem normalmente
-   * false = somente os preços ficam ocultos
+   * true  = produtos e preços aparecem normalmente
+   * false = produtos e preços ficam ocultos
    *
-   * Nome, categoria, imagem e descrição continuam visíveis.
+   * Essa configuração é somente visual e não altera os dados
+   * dos produtos nem o banco de dados.
    */
-  const [isCatalogVisible, setIsCatalogVisible] =
-    useState<boolean>(true);
+  const [isCatalogVisible, setIsCatalogVisible] = useState<boolean>(true);
 
-  /*
-   * ============================================================
-   * URL DA API
-   * ============================================================
-   *
-   * Evita que seja criado:
-   *
-   * /api/api/catalogo/config
-   *
-   * caso apiUrl já contenha /api.
-   */
-  const cleanApiUrl = (
-    apiUrl || 'http://localhost:3333'
-  ).replace(/\/$/, '');
+  // Correção: garante que a URL base não duplique o prefixo /api
+  const cleanApiUrl = (apiUrl || 'http://localhost:3333').replace(/\/$/, '');
 
   const base = cleanApiUrl.endsWith('/api')
     ? cleanApiUrl.slice(0, -4)
     : cleanApiUrl;
 
-  /*
-   * ============================================================
-   * HEADERS
-   * ============================================================
-   */
   const headers = () => ({
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${
-      localStorage.getItem('byse_token') || ''
-    }`
+    'Authorization': `Bearer ${localStorage.getItem('byse_token') || ''}`
   });
 
-  /*
-   * ============================================================
-   * CARREGAR CONFIGURAÇÕES
-   * ============================================================
-   */
   useEffect(() => {
-    let cancelled = false;
-
-    const loadConfig = async () => {
+    (async () => {
       try {
-        const response = await fetch(
-          `${base}/api/catalogo/config`,
-          {
-            headers: headers()
+        const r = await fetch(`${base}/api/catalogo/config`, {
+          headers: headers()
+        });
+
+        if (r.ok) {
+          const loaded = await r.json();
+          setCfg(loaded);
+
+          // Sincroniza o botão de visibilidade com o que está salvo no servidor
+          if (loaded.catalogVisible !== undefined) {
+            setIsCatalogVisible(Boolean(loaded.catalogVisible));
           }
-        );
-
-        if (!response.ok) {
-          return;
         }
-
-        const loaded = await response.json();
-
-        if (cancelled) {
-          return;
-        }
-
-        setCfg(loaded);
-
-        if (
-          loaded.catalogVisible !== undefined &&
-          loaded.catalogVisible !== null
-        ) {
-          setIsCatalogVisible(
-            Boolean(loaded.catalogVisible)
-          );
-        }
-      } catch (error) {
-        console.error(
-          'Erro ao carregar configurações do catálogo:',
-          error
-        );
+      } catch (e) {
+        console.error(e);
       }
-    };
-
-    loadConfig();
-
-    return () => {
-      cancelled = true;
-    };
+    })();
   }, [base]);
 
-  /*
-   * ============================================================
-   * LINK PÚBLICO
-   * ============================================================
-   */
   const publicUrl =
     cfg.publicUrl ||
     `${window.location.origin}/catalogo/${userId || ''}`;
 
-  /*
-   * ============================================================
-   * SALVAR CONFIGURAÇÕES
-   * ============================================================
-   */
   const save = async () => {
     setSaving(true);
     setSaved(false);
 
     try {
-      const response = await fetch(
-        `${base}/api/catalogo/config`,
-        {
-          method: 'PUT',
-          headers: headers(),
-          body: JSON.stringify({
-            ...cfg,
-            catalogVisible: isCatalogVisible,
-            ...(vipPassword.trim()
-              ? {
-                  vipPassword: vipPassword.trim()
-                }
-              : {})
-          })
-        }
-      );
+      const r = await fetch(`${base}/api/catalogo/config`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify({
+          ...cfg,
+          catalogVisible: isCatalogVisible,
+          ...(vipPassword.trim() ? { vipPassword: vipPassword.trim() } : {})
+        })
+      });
 
-      if (!response.ok) {
-        throw new Error(
-          'Não foi possível salvar as configurações.'
-        );
+      if (!r.ok) {
+        throw new Error();
       }
 
-      const data = await response.json();
+      const d = await r.json();
 
-      setCfg((prev: any) => ({
-        ...prev,
-        ...data,
-        publicUrl:
-          data.publicUrl || prev.publicUrl,
+      setCfg({
+        ...cfg,
+        publicUrl: d.publicUrl,
         vipConfigured:
-          Boolean(vipPassword.trim()) ||
-          Boolean(prev.vipConfigured),
-        catalogVisible:
-          data.catalogVisible !== undefined
-            ? data.catalogVisible
-            : isCatalogVisible
-      }));
+          Boolean(vipPassword) || cfg.vipConfigured
+      });
 
       setVipPassword('');
       setSaved(true);
 
-      setTimeout(() => {
-        setSaved(false);
-      }, 2500);
-    } catch (error) {
-      console.error(
-        'Erro ao salvar configurações:',
-        error
-      );
-
-      alert(
-        'Não foi possível salvar as configurações do catálogo.'
-      );
+    } catch (e) {
+      alert('Não foi possível salvar as configurações do catálogo.');
     } finally {
       setSaving(false);
     }
   };
 
-  /*
-   * ============================================================
-   * COPIAR LINK
-   * ============================================================
-   */
   const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(publicUrl);
+    await navigator.clipboard?.writeText(publicUrl);
 
-      setSaved(true);
+    setSaved(true);
 
-      setTimeout(() => {
-        setSaved(false);
-      }, 2000);
-    } catch (error) {
-      console.error(
-        'Erro ao copiar link:',
-        error
-      );
-    }
+    setTimeout(() => {
+      setSaved(false);
+    }, 2000);
   };
 
-  /*
-   * ============================================================
-   * CATEGORIAS
-   * ============================================================
-   */
   const categories = [
     'Todos',
     ...Array.from(
       new Set(
         products.map(
-          (product: any) =>
-            product.category || 'Geral'
+          (p: any) => p.category || 'Geral'
         )
       )
     )
   ];
 
-  /*
-   * ============================================================
-   * FILTRO DE PRODUTOS
-   * ============================================================
-   */
-  const filteredProducts = products.filter(
-    (product: any) => {
-      const matchesCategory =
-        selectedCategory === 'Todos' ||
-        product.category === selectedCategory;
+  const filteredProducts = products.filter((product: any) => {
+    const matchesCategory =
+      selectedCategory === 'Todos' ||
+      product.category === selectedCategory;
 
-      const searchText = query
-        .trim()
-        .toLowerCase();
+    const matchesSearch =
+      String(product.name || '')
+        .toLowerCase()
+        .includes(query.toLowerCase()) ||
+      String(product.description || '')
+        .toLowerCase()
+        .includes(query.toLowerCase());
 
-      const matchesSearch =
-        !searchText ||
-        String(product.name || '')
-          .toLowerCase()
-          .includes(searchText) ||
-        String(product.description || '')
-          .toLowerCase()
-          .includes(searchText);
+    return matchesCategory && matchesSearch;
+  });
 
-      return (
-        matchesCategory &&
-        matchesSearch
-      );
-    }
-  );
-
-  /*
-   * ============================================================
-   * ADICIONAR PRODUTO AO CARRINHO
-   * ============================================================
-   */
   const addToCart = (product: Product) => {
     setCart(prevCart => {
       const existing = prevCart.find(
-        item =>
-          item.product.id === product.id
+        item => item.product.id === product.id
       );
 
       if (existing) {
@@ -335,8 +198,7 @@ export default function Catalogo({
           item.product.id === product.id
             ? {
                 ...item,
-                quantity:
-                  item.quantity + 1
+                quantity: item.quantity + 1
               }
             : item
         );
@@ -354,28 +216,20 @@ export default function Catalogo({
     setIsCartOpen(true);
   };
 
-  /*
-   * ============================================================
-   * ALTERAR QUANTIDADE
-   * ============================================================
-   */
   const updateQuantity = (
     productId: string | number,
     delta: number
   ) => {
-    setCart(prevCart =>
-      prevCart
+    setCart(prevCart => {
+      return prevCart
         .map(item => {
-          if (
-            item.product.id === productId
-          ) {
-            const newQuantity =
-              item.quantity + delta;
+          if (item.product.id === productId) {
+            const newQty = item.quantity + delta;
 
-            return newQuantity > 0
+            return newQty > 0
               ? {
                   ...item,
-                  quantity: newQuantity
+                  quantity: newQty
                 }
               : null;
           }
@@ -385,81 +239,32 @@ export default function Catalogo({
         .filter(Boolean) as {
         product: Product;
         quantity: number;
-      }[]
-    );
+      }[];
+    });
   };
 
-  /*
-   * ============================================================
-   * OBTER PREÇO VIP
-   * ============================================================
-   */
-  const getVipPrice = (
-    product: Product
-  ) => {
-    if (
-      product.vip_price !== undefined &&
-      product.vip_price !== null
-    ) {
-      return product.vip_price;
-    }
-
-    return product.vipPrice;
-  };
-
-  /*
-   * ============================================================
-   * OBTER PREÇO VIP 3X
-   * ============================================================
-   */
-  const getVip3xPrice = (
-    product: Product
-  ) => {
-    if (
-      product.vip_price_3x !==
-        undefined &&
-      product.vip_price_3x !== null
-    ) {
-      return product.vip_price_3x;
-    }
-
-    return product.vipPrice3x;
-  };
-
-  /*
-   * ============================================================
-   * CALCULAR TOTAL
-   * ============================================================
-   */
   const calculateTotal = () => {
-    return cart.reduce(
-      (total, item) => {
-        const vipPrice =
-          getVipPrice(item.product);
+    return cart.reduce((total, item) => {
+      const vipVal =
+        item.product.vip_price !== undefined
+          ? item.product.vip_price
+          : item.product.vipPrice;
 
-        const price =
-          isVipUnlocked &&
-          vipPrice !== undefined &&
-          vipPrice !== null &&
-          Number(vipPrice) > 0
-            ? vipPrice
-            : item.product.price;
+      const price =
+        isVipUnlocked &&
+        vipVal !== null &&
+        vipVal !== undefined &&
+        vipVal > 0
+          ? vipVal
+          : item.product.price;
 
-        return (
-          total +
-          Number(price || 0) *
-            item.quantity
-        );
-      },
-      0
-    );
+      return (
+        total +
+        Number(price || 0) * item.quantity
+      );
+    }, 0);
   };
 
-  /*
-   * ============================================================
-   * FINALIZAR PEDIDO VIA WHATSAPP
-   * ============================================================
-   */
   const handleCheckoutWhatsApp = () => {
     if (!cfg.whatsapp) {
       alert(
@@ -468,52 +273,44 @@ export default function Catalogo({
       return;
     }
 
-    if (cart.length === 0) {
-      alert(
-        'Adicione pelo menos um produto ao carrinho.'
-      );
-      return;
-    }
-
-    let message =
-      `*Pedido via Catálogo Online - ${
-        cfg.storeName || 'Minha Loja'
-      }*\n\n`;
+    let message = `*Pedido via Catálogo Online - ${
+      cfg.storeName || 'Minha Loja'
+    }*\n\n`;
 
     if (isVipUnlocked) {
-      message +=
-        '🔓 _Aplicando Condição de Preço VIP_\n\n';
+      message += `🔓 _Aplicando Condição de Preço VIP_\n\n`;
     }
 
     cart.forEach(item => {
-      const vipPrice =
-        getVipPrice(item.product);
+      const vipVal =
+        item.product.vip_price !== undefined
+          ? item.product.vip_price
+          : item.product.vipPrice;
 
       const price =
         isVipUnlocked &&
-        vipPrice !== undefined &&
-        vipPrice !== null &&
-        Number(vipPrice) > 0
-          ? vipPrice
+        vipVal !== null &&
+        vipVal !== undefined &&
+        Number(vipVal) > 0
+          ? vipVal
           : item.product.price;
 
-      message +=
-        `• ${item.quantity}x ${
-          item.product.name
-        } - R$ ${(
-          Number(price || 0) *
-          item.quantity
-        ).toFixed(2)}\n`;
+      message += `• ${item.quantity}x ${
+        item.product.name
+      } - R$ ${(
+        Number(price || 0) * item.quantity
+      ).toFixed(2)}\n`;
     });
 
-    message +=
-      `\n*Total:* R$ ${calculateTotal().toFixed(
-        2
-      )}`;
+    message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
 
-    const cleanPhone = String(
-      cfg.whatsapp
-    ).replace(/\D/g, '');
+    const digits = String(cfg.whatsapp).replace(/\D/g, '');
+    const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
+
+    if (cleanPhone.length < 12 || cleanPhone.length > 13) {
+      alert('Informe um WhatsApp válido com código do país, DDD e número.');
+      return;
+    }
 
     window.open(
       `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
@@ -525,178 +322,42 @@ export default function Catalogo({
 
   /*
    * ============================================================
-   * ALTERAR VISIBILIDADE DO CATÁLOGO
+   * FUNÇÃO DE ALTERAÇÃO DA VISIBILIDADE
    * ============================================================
-   *
-   * Essa configuração é salva no servidor e pode ser utilizada
-   * também pelo PublicCatalog.
-   *
-   * Importante:
-   * ocultar catálogo NÃO remove produtos.
-   * Apenas oculta os preços.
    */
-  const toggleCatalogVisibility =
-    async () => {
-      const next =
-        !isCatalogVisible;
-
-      setIsCatalogVisible(next);
-
-      setCfg((prev: any) => ({
-        ...prev,
-        catalogVisible: next
-      }));
-
-      try {
-        const response =
-          await fetch(
-            `${base}/api/catalogo/config`,
-            {
-              method: 'PUT',
-              headers: headers(),
-              body: JSON.stringify({
-                ...cfg,
-                catalogVisible: next
-              })
-            }
-          );
-
-        if (!response.ok) {
-          throw new Error(
-            'Não foi possível atualizar a visibilidade.'
-          );
-        }
-
-        const data =
-          await response.json();
-
-        setCfg((prev: any) => ({
-          ...prev,
-          ...data,
-          catalogVisible:
-            data.catalogVisible !==
-            undefined
-              ? data.catalogVisible
-              : next
-        }));
-      } catch (error) {
-        console.error(
-          'Erro ao atualizar visibilidade:',
-          error
-        );
-
-        setIsCatalogVisible(
-          !next
-        );
-
-        setCfg((prev: any) => ({
-          ...prev,
-          catalogVisible: !next
-        }));
-
-        alert(
-          'Não foi possível atualizar a visibilidade do catálogo.'
-        );
-      }
-    };
-
   /*
    * ============================================================
-   * VALIDAR SENHA VIP
+   * VISIBILIDADE DO CATÁLOGO (ADMIN + VITRINE PÚBLICA)
    * ============================================================
    *
-   * A senha digitada precisa corresponder à senha cadastrada
-   * no módulo Catálogo.
+   * O botão agora grava o campo catalogVisible no servidor,
+   * portanto ele controla também o que o cliente vê no
+   * PublicCatalog (vitrine pública).
    */
-  const handleVipUnlock = () => {
-    const enteredPassword =
-      vipPasswordInput.trim();
+  const toggleCatalogVisibility = async () => {
+    const next = !isCatalogVisible;
 
-    if (!enteredPassword) {
-      alert(
-        'Insira uma senha válida.'
-      );
-      return;
+    // Atualização otimista da interface
+    setIsCatalogVisible(next);
+    setCfg((prev: any) => ({ ...prev, catalogVisible: next }));
+
+    try {
+      const r = await fetch(`${base}/api/catalogo/config`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify({
+          ...cfg,
+          catalogVisible: next
+        })
+      });
+
+      if (!r.ok) throw new Error();
+    } catch (e) {
+      // Reverte caso o servidor recuse a alteração
+      setIsCatalogVisible(!next);
+      setCfg((prev: any) => ({ ...prev, catalogVisible: !next }));
+      alert('Não foi possível atualizar a visibilidade do catálogo.');
     }
-
-    /*
-     * O backend pode devolver a senha diretamente em vipPassword
-     * ou somente indicar que ela foi configurada.
-     *
-     * Quando a senha estiver disponível no objeto cfg,
-     * fazemos a comparação exata.
-     */
-    if (
-      cfg.vipPassword !== undefined &&
-      cfg.vipPassword !== null &&
-      String(cfg.vipPassword) !== ''
-    ) {
-      if (
-        enteredPassword !==
-        String(cfg.vipPassword)
-      ) {
-        alert(
-          'Senha VIP incorreta.'
-        );
-        return;
-      }
-    } else {
-      /*
-       * Compatibilidade com configurações onde a senha não é
-       * retornada pelo endpoint.
-       *
-       * Nesse cenário, solicitamos ao backend uma validação.
-       */
-      try {
-        /*
-         * A validação abaixo é tratada pelo endpoint, quando
-         * disponível.
-         */
-        fetch(
-          `${base}/api/catalogo/config/validate-vip`,
-          {
-            method: 'POST',
-            headers: headers(),
-            body: JSON.stringify({
-              password: enteredPassword
-            })
-          }
-        )
-          .then(async response => {
-            if (!response.ok) {
-              throw new Error(
-                'Senha VIP inválida.'
-              );
-            }
-
-            setIsVipUnlocked(true);
-            setShowVipModal(false);
-            setVipPasswordInput('');
-          })
-          .catch(() => {
-            alert(
-              'Não foi possível validar a senha VIP. Verifique se ela corresponde à senha cadastrada no Catálogo.'
-            );
-          });
-
-        return;
-      } catch (error) {
-        console.error(
-          'Erro ao validar senha VIP:',
-          error
-        );
-
-        alert(
-          'Não foi possível validar a senha VIP.'
-        );
-
-        return;
-      }
-    }
-
-    setIsVipUnlocked(true);
-    setShowVipModal(false);
-    setVipPasswordInput('');
   };
 
   return (
@@ -706,6 +367,7 @@ export default function Catalogo({
         paddingBottom: 40
       }}
     >
+
       <SectionTitle
         title="Catálogo & Vitrine Digital"
         sub="Gerencie seu link público e configure a senha de acesso VIP para os seus clientes"
@@ -725,9 +387,8 @@ export default function Catalogo({
           marginBottom: 24
         }}
       >
-        {/* ======================================================
-            LINK PÚBLICO
-            ====================================================== */}
+
+        {/* LINK PÚBLICO */}
 
         <div
           style={{
@@ -846,9 +507,104 @@ export default function Catalogo({
           </div>
         </div>
 
-        {/* ======================================================
-            SENHA VIP
-            ====================================================== */}
+        {/* WHATSAPP DA LOJA — CONFIGURAÇÃO POR LOGIN */}
+        <div
+          style={{
+            background: card,
+            border: `1px solid ${border}`,
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginBottom: 8
+            }}
+          >
+            <div
+              style={{
+                padding: 8,
+                borderRadius: 10,
+                background: '#22c55e18',
+                color: '#22c55e'
+              }}
+            >
+              <MessageCircle size={18} />
+            </div>
+            <div>
+              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>
+                WhatsApp para receber pedidos
+              </h4>
+              <p style={{ fontSize: 11, color: subtext, margin: 0 }}>
+                Este número receberá os pedidos feitos no catálogo público desta loja.
+              </p>
+            </div>
+          </div>
+
+          <label
+            htmlFor="catalog-store-whatsapp"
+            style={{ display: 'block', fontSize: 12, fontWeight: 700, margin: '14px 0 6px', color: text }}
+          >
+            Número do WhatsApp com DDD
+          </label>
+          <input
+            id="catalog-store-whatsapp"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={cfg.whatsapp || ''}
+            onChange={e => setCfg((prev: any) => ({ ...prev, whatsapp: e.target.value }))}
+            placeholder="Ex.: +55 83 99999-9999"
+            style={{
+              boxSizing: 'border-box',
+              width: '100%',
+              padding: '11px 12px',
+              border: `1px solid ${border}`,
+              borderRadius: 10,
+              background: 'transparent',
+              color: text,
+              fontSize: 13,
+              outline: 0
+            }}
+          />
+          <p style={{ fontSize: 11, color: subtext, lineHeight: 1.5, margin: '8px 0 12px' }}>
+            Informe o código do país (55), DDD e número. A configuração é salva para o login desta loja.
+          </p>
+          <button
+            onClick={save}
+            disabled={saving}
+            style={{
+              width: '100%',
+              padding: '11px 14px',
+              border: 0,
+              borderRadius: 10,
+              background: '#16a34a',
+              color: '#fff',
+              cursor: saving ? 'wait' : 'pointer',
+              opacity: saving ? 0.7 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              fontSize: 12,
+              fontWeight: 800
+            }}
+          >
+            <Save size={14} />
+            {saving ? 'Salvando...' : 'Salvar WhatsApp da loja'}
+          </button>
+          {saved && (
+            <p style={{ fontSize: 11, color: '#22c55e', margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <CheckCircle2 size={13} /> Número salvo com sucesso.
+            </p>
+          )}
+        </div>
+
+        {/* SENHA VIP */}
 
         <div
           style={{
@@ -912,10 +668,8 @@ export default function Catalogo({
             <input
               type="password"
               value={vipPassword}
-              onChange={event =>
-                setVipPassword(
-                  event.target.value
-                )
+              onChange={e =>
+                setVipPassword(e.target.value)
               }
               placeholder={
                 cfg.vipConfigured
@@ -945,23 +699,15 @@ export default function Catalogo({
                 color: '#fff',
                 fontWeight: 700,
                 fontSize: 12,
-                cursor: saving
-                  ? 'not-allowed'
-                  : 'pointer',
+                cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
-                opacity: saving
-                  ? 0.7
-                  : 1
+                gap: 6
               }}
             >
               <Save size={14} />
-
-              {saving
-                ? 'Salvando...'
-                : 'Salvar'}
+              {saving ? 'Salvando...' : 'Salvar'}
             </button>
           </div>
 
@@ -977,11 +723,11 @@ export default function Catalogo({
               }}
             >
               <CheckCircle2 size={13} />
-
               Configuração salva com sucesso!
             </span>
           )}
         </div>
+
       </div>
 
       {/* ========================================================
@@ -998,9 +744,8 @@ export default function Catalogo({
             '0 4px 20px rgba(0,0,0,0.02)'
         }}
       >
-        {/* ======================================================
-            CABEÇALHO DA VITRINE
-            ====================================================== */}
+
+        {/* CABEÇALHO DA VITRINE */}
 
         <div
           style={{
@@ -1012,6 +757,7 @@ export default function Catalogo({
             gap: 12
           }}
         >
+
           <div>
             <div
               style={{
@@ -1047,9 +793,7 @@ export default function Catalogo({
             </p>
           </div>
 
-          {/* ====================================================
-              BOTÕES DA VITRINE
-              ==================================================== */}
+          {/* BOTÕES */}
 
           <div
             style={{
@@ -1059,18 +803,17 @@ export default function Catalogo({
               flexWrap: 'wrap'
             }}
           >
-            {/* ==================================================
-                BOTÃO VISIBILIDADE
-                ================================================== */}
+
+            {/* =================================================
+                NOVO BOTÃO DE VISIBILIDADE
+                ================================================= */}
 
             <button
-              onClick={
-                toggleCatalogVisibility
-              }
+              onClick={toggleCatalogVisibility}
               title={
                 isCatalogVisible
-                  ? 'Ocultar preços'
-                  : 'Mostrar preços'
+                  ? 'Ocultar valores'
+                  : 'Mostrar valores'
               }
               style={{
                 display: 'flex',
@@ -1081,14 +824,12 @@ export default function Catalogo({
                 fontSize: 12,
                 fontWeight: 700,
                 border: `1px solid ${border}`,
-                background:
-                  isCatalogVisible
-                    ? 'transparent'
-                    : `${accent}12`,
-                color:
-                  isCatalogVisible
-                    ? text
-                    : accent,
+                background: isCatalogVisible
+                  ? 'transparent'
+                  : `${accent}12`,
+                color: isCatalogVisible
+                  ? text
+                  : accent,
                 cursor: 'pointer',
                 transition:
                   'all 0.2s ease'
@@ -1101,13 +842,11 @@ export default function Catalogo({
               )}
 
               {isCatalogVisible
-                ? 'Ocultar preços'
-                : 'Mostrar preços'}
+                ? 'Ocultar valores'
+                : 'Mostrar valores'}
             </button>
 
-            {/* ==================================================
-                BOTÃO VIP
-                ================================================== */}
+            {/* BOTÃO VIP */}
 
             <button
               onClick={() =>
@@ -1140,9 +879,7 @@ export default function Catalogo({
                 : 'Inserir Senha VIP (Cliente)'}
             </button>
 
-            {/* ==================================================
-                CARRINHO
-                ================================================== */}
+            {/* CARRINHO */}
 
             <button
               onClick={() =>
@@ -1194,11 +931,12 @@ export default function Catalogo({
                 </span>
               )}
             </button>
+
           </div>
         </div>
 
         {/* ======================================================
-            AVISO DE PREÇOS OCULTOS
+            AVISO QUANDO OS PRODUTOS ESTÃO OCULTOS
             ====================================================== */}
 
         {!isCatalogVisible && (
@@ -1223,7 +961,7 @@ export default function Catalogo({
               color={accent}
             />
 
-            Preços ocultos — informações dos produtos continuam visíveis
+            Produtos e valores ocultos
           </div>
         )}
 
@@ -1239,6 +977,7 @@ export default function Catalogo({
             marginBottom: 20
           }}
         >
+
           <div
             style={{
               position: 'relative',
@@ -1259,16 +998,13 @@ export default function Catalogo({
 
             <input
               value={query}
-              onChange={event =>
-                setQuery(
-                  event.target.value
-                )
+              onChange={e =>
+                setQuery(e.target.value)
               }
               placeholder="Pesquisar produtos disponíveis no catálogo..."
               style={{
                 width: '100%',
-                boxSizing:
-                  'border-box',
+                boxSizing: 'border-box',
                 border: `1px solid ${border}`,
                 borderRadius: 10,
                 padding:
@@ -1289,46 +1025,40 @@ export default function Catalogo({
               paddingBottom: 4
             }}
           >
-            {categories.map(
-              (category: string) => (
-                <button
-                  key={category}
-                  onClick={() =>
-                    setSelectedCategory(
-                      category
-                    )
-                  }
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: 10,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    whiteSpace:
-                      'nowrap',
-                    cursor: 'pointer',
-                    border:
-                      selectedCategory ===
-                      category
-                        ? 0
-                        : `1px solid ${border}`,
-                    background:
-                      selectedCategory ===
-                      category
-                        ? accent
-                        : 'transparent',
-                    color:
-                      selectedCategory ===
-                      category
-                        ? '#fff'
-                        : text,
-                    transition:
-                      'all 0.2s ease'
-                  }}
-                >
-                  {category}
-                </button>
-              )
-            )}
+            {categories.map(category => (
+              <button
+                key={category}
+                onClick={() =>
+                  setSelectedCategory(
+                    category
+                  )
+                }
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  border:
+                    selectedCategory === category
+                      ? 0
+                      : `1px solid ${border}`,
+                  background:
+                    selectedCategory === category
+                      ? accent
+                      : 'transparent',
+                  color:
+                    selectedCategory === category
+                      ? '#fff'
+                      : text,
+                  transition:
+                    'all 0.2s ease'
+                }}
+              >
+                {category}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -1336,8 +1066,8 @@ export default function Catalogo({
             GRID DE PRODUTOS
             ======================================================== */}
 
-        {filteredProducts.length ===
-        0 ? (
+        {filteredProducts.length === 0 ? (
+
           <div
             style={{
               textAlign: 'center',
@@ -1363,7 +1093,9 @@ export default function Catalogo({
               Nenhum produto encontrado nesta categoria.
             </p>
           </div>
+
         ) : (
+
           <div
             style={{
               display: 'grid',
@@ -1372,54 +1104,62 @@ export default function Catalogo({
               gap: 16
             }}
           >
-            {filteredProducts.map(
-              (product: Product) => {
-                const vipPrice =
-                  getVipPrice(product);
 
-                const hasVipPrice =
-                  isVipUnlocked &&
-                  vipPrice !== undefined &&
-                  vipPrice !== null &&
-                  Number(vipPrice) > 0;
+            {filteredProducts.map((p: any) => {
 
-                const vip3xPrice =
-                  getVip3xPrice(product);
+              const vipVal =
+                p.vip_price !== undefined
+                  ? p.vip_price
+                  : p.vipPrice;
 
-                const hasVip3xPrice =
-                  isVipUnlocked &&
-                  vip3xPrice !==
-                    undefined &&
-                  vip3xPrice !== null &&
-                  Number(vip3xPrice) > 0;
+              const hasVipPrice =
+                isVipUnlocked &&
+                vipVal !== undefined &&
+                vipVal !== null &&
+                Number(vipVal) > 0;
 
-                const imageUrl =
-                  product.image_url ||
-                  product.imageUrl;
+              const vip3xVal =
+                p.vip_price_3x !== undefined
+                  ? p.vip_price_3x
+                  : p.vipPrice3x;
 
-                return (
-                  <div
-                    key={product.id}
-                    style={{
-                      border: `1px solid ${border}`,
-                      borderRadius: 14,
-                      overflow: 'hidden',
-                      display: 'flex',
-                      flexDirection:
-                        'column',
-                      justifyContent:
-                        'space-between',
-                      background: card,
-                      transition:
-                        'transform 0.2s ease, box-shadow 0.2s ease'
-                    }}
-                  >
-                    <div>
-                      {/* =================================================
-                          IMAGEM
-                          ================================================= */}
+              const hasVip3xPrice =
+                isVipUnlocked &&
+                vip3xVal !== undefined &&
+                vip3xVal !== null &&
+                Number(vip3xVal) > 0;
 
-                      {imageUrl ? (
+              const imgUrl =
+                p.image_url || p.imageUrl;
+
+              return (
+
+                <div
+                  key={p.id}
+                  style={{
+                    border: `1px solid ${border}`,
+                    borderRadius: 14,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent:
+                      'space-between',
+                    background: card,
+                    transition:
+                      'transform 0.2s ease, box-shadow 0.2s ease'
+                  }}
+                >
+
+                  <div>
+
+                    {/* =================================================
+                        IMAGEM DO PRODUTO
+                        ================================================= */}
+
+                    {isCatalogVisible ? (
+
+                      imgUrl ? (
+
                         <div
                           style={{
                             height: 150,
@@ -1430,19 +1170,18 @@ export default function Catalogo({
                           }}
                         >
                           <img
-                            src={imageUrl}
-                            alt={
-                              product.name
-                            }
+                            src={imgUrl}
+                            alt={p.name}
                             style={{
                               width: '100%',
                               height: '100%',
-                              objectFit:
-                                'cover'
+                              objectFit: 'cover'
                             }}
                           />
                         </div>
+
                       ) : (
+
                         <div
                           style={{
                             height: 100,
@@ -1464,21 +1203,66 @@ export default function Catalogo({
                             }}
                           />
                         </div>
-                      )}
 
-                      {/* =================================================
-                          INFORMAÇÕES
-                          ================================================= */}
+                      )
+
+                    ) : (
+
+                      /* =================================================
+                         PLACEHOLDER QUANDO OCULTO
+                         ================================================= */
+
+                      <div
+                        style={{
+                          height: 150,
+                          width: '100%',
+                          display: 'flex',
+                          alignItems:
+                            'center',
+                          justifyContent:
+                            'center',
+                          flexDirection:
+                            'column',
+                          gap: 8,
+                          background:
+                            'rgba(0,0,0,0.025)',
+                          color: subtext
+                        }}
+                      >
+                        <EyeOff
+                          size={28}
+                          style={{
+                            opacity: 0.45
+                          }}
+                        />
+
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            opacity: 0.7
+                          }}
+                        >
+                          Produto oculto
+                        </span>
+                      </div>
+
+                    )}
+
+                    {/* =================================================
+                        INFORMAÇÕES DO PRODUTO
+                        ================================================= */}
+
+                    {isCatalogVisible ? (
 
                       <div
                         style={{
                           padding: 14
                         }}
                       >
+
                         <span
                           style={{
-                            display:
-                              'inline-block',
                             fontSize: 10,
                             fontWeight: 800,
                             textTransform:
@@ -1491,14 +1275,13 @@ export default function Catalogo({
                             borderRadius: 6
                           }}
                         >
-                          {product.category ||
+                          {p.category ||
                             'Geral'}
                         </span>
 
                         <b
                           style={{
-                            display:
-                              'block',
+                            display: 'block',
                             fontSize: 14,
                             marginTop: 8,
                             lineHeight: 1.3,
@@ -1506,10 +1289,10 @@ export default function Catalogo({
                               '-0.2px'
                           }}
                         >
-                          {product.name}
+                          {p.name}
                         </b>
 
-                        {product.description && (
+                        {p.description && (
                           <p
                             style={{
                               fontSize: 12,
@@ -1526,219 +1309,241 @@ export default function Catalogo({
                               lineHeight: 1.4
                             }}
                           >
-                            {
-                              product.description
-                            }
+                            {p.description}
                           </p>
                         )}
 
-                        {/* =================================================
-                            PREÇOS
-                            ================================================= */}
+                      </div>
 
-                        <div
+                    ) : (
+
+                      <div
+                        style={{
+                          padding: 14,
+                          minHeight: 75,
+                          display: 'flex',
+                          alignItems:
+                            'center',
+                          justifyContent:
+                            'center'
+                        }}
+                      >
+                        <span
                           style={{
-                            marginTop: 12
+                            fontSize: 12,
+                            color: subtext,
+                            fontWeight: 700
                           }}
                         >
-                          {isCatalogVisible ? (
-                            hasVipPrice ? (
-                              <>
-                                <div
-                                  style={{
-                                    display:
-                                      'flex',
-                                    alignItems:
-                                      'center',
-                                    gap: 8,
-                                    flexWrap:
-                                      'wrap'
-                                  }}
-                                >
-                                  <p
-                                    style={{
-                                      fontSize: 15,
-                                      fontWeight:
-                                        900,
-                                      color:
-                                        '#10b981',
-                                      margin: 0,
-                                      display:
-                                        'flex',
-                                      alignItems:
-                                        'center',
-                                      gap: 4
-                                    }}
-                                  >
-                                    {Number(
-                                      vipPrice
-                                    ).toLocaleString(
-                                      'pt-BR',
-                                      {
-                                        style:
-                                          'currency',
-                                        currency:
-                                          'BRL'
-                                      }
-                                    )}
+                          Informações ocultas
+                        </span>
+                      </div>
 
-                                    <span
-                                      style={{
-                                        fontSize: 9,
-                                        background:
-                                          '#ecfdf5',
-                                        color:
-                                          '#047857',
-                                        padding:
-                                          '1px 4px',
-                                        borderRadius:
-                                          4,
-                                        fontWeight:
-                                          800
-                                      }}
-                                    >
-                                      VIP
-                                    </span>
-                                  </p>
-                                </div>
+                    )}
 
-                                {hasVip3xPrice && (
-                                  <span
-                                    style={{
-                                      display:
-                                        'block',
-                                      fontSize: 11,
-                                      fontWeight:
-                                        700,
-                                      color:
-                                        subtext,
-                                      marginTop:
-                                        4
-                                    }}
-                                  >
-                                    ou 3x de{' '}
-                                    {(
-                                      Number(
-                                        vip3xPrice
-                                      ) / 3
-                                    ).toLocaleString(
-                                      'pt-BR',
-                                      {
-                                        style:
-                                          'currency',
-                                        currency:
-                                          'BRL'
-                                      }
-                                    )}{' '}
-                                    (VIP 3x:{' '}
-                                    {Number(
-                                      vip3xPrice
-                                    ).toLocaleString(
-                                      'pt-BR',
-                                      {
-                                        style:
-                                          'currency',
-                                        currency:
-                                          'BRL'
-                                      }
-                                    )}
-                                    )
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <p
-                                style={{
-                                  fontSize: 15,
-                                  fontWeight: 900,
-                                  margin: 0,
-                                  color: text
-                                }}
-                              >
-                                {Number(
-                                  product.price ||
-                                    0
-                                ).toLocaleString(
-                                  'pt-BR',
-                                  {
-                                    style:
-                                      'currency',
-                                    currency:
-                                      'BRL'
-                                  }
-                                )}
-                              </p>
-                            )
-                          ) : (
-                            <div
+                  </div>
+
+                  {/* ====================================================
+                      PREÇO + ADICIONAR
+                      ==================================================== */}
+
+                  <div
+                    style={{
+                      padding:
+                        '0 14px 14px 14px',
+                      display: 'flex',
+                      alignItems:
+                        'center',
+                      justifyContent:
+                        'space-between',
+                      marginTop: 'auto'
+                    }}
+                  >
+
+                    <div>
+
+                      {isCatalogVisible ? (
+
+                        hasVipPrice ? (
+
+                          <div>
+
+                            <span
                               style={{
+                                fontSize: 11,
+                                color: subtext,
+                                textDecoration:
+                                  'line-through'
+                              }}
+                            >
+                              {Number(
+                                p.price || 0
+                              ).toLocaleString(
+                                'pt-BR',
+                                {
+                                  style:
+                                    'currency',
+                                  currency:
+                                    'BRL'
+                                }
+                              )}
+                            </span>
+
+                            <p
+                              style={{
+                                fontSize: 15,
+                                fontWeight: 900,
+                                color:
+                                  '#10b981',
+                                margin: 0,
                                 display:
                                   'flex',
                                 alignItems:
                                   'center',
-                                gap: 6,
-                                color:
-                                  subtext
+                                gap: 4
                               }}
                             >
-                              <EyeOff
-                                size={14}
-                              />
+                              {Number(
+                                vipVal
+                              ).toLocaleString(
+                                'pt-BR',
+                                {
+                                  style:
+                                    'currency',
+                                  currency:
+                                    'BRL'
+                                }
+                              )}
 
                               <span
                                 style={{
-                                  fontSize: 11,
+                                  fontSize: 9,
+                                  background:
+                                    '#ecfdf5',
+                                  color:
+                                    '#047857',
+                                  padding:
+                                    '1px 4px',
+                                  borderRadius: 4,
                                   fontWeight:
-                                    700
+                                    800
                                 }}
                               >
-                                Valor oculto
+                                VIP
                               </span>
-                            </div>
-                          )}
+                            </p>
+
+                            {hasVip3xPrice && (
+                              <span
+                                style={{
+                                  display: 'block',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: subtext,
+                                  marginTop: 2
+                                }}
+                              >
+                                ou 3x de{' '}
+                                {(
+                                  Number(vip3xVal) / 3
+                                ).toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                })}{' '}
+                                (VIP 3x:{' '}
+                                {Number(
+                                  vip3xVal
+                                ).toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                })}
+                                )
+                              </span>
+                            )}
+
+                          </div>
+
+                        ) : (
+
+                          <p
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 900,
+                              margin: 0,
+                              color: text
+                            }}
+                          >
+                            {Number(
+                              p.price || 0
+                            ).toLocaleString(
+                              'pt-BR',
+                              {
+                                style:
+                                  'currency',
+                                currency:
+                                  'BRL'
+                              }
+                            )}
+                          </p>
+
+                        )
+
+                      ) : (
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems:
+                              'center',
+                            gap: 6,
+                            color: subtext
+                          }}
+                        >
+                          <EyeOff size={14} />
+
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700
+                            }}
+                          >
+                            Valor oculto
+                          </span>
                         </div>
-                      </div>
+
+                      )}
+
                     </div>
 
-                    {/* =================================================
-                        BOTÃO ADICIONAR
-                        ================================================= */}
-
-                    <div
+                    <button
+                      onClick={() =>
+                        addToCart(p)
+                      }
                       style={{
                         padding:
-                          '0 14px 14px'
+                          '7px 12px',
+                        border: 0,
+                        borderRadius: 10,
+                        background: accent,
+                        color: '#fff',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer'
                       }}
                     >
-                      <button
-                        onClick={() =>
-                          addToCart(
-                            product
-                          )
-                        }
-                        style={{
-                          width: '100%',
-                          padding:
-                            '9px 12px',
-                          border: 0,
-                          borderRadius: 10,
-                          background:
-                            accent,
-                          color: '#fff',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Adicionar
-                      </button>
-                    </div>
+                      Adicionar
+                    </button>
+
                   </div>
-                );
-              }
-            )}
+
+                </div>
+              );
+            })}
+
           </div>
+
         )}
+
       </div>
 
       {/* ==========================================================
@@ -1746,6 +1551,7 @@ export default function Catalogo({
           ========================================================== */}
 
       {isCartOpen && (
+
         <div
           style={{
             position: 'fixed',
@@ -1754,6 +1560,7 @@ export default function Catalogo({
             overflow: 'hidden'
           }}
         >
+
           <div
             style={{
               position: 'absolute',
@@ -1779,10 +1586,10 @@ export default function Catalogo({
               paddingLeft: 30
             }}
           >
+
             <div
               style={{
                 width: 380,
-                maxWidth: '100vw',
                 background: card,
                 borderLeft:
                   `1px solid ${border}`,
@@ -1793,9 +1600,8 @@ export default function Catalogo({
                   'column'
               }}
             >
-              {/* ==================================================
-                  CABEÇALHO DO CARRINHO
-                  ================================================== */}
+
+              {/* CABEÇALHO */}
 
               <div
                 style={{
@@ -1809,6 +1615,7 @@ export default function Catalogo({
                     'space-between'
                 }}
               >
+
                 <h4
                   style={{
                     margin: 0,
@@ -1836,17 +1643,17 @@ export default function Catalogo({
                     background:
                       'transparent',
                     border: 0,
-                    cursor: 'pointer',
+                    cursor:
+                      'pointer',
                     color: subtext
                   }}
                 >
                   <X size={18} />
                 </button>
+
               </div>
 
-              {/* ==================================================
-                  ITENS DO CARRINHO
-                  ================================================== */}
+              {/* ITENS */}
 
               <div
                 style={{
@@ -1859,14 +1666,17 @@ export default function Catalogo({
                   gap: 12
                 }}
               >
+
                 {cart.length === 0 ? (
+
                   <div
                     style={{
                       textAlign:
                         'center',
                       padding:
                         '48px 0',
-                      color: subtext
+                      color:
+                        subtext
                     }}
                   >
                     <ShoppingBag
@@ -1887,25 +1697,33 @@ export default function Catalogo({
                       O carrinho está vazio
                     </p>
                   </div>
+
                 ) : (
+
                   cart.map(item => {
-                    const vipPrice =
-                      getVipPrice(
-                        item.product
-                      );
+
+                    const vipVal =
+                      item.product
+                        .vip_price !==
+                      undefined
+                        ? item.product
+                            .vip_price
+                        : item.product
+                            .vipPrice;
 
                     const price =
                       isVipUnlocked &&
-                      vipPrice !==
+                      vipVal !== null &&
+                      vipVal !==
                         undefined &&
-                      vipPrice !== null &&
-                      Number(vipPrice) >
+                      Number(vipVal) >
                         0
-                        ? vipPrice
+                        ? vipVal
                         : item.product
                             .price;
 
                     return (
+
                       <div
                         key={
                           item.product
@@ -1927,6 +1745,7 @@ export default function Catalogo({
                             `1px solid ${border}`
                         }}
                       >
+
                         <div
                           style={{
                             flex: 1,
@@ -1934,67 +1753,88 @@ export default function Catalogo({
                               10
                           }}
                         >
-                          <span
-                            style={{
-                              fontSize: 13,
-                              fontWeight:
-                                800,
-                              display:
-                                'block',
-                              lineHeight:
-                                1.2
-                            }}
-                          >
-                            {
-                              item.product
-                                .name
-                            }
-                          </span>
 
                           {isCatalogVisible ? (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color:
-                                  accent,
-                                fontWeight:
-                                  700,
-                                marginTop:
-                                  2,
-                                display:
-                                  'block'
-                              }}
-                            >
-                              {Number(
-                                price || 0
-                              ).toLocaleString(
-                                'pt-BR',
+
+                            <>
+                              <span
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight:
+                                    800,
+                                  display:
+                                    'block',
+                                  lineHeight:
+                                    1.2
+                                }}
+                              >
                                 {
-                                  style:
-                                    'currency',
-                                  currency:
-                                    'BRL'
+                                  item
+                                    .product
+                                    .name
                                 }
-                              )}{' '}
-                              un
-                            </span>
+                              </span>
+
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color:
+                                    accent,
+                                  fontWeight:
+                                    700,
+                                  marginTop:
+                                    2,
+                                  display:
+                                    'block'
+                                }}
+                              >
+                                {Number(
+                                  price ||
+                                    0
+                                ).toLocaleString(
+                                  'pt-BR',
+                                  {
+                                    style:
+                                      'currency',
+                                    currency:
+                                      'BRL'
+                                  }
+                                )}{' '}
+                                un
+                              </span>
+                            </>
+
                           ) : (
-                            <span
+
+                            <div
                               style={{
-                                fontSize: 11,
-                                color:
-                                  subtext,
-                                fontWeight:
-                                  700,
-                                marginTop:
-                                  3,
                                 display:
-                                  'block'
+                                  'flex',
+                                alignItems:
+                                  'center',
+                                gap: 7,
+                                color:
+                                  subtext
                               }}
                             >
-                              Preço não exibido
-                            </span>
+                              <EyeOff
+                                size={14}
+                              />
+
+                              <span
+                                style={{
+                                  fontSize:
+                                    11,
+                                  fontWeight:
+                                    700
+                                }}
+                              >
+                                Produto e valor ocultos
+                              </span>
+                            </div>
+
                           )}
+
                         </div>
 
                         {/* CONTROLE DE QUANTIDADE */}
@@ -2008,11 +1848,11 @@ export default function Catalogo({
                             gap: 8
                           }}
                         >
+
                           <button
                             onClick={() =>
                               updateQuantity(
-                                item.product
-                                  .id,
+                                item.product.id,
                                 -1
                               )
                             }
@@ -2060,8 +1900,7 @@ export default function Catalogo({
                           <button
                             onClick={() =>
                               updateQuantity(
-                                item.product
-                                  .id,
+                                item.product.id,
                                 1
                               )
                             }
@@ -2090,18 +1929,24 @@ export default function Catalogo({
                               size={12}
                             />
                           </button>
+
                         </div>
+
                       </div>
+
                     );
                   })
+
                 )}
+
               </div>
 
-              {/* ==================================================
+              {/* ====================================================
                   RODAPÉ DO CARRINHO
-                  ================================================== */}
+                  ==================================================== */}
 
               {cart.length > 0 && (
+
                 <div
                   style={{
                     padding: 18,
@@ -2111,6 +1956,7 @@ export default function Catalogo({
                       'rgba(0,0,0,0.01)'
                   }}
                 >
+
                   <div
                     style={{
                       display: 'flex',
@@ -2121,17 +1967,21 @@ export default function Catalogo({
                       marginBottom: 14
                     }}
                   >
+
                     <span
                       style={{
                         fontSize: 13,
-                        color: subtext,
-                        fontWeight: 700
+                        color:
+                          subtext,
+                        fontWeight:
+                          700
                       }}
                     >
                       Total do Pedido:
                     </span>
 
                     {isCatalogVisible ? (
+
                       <span
                         style={{
                           fontSize: 18,
@@ -2149,7 +1999,9 @@ export default function Catalogo({
                           }
                         )}
                       </span>
+
                     ) : (
+
                       <span
                         style={{
                           display:
@@ -2170,7 +2022,9 @@ export default function Catalogo({
 
                         Total oculto
                       </span>
+
                     )}
+
                   </div>
 
                   <button
@@ -2183,16 +2037,20 @@ export default function Catalogo({
                         '#22c55e',
                       color: '#fff',
                       border: 0,
-                      borderRadius: 12,
+                      borderRadius:
+                        12,
                       padding: 14,
-                      fontWeight: 800,
-                      display: 'flex',
+                      fontWeight:
+                        800,
+                      display:
+                        'flex',
                       alignItems:
                         'center',
                       justifyContent:
                         'center',
                       gap: 8,
-                      cursor: 'pointer',
+                      cursor:
+                        'pointer',
                       fontSize: 14
                     }}
                   >
@@ -2202,11 +2060,17 @@ export default function Catalogo({
 
                     Finalizar Pedido via WhatsApp
                   </button>
+
                 </div>
+
               )}
+
             </div>
+
           </div>
+
         </div>
+
       )}
 
       {/* ==========================================================
@@ -2214,13 +2078,15 @@ export default function Catalogo({
           ========================================================== */}
 
       {showVipModal && (
+
         <div
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: 50,
             display: 'flex',
-            alignItems: 'center',
+            alignItems:
+              'center',
             justifyContent:
               'center',
             padding: 16,
@@ -2230,6 +2096,7 @@ export default function Catalogo({
               'blur(2px)'
           }}
         >
+
           <div
             style={{
               background: card,
@@ -2243,14 +2110,15 @@ export default function Catalogo({
                 '0 15px 35px rgba(0,0,0,0.1)'
             }}
           >
-            {/* CABEÇALHO DO MODAL */}
 
             <div
               style={{
-                textAlign: 'center',
+                textAlign:
+                  'center',
                 marginBottom: 16
               }}
             >
+
               <div
                 style={{
                   width: 44,
@@ -2258,14 +2126,16 @@ export default function Catalogo({
                   background:
                     '#f59e0b15',
                   borderRadius: 12,
-                  display: 'flex',
+                  display:
+                    'flex',
                   alignItems:
                     'center',
                   justifyContent:
                     'center',
                   margin:
                     '0 auto 10px auto',
-                  color: '#f59e0b'
+                  color:
+                    '#f59e0b'
                 }}
               >
                 <Lock size={22} />
@@ -2292,9 +2162,8 @@ export default function Catalogo({
               >
                 Digite a senha fornecida pelo lojista para revelar os preços promocionais exclusivos.
               </p>
-            </div>
 
-            {/* CAMPO DE SENHA */}
+            </div>
 
             <input
               type="password"
@@ -2302,19 +2171,11 @@ export default function Catalogo({
               value={
                 vipPasswordInput
               }
-              onChange={event =>
+              onChange={e =>
                 setVipPasswordInput(
-                  event.target.value
+                  e.target.value
                 )
               }
-              onKeyDown={event => {
-                if (
-                  event.key ===
-                  'Enter'
-                ) {
-                  handleVipUnlock();
-                }
-              }}
               style={{
                 width: '100%',
                 boxSizing:
@@ -2333,27 +2194,25 @@ export default function Catalogo({
               }}
             />
 
-            {/* BOTÕES */}
-
             <div
               style={{
-                display: 'flex',
+                display:
+                  'flex',
                 gap: 10
               }}
             >
+
               <button
                 onClick={() => {
                   setShowVipModal(
                     false
                   );
-                  setVipPasswordInput(
-                    ''
-                  );
                 }}
                 style={{
                   flex: 1,
                   padding: 10,
-                  borderRadius: 10,
+                  borderRadius:
+                    10,
                   border:
                     `1px solid ${border}`,
                   background:
@@ -2361,36 +2220,69 @@ export default function Catalogo({
                   color: text,
                   fontSize: 12,
                   fontWeight: 700,
-                  cursor: 'pointer'
+                  cursor:
+                    'pointer'
                 }}
               >
                 Cancelar
               </button>
 
               <button
-                onClick={
-                  handleVipUnlock
-                }
+                onClick={() => {
+
+                  if (
+                    vipPasswordInput
+                      .trim()
+                      .length > 0
+                  ) {
+
+                    setIsVipUnlocked(
+                      true
+                    );
+
+                    setShowVipModal(
+                      false
+                    );
+
+                    setVipPasswordInput(
+                      ''
+                    );
+
+                  } else {
+
+                    alert(
+                      'Insira uma senha válida.'
+                    );
+
+                  }
+
+                }}
                 style={{
                   flex: 1,
                   padding: 10,
-                  borderRadius: 10,
+                  borderRadius:
+                    10,
                   border: 0,
                   background:
                     '#f59e0b',
                   color: '#fff',
                   fontSize: 12,
                   fontWeight: 800,
-                  cursor: 'pointer'
+                  cursor:
+                    'pointer'
                 }}
               >
                 Desbloquear
               </button>
+
             </div>
+
           </div>
+
         </div>
+
       )}
+
     </div>
   );
 }
-

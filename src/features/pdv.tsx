@@ -116,6 +116,27 @@ export function PDV({
       return DEFAULT_SALE_WHATSAPP_MESSAGE;
     }
   });
+
+  // Número de WhatsApp do próprio usuário/loja, persistido por login no backend.
+  const getSaleWhatsappPhoneStorageKey = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
+      const userId = user.id || localStorage.getItem("userId") || "guest";
+      return `byse_pdv_sale_whatsapp_phone_${userId}`;
+    } catch {
+      return "byse_pdv_sale_whatsapp_phone_guest";
+    }
+  };
+
+  const [saleWhatsappPhone, setSaleWhatsappPhone] = useState(() => {
+    try {
+      return localStorage.getItem(getSaleWhatsappPhoneStorageKey()) || "";
+    } catch {
+      return "";
+    }
+  });
+  const [savingWhatsappPhone, setSavingWhatsappPhone] = useState(false);
+  const [whatsappPhoneSaveStatus, setWhatsappPhoneSaveStatus] = useState("");
   const [activeReminderButton, setActiveReminderButton] = useState(false);
 
   useEffect(() => {
@@ -176,6 +197,13 @@ export function PDV({
           } catch {}
         }
 
+        if (typeof data.saleWhatsappPhone === "string") {
+          setSaleWhatsappPhone(data.saleWhatsappPhone);
+          try {
+            localStorage.setItem(getSaleWhatsappPhoneStorageKey(), data.saleWhatsappPhone);
+          } catch {}
+        }
+
         if (data.activeReminderButton !== undefined)
           setActiveReminderButton(Boolean(data.activeReminderButton));
       }
@@ -215,6 +243,7 @@ export function PDV({
         cashbackValidityDays,
         cashbackMessage,
         saleWhatsappMessage,
+        saleWhatsappPhone,
         activeReminderButton,
         ...updatedSettings,
       };
@@ -248,6 +277,24 @@ export function PDV({
   const handleSaleWhatsappMessageBlur = async () => {
     // O blur grava a edição completa no banco.
     await saveUserSettings({ saleWhatsappMessage });
+  };
+
+  const handleSaleWhatsappPhoneChange = (value) => {
+    // Permite digitar número nacional com DDD, com ou sem +55.
+    const cleaned = value.replace(/[^\d+()\s-]/g, "");
+    setSaleWhatsappPhone(cleaned);
+    setWhatsappPhoneSaveStatus("");
+    try {
+      localStorage.setItem(getSaleWhatsappPhoneStorageKey(), cleaned);
+    } catch {}
+  };
+
+  const handleSaleWhatsappPhoneBlur = async () => {
+    setSavingWhatsappPhone(true);
+    setWhatsappPhoneSaveStatus("");
+    const ok = await saveUserSettings({ saleWhatsappPhone });
+    setSavingWhatsappPhone(false);
+    setWhatsappPhoneSaveStatus(ok ? "Número salvo para este login." : "Não foi possível salvar no servidor. Tente novamente.");
   };
 
   const availableStockLocations =
@@ -629,49 +676,45 @@ export function PDV({
 
       setLastCompletedSale(newSale);
 
-      if (selectedCustomer && selectedCustomer.phone) {
-        const telefoneLimpo = selectedCustomer.phone.replace(/\D/g, "");
+      // A notificação da venda é direcionada ao WhatsApp cadastrado pelo usuário
+      // desta loja, e não ao telefone do cliente. O número é salvo por login no backend.
+      const whatsappDigits = String(saleWhatsappPhone || "").replace(/\D/g, "");
+      if (whatsappDigits.length >= 10) {
+        const destinationPhone = whatsappDigits.startsWith("55")
+          ? whatsappDigits
+          : `55${whatsappDigits}`;
 
-        if (telefoneLimpo.length >= 10) {
-          const nomeCliente = selectedCustomer.name || "Cliente";
+        const nomeCliente = selectedCustomer?.name || "Cliente Geral";
+        const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+        const vencimentoFormatado = new Date(
+          Date.now() + Number(cashbackValidityDays || 30) * 86400000,
+        ).toLocaleDateString("pt-BR");
 
-          const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString(
-            "pt-BR",
-            {
+        const mensagemBase =
+          typeof saleWhatsappMessage === "string"
+            ? saleWhatsappMessage
+            : cashbackMessage;
+
+        const mensagemPronta = mensagemBase
+          .replace(/{nome}/g, nomeCliente)
+          .replace(/{saldo}/g, cashbackGanhoFormatado)
+          .replace(/{cashback}/g, cashbackGanhoFormatado)
+          .replace(/{vencimento}/g, vencimentoFormatado)
+          .replace(
+            /{total}/g,
+            total.toLocaleString("pt-BR", {
               style: "currency",
               currency: "BRL",
-            },
+            }),
           );
 
-          const vencimentoFormatado = new Date(
-            Date.now() + Number(cashbackValidityDays || 30) * 86400000,
-          ).toLocaleDateString("pt-BR");
-
-          const mensagemBase =
-            typeof saleWhatsappMessage === "string"
-              ? saleWhatsappMessage
-              : cashbackMessage;
-
-          const mensagemPronta = mensagemBase
-            .replace(/{nome}/g, nomeCliente)
-            .replace(/{saldo}/g, cashbackGanhoFormatado)
-            .replace(/{cashback}/g, cashbackGanhoFormatado)
-            .replace(/{vencimento}/g, vencimentoFormatado)
-            .replace(
-              /{total}/g,
-              total.toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-              }),
-            );
-
-          window.open(
-            `https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(
-              mensagemPronta,
-            )}`,
-            "_blank",
-          );
-        }
+        window.open(
+          `https://wa.me/${destinationPhone}?text=${encodeURIComponent(mensagemPronta)}`,
+          "_blank",
+        );
       }
 
       alert(
@@ -992,6 +1035,36 @@ export function PDV({
                   borderRadius: 10,
                 }}
               >
+                <label style={lbl(subtext)}>
+                  SEU NÚMERO DE WHATSAPP PARA NOTIFICAÇÕES DE VENDAS
+                </label>
+                <input
+                  type="tel"
+                  value={saleWhatsappPhone}
+                  onChange={(e) => handleSaleWhatsappPhoneChange(e.target.value)}
+                  onBlur={handleSaleWhatsappPhoneBlur}
+                  placeholder="Ex.: (83) 99999-9999 ou +55 83 99999-9999"
+                  autoComplete="tel"
+                  style={{
+                    ...inputStyle(border, text),
+                    width: "100%",
+                    marginTop: 8,
+                    marginBottom: 6,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div style={{ color: subtext, fontSize: 11, lineHeight: 1.4 }}>
+                  Informe o número do WhatsApp que receberá a mensagem quando uma venda for finalizada. O número fica salvo por login e pode ser alterado a qualquer momento.
+                </div>
+                {whatsappPhoneSaveStatus && (
+                  <div role="status" style={{ color: whatsappPhoneSaveStatus.startsWith("Número salvo") ? "#16a34a" : "#dc2626", fontSize: 11, marginTop: 5 }}>
+                    {whatsappPhoneSaveStatus}
+                  </div>
+                )}
+                {savingWhatsappPhone && (
+                  <div style={{ color: subtext, fontSize: 11, marginTop: 5 }}>Salvando número...</div>
+                )}
+                <div style={{ height: 1, background: border, margin: "14px 0" }} />
                 <label style={lbl(subtext)}>
                   MENSAGEM ENVIADA PELO WHATSAPP AO FINALIZAR A VENDA
                 </label>
