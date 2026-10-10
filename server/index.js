@@ -1,62 +1,82 @@
 // @ts-nocheck
-import express from 'express';
-import cors from 'cors';
-import cron from 'node-cron';
-import crypto from 'crypto';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import QRCode from 'qrcode';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import 'dotenv/config';
-import { pool, initDb } from './db.js';
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import express from "express";
+import cors from "cors";
+import cron from "node-cron";
+import crypto from "crypto";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import QRCode from "qrcode";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import "dotenv/config";
+import { pool, initDb } from "./db.js";
+import makeWASocket, {
+  DisconnectReason,
+  useMultiFileAuthState,
+} from "@whiskeysockets/baileys";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT || 3333);
 const JWT_SECRET = process.env.JWT_SECRET;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://byse-pro-finale-kappa.vercel.app';
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://byse-pro-finale-kappa.vercel.app";
 
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
-  throw new Error('JWT_SECRET deve existir e ter pelo menos 32 caracteres.');
+  throw new Error("JWT_SECRET deve existir e ter pelo menos 32 caracteres.");
 }
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3333',
-  'https://byse-pro-finale-kappa.vercel.app',
-  process.env.FRONTEND_URL
-].filter(Boolean);
+  "https://byse-pro-finale-kappa.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3333",
+  ...(process.env.FRONTEND_URL
+    ? [process.env.FRONTEND_URL.replace(/\/$/, "")]
+    : []),
+];
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || origin.startsWith('http://localhost:') || origin.endsWith('.vercel.app') || origin.endsWith('.up.railway.app') || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true);
+    // Permite chamadas sem Origin, como ferramentas de servidor.
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+
+    console.warn(`[CORS] Origem não autorizada: ${origin}`);
+    return callback(new Error("Origem não autorizada pelo CORS"));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'X-User-Id']
-}));
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "x-user-id",
+  ],
+  optionsSuccessStatus: 204,
+  maxAge: 86400,
+};
 
-app.options('*', cors());
+// O CORS precisa vir antes dos parsers e de todas as rotas.
+app.use(cors(corsOptions));
+
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 const sessions = new Map();
-const authRoot = path.resolve(__dirname, '../whatsapp-sessions');
+const authRoot = path.resolve(__dirname, "../whatsapp-sessions");
 fs.mkdirSync(authRoot, { recursive: true });
 
 const json = (value, fallback) => {
   if (value == null) return fallback;
-  if (typeof value === 'object') return value;
-  try { return JSON.parse(value); } catch { return fallback; }
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 };
 
 const calculateDaysCounter = (createdAt, vencimentoDia01) => {
@@ -71,7 +91,7 @@ const calculateDaysCounter = (createdAt, vencimentoDia01) => {
 const normalizeCustomer = (c) => {
   const createdAtDate = c.created_at ? new Date(c.created_at) : new Date();
   const year = createdAtDate.getFullYear();
-  const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
+  const month = String(createdAtDate.getMonth() + 1).padStart(2, "0");
   const fixedVencimento = `${year}-${month}-01`;
   const diasContador = calculateDaysCounter(c.created_at, fixedVencimento);
 
@@ -79,33 +99,41 @@ const normalizeCustomer = (c) => {
     id: c.id,
     name: c.name,
     phone: c.phone,
-    cpf: c.cpf || '',
-    birthDate: c.data_aniversario || '',
+    cpf: c.cpf || "",
+    birthDate: c.data_aniversario || "",
     cashback: Number(c.cashback || 0),
-    cashbackExpirationDate: c.cashback_expiration_date || c.cashback_expiry || null,
-    cashback_expiration_date: c.cashback_expiration_date || c.cashback_expiry || null,
+    cashbackExpirationDate:
+      c.cashback_expiration_date || c.cashback_expiry || null,
+    cashback_expiration_date:
+      c.cashback_expiration_date || c.cashback_expiry || null,
     cashbackLost: Number(c.cashback_lost || 0),
-    status: c.status || 'Ativo',
+    status: c.status || "Ativo",
     whatsappOptIn: Boolean(c.whatsapp_opt_in),
     remindersEnabled: c.reminders_enabled !== 0,
-    statusMensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
-    status_mensalidade: c.status_mensalidade || 'Pendente (Não Pago)',
+    statusMensalidade: c.status_mensalidade || "Pendente (Não Pago)",
+    status_mensalidade: c.status_mensalidade || "Pendente (Não Pago)",
     dataVencimento: fixedVencimento,
     data_vencimento: fixedVencimento,
     diasContadorVencimento: diasContador,
     valorMensalidade: Number(c.valor_mensalidade || 0),
     valor_mensalidade: Number(c.valor_mensalidade || 0),
-    preTreinoTipo: c.pre_treino_tipo || 'avulso',
-    preTreinoInicio: c.pre_treino_inicio || '',
-    preTreinoFim: c.pre_treino_fim || '',
-    preTreinoValorAvulso: Number(c.pre_treino_valor_avulso || 0)
+    preTreinoTipo: c.pre_treino_tipo || "avulso",
+    preTreinoInicio: c.pre_treino_inicio || "",
+    preTreinoFim: c.pre_treino_fim || "",
+    preTreinoValorAvulso: Number(c.pre_treino_valor_avulso || 0),
   };
 };
 
 const normalizeProduct = (p) => {
-  const controlStockVal = p.control_stock !== undefined ? p.control_stock : (p.controlStock !== undefined ? p.controlStock : true);
+  const controlStockVal =
+    p.control_stock !== undefined
+      ? p.control_stock
+      : p.controlStock !== undefined
+        ? p.controlStock
+        : true;
   const vipPriceVal = p.vip_price !== undefined ? p.vip_price : p.vipPrice;
-  const vipPrice3xVal = p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
+  const vipPrice3xVal =
+    p.vip_price_3x !== undefined ? p.vip_price_3x : p.vipPrice3x;
   const imageUrlVal = p.image_url || p.imageUrl || null;
 
   return {
@@ -123,50 +151,46 @@ const normalizeProduct = (p) => {
     imageUrl: imageUrlVal,
     image_url: imageUrlVal,
     stocks: json(p.stocks, {}),
-    variations: json(p.variations, [])
+    variations: json(p.variations, []),
   };
 };
 
 const signToken = (user) =>
-  jwt.sign(
-    { sub: user.id, email: user.email },
-    JWT_SECRET,
-    { expiresIn: '7d', issuer: 'byse-pro' }
-  );
+  jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, {
+    expiresIn: "7d",
+    issuer: "byse-pro",
+  });
 
 function authMiddleware(req, res, next) {
-  const raw = req.headers.authorization || '';
-  const token = raw.startsWith('Bearer ') ? raw.slice(7) : '';
+  const raw = req.headers.authorization || "";
+  const token = raw.startsWith("Bearer ") ? raw.slice(7) : "";
 
   if (!token)
-    return res.status(401).json({ error: 'Usuário não autenticado.' });
+    return res.status(401).json({ error: "Usuário não autenticado." });
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET, { issuer: 'byse-pro' });
+    const payload = jwt.verify(token, JWT_SECRET, { issuer: "byse-pro" });
     req.user = {
       id: String(payload.sub),
-      email: payload.email
+      email: payload.email,
     };
     return next();
   } catch {
     return res.status(401).json({
-      error: 'Sessão expirada ou token inválido.'
+      error: "Sessão expirada ou token inválido.",
     });
   }
 }
 
 async function userExists(userId) {
-  const r = await pool.query(
-    'SELECT id FROM users WHERE id = $1',
-    [userId]
-  );
+  const r = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
   return r.rows.length > 0;
 }
 
-app.get('/api/health', async (_req, res) => {
+app.get("/api/health", async (_req, res) => {
   try {
-    await pool.query('SELECT 1');
-    res.json({ ok: true, service: 'byse-pro-api' });
+    await pool.query("SELECT 1");
+    res.json({ ok: true, service: "byse-pro-api" });
   } catch {
     res.status(503).json({ ok: false });
   }
@@ -176,135 +200,127 @@ app.get('/api/health', async (_req, res) => {
 // AUTENTICAÇÃO
 // ==========================================
 
-app.post('/api/register', async (req, res) => {
+app.post("/api/register", async (req, res) => {
   try {
-    const name = String(req.body.name || '').trim();
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
+    const name = String(req.body.name || "").trim();
+    const email = String(req.body.email || "")
+      .trim()
+      .toLowerCase();
+    const password = String(req.body.password || "");
 
-    if (!name || !email.includes('@') || password.length < 6)
+    if (!name || !email.includes("@") || password.length < 6)
       return res.status(400).json({
-        error: 'Informe nome, e-mail válido e senha com pelo menos 6 caracteres.'
+        error:
+          "Informe nome, e-mail válido e senha com pelo menos 6 caracteres.",
       });
 
-    const exists = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email]
-    );
+    const exists = await pool.query("SELECT id FROM users WHERE email = $1", [
+      email,
+    ]);
 
     if (exists.rows.length)
       return res.status(409).json({
-        error: 'Este e-mail já está cadastrado.'
+        error: "Este e-mail já está cadastrado.",
       });
 
     const id = crypto.randomUUID();
     const hash = await bcrypt.hash(password, 12);
 
     await pool.query(
-      'INSERT INTO users (id,name,email,password) VALUES ($1,$2,$3,$4)',
-      [id, name, email, hash]
+      "INSERT INTO users (id,name,email,password) VALUES ($1,$2,$3,$4)",
+      [id, name, email, hash],
     );
 
     const user = { id, name, email };
 
     res.status(201).json({
       token: signToken(user),
-      user
+      user,
     });
   } catch (e) {
     console.error(e);
     res.status(500).json({
-      error: 'Erro ao criar usuário.'
+      error: "Erro ao criar usuário.",
     });
   }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post("/api/login", async (req, res) => {
   try {
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
+    const email = String(req.body.email || "")
+      .trim()
+      .toLowerCase();
+    const password = String(req.body.password || "");
 
     if (!email || !password)
       return res.status(400).json({
-        error: 'E-mail e senha são obrigatórios.'
+        error: "E-mail e senha são obrigatórios.",
       });
 
     const r = await pool.query(
-      'SELECT id,name,email,password FROM users WHERE email = $1',
-      [email]
+      "SELECT id,name,email,password FROM users WHERE email = $1",
+      [email],
     );
 
     if (!r.rows.length)
       return res.status(401).json({
-        error: 'E-mail ou senha inválidos.'
+        error: "E-mail ou senha inválidos.",
       });
 
-    const valid = await bcrypt.compare(
-      password,
-      r.rows[0].password
-    );
+    const valid = await bcrypt.compare(password, r.rows[0].password);
 
     if (!valid)
       return res.status(401).json({
-        error: 'E-mail ou senha inválidos.'
+        error: "E-mail ou senha inválidos.",
       });
 
     const user = {
       id: r.rows[0].id,
       name: r.rows[0].name,
-      email: r.rows[0].email
+      email: r.rows[0].email,
     };
 
     res.json({
       token: signToken(user),
-      user
+      user,
     });
   } catch (e) {
-    console.error('[LOGIN]', e);
+    console.error("[LOGIN]", e);
     res.status(500).json({
-      error: 'Erro interno no servidor.'
+      error: "Erro interno no servidor.",
     });
   }
 });
 
-app.get('/api/me', authMiddleware, async (req, res) => {
-  const r = await pool.query(
-    'SELECT id,name,email FROM users WHERE id = $1',
-    [req.user.id]
-  );
+app.get("/api/me", authMiddleware, async (req, res) => {
+  const r = await pool.query("SELECT id,name,email FROM users WHERE id = $1", [
+    req.user.id,
+  ]);
 
   if (!r.rows.length)
     return res.status(401).json({
-      error: 'Usuário não encontrado.'
+      error: "Usuário não encontrado.",
     });
 
   res.json(r.rows[0]);
 });
 
-app.get('/api/app-state/:key', authMiddleware, async (req, res) => {
+app.get("/api/app-state/:key", authMiddleware, async (req, res) => {
   const r = await pool.query(
-    'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
-    [req.user.id, req.params.key]
+    "SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2",
+    [req.user.id, req.params.key],
   );
 
-  res.json(
-    r.rows[0]
-      ? json(r.rows[0].state, {})
-      : {}
-  );
+  res.json(r.rows[0] ? json(r.rows[0].state, {}) : {});
 });
 
-app.put('/api/app-state/:key', authMiddleware, async (req, res) => {
+app.put("/api/app-state/:key", authMiddleware, async (req, res) => {
   await pool.query(
     `INSERT INTO user_app_states(user_id,state_key,state,updated_at)
      VALUES($1,$2,$3,NOW())
      ON CONFLICT(user_id,state_key)
      DO UPDATE SET state=EXCLUDED.state,updated_at=NOW()`,
-    [
-      req.user.id,
-      req.params.key,
-      JSON.stringify(req.body ?? {})
-    ]
+    [req.user.id, req.params.key, JSON.stringify(req.body ?? {})],
   );
 
   res.json({ success: true });
@@ -314,116 +330,96 @@ app.put('/api/app-state/:key', authMiddleware, async (req, res) => {
 // CATÁLOGO PÚBLICO
 // ==========================================
 
-app.get('/api/public/catalogo/:userId', async (req, res) => {
+app.get("/api/public/catalogo/:userId", async (req, res) => {
   const userId = String(req.params.userId);
 
   if (!(await userExists(userId)))
     return res.status(404).json({
-      error: 'Loja não encontrada.'
+      error: "Loja não encontrada.",
     });
 
-  const u = await pool.query(
-    'SELECT id,name FROM users WHERE id=$1',
-    [userId]
-  );
+  const u = await pool.query("SELECT id,name FROM users WHERE id=$1", [userId]);
 
-  const isVipQuery = req.query.vip === 'true';
+  const isVipQuery = req.query.vip === "true";
   let isVipTokenValid = false;
 
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ')
-    ? authHeader.slice(7)
-    : '';
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
   if (token) {
     try {
-      const payload = jwt.verify(
-        token,
-        JWT_SECRET,
-        { issuer: 'byse-pro-catalog' }
-      );
+      const payload = jwt.verify(token, JWT_SECRET, {
+        issuer: "byse-pro-catalog",
+      });
 
       if (
         payload &&
         String(payload.sub) === userId &&
-        payload.scope === 'catalog-vip'
+        payload.scope === "catalog-vip"
       ) {
         isVipTokenValid = true;
       }
     } catch (err) {
-      console.error(
-        '[VIP TOKEN ERROR]',
-        err.message
-      );
+      console.error("[VIP TOKEN ERROR]", err.message);
     }
   }
 
   const isVip = isVipQuery || isVipTokenValid;
 
   const products = await pool.query(
-    'SELECT * FROM products WHERE user_id=$1 ORDER BY name',
-    [userId]
+    "SELECT * FROM products WHERE user_id=$1 ORDER BY name",
+    [userId],
   );
 
   const state = await pool.query(
-    'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
-    [userId, 'catalogo']
+    "SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2",
+    [userId, "catalogo"],
   );
 
-  const cfg = json(
-    state.rows[0]?.state,
-    {}
-  );
+  const cfg = json(state.rows[0]?.state, {});
 
   const vipUser = await pool.query(
-    'SELECT vip_catalog_password_hash FROM users WHERE id=$1',
-    [userId]
+    "SELECT vip_catalog_password_hash FROM users WHERE id=$1",
+    [userId],
   );
 
   res.json({
-    storeName: u.rows[0]?.name || 'Loja',
-    whatsapp: cfg.whatsapp || '',
-    address: cfg.address || '',
-    instagram: cfg.instagram || '',
-    bannerUrl: cfg.bannerUrl || '',
+    storeName: u.rows[0]?.name || "Loja",
+    whatsapp: cfg.whatsapp || "",
+    address: cfg.address || "",
+    instagram: cfg.instagram || "",
+    bannerUrl: cfg.bannerUrl || "",
     catalogVisible:
-      cfg.catalogVisible !== undefined
-        ? Boolean(cfg.catalogVisible)
-        : true,
+      cfg.catalogVisible !== undefined ? Boolean(cfg.catalogVisible) : true,
     isVip,
     products: products.rows.map(normalizeProduct),
-    vipEnabled: Boolean(
-      vipUser.rows[0]?.vip_catalog_password_hash
-    )
+    vipEnabled: Boolean(vipUser.rows[0]?.vip_catalog_password_hash),
   });
 });
 
-app.post('/api/public/catalogo/:userId/vip/verify', async (req, res) => {
+app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
   const userId = String(req.params.userId);
-  const password = String(req.body.password || '');
+  const password = String(req.body.password || "");
 
   const r = await pool.query(
-    'SELECT vip_catalog_password_hash FROM users WHERE id=$1',
-    [userId]
+    "SELECT vip_catalog_password_hash FROM users WHERE id=$1",
+    [userId],
   );
 
-  if (
-    !r.rows.length ||
-    !r.rows[0].vip_catalog_password_hash
-  ) {
+  if (!r.rows.length || !r.rows[0].vip_catalog_password_hash) {
     return res.status(404).json({
-      error: 'Acesso VIP não configurado.'
+      error: "Acesso VIP não configurado.",
     });
   }
 
   const ok = await bcrypt.compare(
     password,
-    r.rows[0].vip_catalog_password_hash
+    r.rows[0].vip_catalog_password_hash,
   );
 
   if (!ok)
     return res.status(401).json({
-      error: 'Senha VIP inválida.'
+      error: "Senha VIP inválida.",
     });
 
   res.json({
@@ -431,44 +427,38 @@ app.post('/api/public/catalogo/:userId/vip/verify', async (req, res) => {
     accessToken: jwt.sign(
       {
         sub: userId,
-        scope: 'catalog-vip'
+        scope: "catalog-vip",
       },
       JWT_SECRET,
       {
-        expiresIn: '12h',
-        issuer: 'byse-pro-catalog'
-      }
-    )
+        expiresIn: "12h",
+        issuer: "byse-pro-catalog",
+      },
+    ),
   });
 });
 
-app.get('/api/catalogo/config', authMiddleware, async (req, res) => {
+app.get("/api/catalogo/config", authMiddleware, async (req, res) => {
   const r = await pool.query(
-    'SELECT vip_catalog_password_hash FROM users WHERE id=$1',
-    [req.user.id]
+    "SELECT vip_catalog_password_hash FROM users WHERE id=$1",
+    [req.user.id],
   );
 
   const state = await pool.query(
-    'SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2',
-    [req.user.id, 'catalogo']
+    "SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2",
+    [req.user.id, "catalogo"],
   );
 
-  const cfg = json(
-    state.rows[0]?.state,
-    {}
-  );
+  const cfg = json(state.rows[0]?.state, {});
 
   res.json({
     ...cfg,
-    vipConfigured: Boolean(
-      r.rows[0]?.vip_catalog_password_hash
-    ),
-    publicUrl:
-      `${FRONTEND_URL.replace(/\/$/, '')}/catalogo/${req.user.id}`
+    vipConfigured: Boolean(r.rows[0]?.vip_catalog_password_hash),
+    publicUrl: `${FRONTEND_URL.replace(/\/$/, "")}/catalogo/${req.user.id}`,
   });
 });
 
-app.put('/api/catalogo/config', authMiddleware, async (req, res) => {
+app.put("/api/catalogo/config", authMiddleware, async (req, res) => {
   const { vipPassword, ...cfg } = req.body || {};
 
   await pool.query(
@@ -476,36 +466,26 @@ app.put('/api/catalogo/config', authMiddleware, async (req, res) => {
      VALUES($1,'catalogo',$2,NOW())
      ON CONFLICT(user_id,state_key)
      DO UPDATE SET state=EXCLUDED.state,updated_at=NOW()`,
-    [
-      req.user.id,
-      JSON.stringify(cfg)
-    ]
+    [req.user.id, JSON.stringify(cfg)],
   );
 
   if (vipPassword !== undefined) {
     if (!String(vipPassword).trim()) {
       await pool.query(
-        'UPDATE users SET vip_catalog_password_hash=NULL WHERE id=$1',
-        [req.user.id]
+        "UPDATE users SET vip_catalog_password_hash=NULL WHERE id=$1",
+        [req.user.id],
       );
     } else {
       await pool.query(
-        'UPDATE users SET vip_catalog_password_hash=$1 WHERE id=$2',
-        [
-          await bcrypt.hash(
-            String(vipPassword),
-            12
-          ),
-          req.user.id
-        ]
+        "UPDATE users SET vip_catalog_password_hash=$1 WHERE id=$2",
+        [await bcrypt.hash(String(vipPassword), 12), req.user.id],
       );
     }
   }
 
   res.json({
     success: true,
-    publicUrl:
-      `${FRONTEND_URL.replace(/\/$/, '')}/catalogo/${req.user.id}`
+    publicUrl: `${FRONTEND_URL.replace(/\/$/, "")}/catalogo/${req.user.id}`,
   });
 });
 
@@ -516,17 +496,15 @@ app.put('/api/catalogo/config', authMiddleware, async (req, res) => {
 async function getCustomers(req, res) {
   try {
     const r = await pool.query(
-      'SELECT * FROM customers WHERE user_id=$1 ORDER BY created_at DESC',
-      [req.user.id]
+      "SELECT * FROM customers WHERE user_id=$1 ORDER BY created_at DESC",
+      [req.user.id],
     );
 
-    res.json(
-      r.rows.map(normalizeCustomer)
-    );
+    res.json(r.rows.map(normalizeCustomer));
   } catch (e) {
     console.error(e);
     res.status(500).json({
-      error: 'Erro ao buscar clientes.'
+      error: "Erro ao buscar clientes.",
     });
   }
 }
@@ -534,21 +512,15 @@ async function getCustomers(req, res) {
 async function saveCustomer(req, res) {
   try {
     const c = req.body || {};
-    const id =
-      c.id ||
-      `cli_${crypto.randomUUID()}`;
+    const id = c.id || `cli_${crypto.randomUUID()}`;
 
-    const name = String(
-      c.name || c.nome || ''
-    ).trim();
+    const name = String(c.name || c.nome || "").trim();
 
-    const phone = String(
-      c.phone || c.telefone || ''
-    ).trim();
+    const phone = String(c.phone || c.telefone || "").trim();
 
     if (!name || !phone)
       return res.status(400).json({
-        error: 'Nome e telefone são obrigatórios.'
+        error: "Nome e telefone são obrigatórios.",
       });
 
     const cashbackExp =
@@ -559,12 +531,9 @@ async function saveCustomer(req, res) {
 
     const currentDate = new Date();
     const year = currentDate.getFullYear();
-    const month = String(
-      currentDate.getMonth() + 1
-    ).padStart(2, '0');
+    const month = String(currentDate.getMonth() + 1).padStart(2, "0");
 
-    const fixedVencimento =
-      `${year}-${month}-01`;
+    const fixedVencimento = `${year}-${month}-01`;
 
     await pool.query(
       `INSERT INTO customers(
@@ -606,124 +575,63 @@ async function saveCustomer(req, res) {
         name,
         phone,
         c.cpf || null,
-        c.birthDate ||
-          c.data_aniversario ||
-          null,
+        c.birthDate || c.data_aniversario || null,
         Number(c.cashback || 0),
         cashbackExp,
-        Number(
-          c.cashbackLost ||
-          c.cashback_lost ||
-          0
-        ),
-        c.status || 'Ativo',
-        c.whatsappOptIn
-          ? 1
-          : Number(c.whatsapp_opt_in || 0),
-        c.remindersEnabled === false
-          ? 0
-          : 1,
-        c.statusMensalidade ||
-          c.status_mensalidade ||
-          'Pendente (Não Pago)',
+        Number(c.cashbackLost || c.cashback_lost || 0),
+        c.status || "Ativo",
+        c.whatsappOptIn ? 1 : Number(c.whatsapp_opt_in || 0),
+        c.remindersEnabled === false ? 0 : 1,
+        c.statusMensalidade || c.status_mensalidade || "Pendente (Não Pago)",
         fixedVencimento,
-        Number(
-          c.valorMensalidade ??
-          c.valor_mensalidade ??
-          0
-        ),
-        c.preTreinoTipo ||
-          c.pre_treino_tipo ||
-          'avulso',
-        c.preTreinoInicio ||
-          c.pre_treino_inicio ||
-          null,
-        c.preTreinoFim ||
-          c.pre_treino_fim ||
-          fixedVencimento,
-        Number(
-          c.preTreinoValorAvulso ??
-          c.pre_treino_valor_avulso ??
-          0
-        )
-      ]
+        Number(c.valorMensalidade ?? c.valor_mensalidade ?? 0),
+        c.preTreinoTipo || c.pre_treino_tipo || "avulso",
+        c.preTreinoInicio || c.pre_treino_inicio || null,
+        c.preTreinoFim || c.pre_treino_fim || fixedVencimento,
+        Number(c.preTreinoValorAvulso ?? c.pre_treino_valor_avulso ?? 0),
+      ],
     );
 
     const r = await pool.query(
-      'SELECT * FROM customers WHERE id=$1 AND user_id=$2',
-      [id, req.user.id]
+      "SELECT * FROM customers WHERE id=$1 AND user_id=$2",
+      [id, req.user.id],
     );
 
-    res.status(201).json(
-      normalizeCustomer(r.rows[0])
-    );
+    res.status(201).json(normalizeCustomer(r.rows[0]));
   } catch (e) {
-    console.error(
-      '[CUSTOMER]',
-      e
-    );
+    console.error("[CUSTOMER]", e);
 
     res.status(500).json({
-      error: 'Erro ao salvar cliente.'
+      error: "Erro ao salvar cliente.",
     });
   }
 }
 
-app.get(
-  '/api/customers',
-  authMiddleware,
-  getCustomers
-);
+app.get("/api/customers", authMiddleware, getCustomers);
 
-app.get(
-  '/api/clientes',
-  authMiddleware,
-  getCustomers
-);
+app.get("/api/clientes", authMiddleware, getCustomers);
 
-app.post(
-  '/api/customers',
-  authMiddleware,
-  saveCustomer
-);
+app.post("/api/customers", authMiddleware, saveCustomer);
 
-app.post(
-  '/api/clientes',
-  authMiddleware,
-  saveCustomer
-);
+app.post("/api/clientes", authMiddleware, saveCustomer);
 
-app.delete(
-  '/api/customers/:id',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      'DELETE FROM customers WHERE id=$1 AND user_id=$2',
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
+app.delete("/api/customers/:id", authMiddleware, async (req, res) => {
+  await pool.query("DELETE FROM customers WHERE id=$1 AND user_id=$2", [
+    req.params.id,
+    req.user.id,
+  ]);
 
-    res.json({ success: true });
-  }
-);
+  res.json({ success: true });
+});
 
-app.delete(
-  '/api/clientes/:id',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      'DELETE FROM customers WHERE id=$1 AND user_id=$2',
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
+app.delete("/api/clientes/:id", authMiddleware, async (req, res) => {
+  await pool.query("DELETE FROM customers WHERE id=$1 AND user_id=$2", [
+    req.params.id,
+    req.user.id,
+  ]);
 
-    res.json({ success: true });
-  }
-);
+  res.json({ success: true });
+});
 
 // ==========================================
 // PRODUTOS / ESTOQUE
@@ -732,21 +640,16 @@ app.delete(
 async function getProducts(req, res) {
   try {
     const r = await pool.query(
-      'SELECT * FROM products WHERE user_id=$1 ORDER BY created_at DESC',
-      [req.user.id]
+      "SELECT * FROM products WHERE user_id=$1 ORDER BY created_at DESC",
+      [req.user.id],
     );
 
-    res.json(
-      r.rows.map(normalizeProduct)
-    );
+    res.json(r.rows.map(normalizeProduct));
   } catch (e) {
-    console.error(
-      '[GET PRODUCTS]',
-      e
-    );
+    console.error("[GET PRODUCTS]", e);
 
     res.status(500).json({
-      error: 'Erro ao buscar produtos.'
+      error: "Erro ao buscar produtos.",
     });
   }
 }
@@ -755,70 +658,47 @@ async function saveProduct(req, res) {
   try {
     const p = req.body || {};
 
-    const name = String(
-      p.name || p.nome || ''
-    ).trim();
+    const name = String(p.name || p.nome || "").trim();
 
-    const price = Number(
-      p.price || p.preco || 0
-    );
+    const price = Number(p.price || p.preco || 0);
 
-    const id =
-      req.params.id ||
-      p.id ||
-      `prod_${crypto.randomUUID()}`;
+    const id = req.params.id || p.id || `prod_${crypto.randomUUID()}`;
 
-    if (
-      !name ||
-      isNaN(price) ||
-      price <= 0
-    ) {
+    if (!name || isNaN(price) || price <= 0) {
       return res.status(400).json({
-        error:
-          'O nome do produto e um preço de venda válido são obrigatórios.'
+        error: "O nome do produto e um preço de venda válido são obrigatórios.",
       });
     }
 
     const controlStockVal =
       p.controlStock !== undefined
         ? p.controlStock
-        : (
-          p.control_stock !== undefined
-            ? p.control_stock
-            : true
-        );
+        : p.control_stock !== undefined
+          ? p.control_stock
+          : true;
 
     const vipPriceVal =
       p.vipPrice !== undefined
         ? p.vipPrice
-        : (
-          p.vip_price !== undefined
-            ? p.vip_price
-            : null
-        );
+        : p.vip_price !== undefined
+          ? p.vip_price
+          : null;
 
     const vipPrice3xVal =
       p.vipPrice3x !== undefined
         ? p.vipPrice3x
-        : (
-          p.vip_price_3x !== undefined
-            ? p.vip_price_3x
-            : null
-        );
+        : p.vip_price_3x !== undefined
+          ? p.vip_price_3x
+          : null;
 
     const imageUrlVal =
       p.imageUrl !== undefined
         ? p.imageUrl
-        : (
-          p.image_url !== undefined
-            ? p.image_url
-            : null
-        );
+        : p.image_url !== undefined
+          ? p.image_url
+          : null;
 
-    const variationsArray =
-      Array.isArray(p.variations)
-        ? p.variations
-        : [];
+    const variationsArray = Array.isArray(p.variations) ? p.variations : [];
 
     await pool.query(
       `INSERT INTO products(
@@ -851,125 +731,74 @@ async function saveProduct(req, res) {
       [
         id,
         req.user.id,
-        p.name || 'Produto',
-        p.category || 'Sem categoria',
+        p.name || "Produto",
+        p.category || "Sem categoria",
         p.barcode || null,
         p.code || null,
         Number(p.cost || 0),
         Number(p.price || 0),
         Number(p.imposto || 0),
         Number(p.frete || 0),
-        vipPriceVal == null
-          ? null
-          : Number(vipPriceVal),
-        vipPrice3xVal == null
-          ? null
-          : Number(vipPrice3xVal),
+        vipPriceVal == null ? null : Number(vipPriceVal),
+        vipPrice3xVal == null ? null : Number(vipPrice3xVal),
         p.description || null,
         Boolean(controlStockVal),
         imageUrlVal,
-        JSON.stringify(
-          p.stocks || {}
-        ),
-        JSON.stringify(
-          variationsArray
-        )
-      ]
+        JSON.stringify(p.stocks || {}),
+        JSON.stringify(variationsArray),
+      ],
     );
 
     const r = await pool.query(
-      'SELECT * FROM products WHERE id=$1 AND user_id=$2',
-      [id, req.user.id]
+      "SELECT * FROM products WHERE id=$1 AND user_id=$2",
+      [id, req.user.id],
     );
 
-    res.status(201).json(
-      normalizeProduct(r.rows[0])
-    );
+    res.status(201).json(normalizeProduct(r.rows[0]));
   } catch (e) {
-    console.error(
-      '[SAVE PRODUCT ERROR]',
-      e
-    );
+    console.error("[SAVE PRODUCT ERROR]", e);
 
     res.status(500).json({
-      error: 'Erro ao salvar produto.',
-      details: e.message
+      error: "Erro ao salvar produto.",
+      details: e.message,
     });
   }
 }
 
-app.get(
-  '/api/products',
-  authMiddleware,
-  getProducts
-);
+app.get("/api/products", authMiddleware, getProducts);
 
-app.get(
-  '/api/produtos',
-  authMiddleware,
-  getProducts
-);
+app.get("/api/produtos", authMiddleware, getProducts);
 
-app.post(
-  '/api/products',
-  authMiddleware,
-  saveProduct
-);
+app.post("/api/products", authMiddleware, saveProduct);
 
-app.post(
-  '/api/produtos',
-  authMiddleware,
-  saveProduct
-);
+app.post("/api/produtos", authMiddleware, saveProduct);
 
-app.put(
-  '/api/products/:id',
-  authMiddleware,
-  saveProduct
-);
+app.put("/api/products/:id", authMiddleware, saveProduct);
 
-app.put(
-  '/api/produtos/:id',
-  authMiddleware,
-  saveProduct
-);
+app.put("/api/produtos/:id", authMiddleware, saveProduct);
 
-app.delete(
-  '/api/products/:id',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      'DELETE FROM products WHERE id=$1 AND user_id=$2',
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
+app.delete("/api/products/:id", authMiddleware, async (req, res) => {
+  await pool.query("DELETE FROM products WHERE id=$1 AND user_id=$2", [
+    req.params.id,
+    req.user.id,
+  ]);
 
-    res.json({ success: true });
-  }
-);
+  res.json({ success: true });
+});
 
-app.delete(
-  '/api/produtos/:id',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      'DELETE FROM products WHERE id=$1 AND user_id=$2',
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
+app.delete("/api/produtos/:id", authMiddleware, async (req, res) => {
+  await pool.query("DELETE FROM products WHERE id=$1 AND user_id=$2", [
+    req.params.id,
+    req.user.id,
+  ]);
 
-    res.json({ success: true });
-  }
-);
+  res.json({ success: true });
+});
 
-app.get('/api/locais', authMiddleware, async (req, res) => {
+app.get("/api/locais", authMiddleware, async (req, res) => {
   let r = await pool.query(
-    'SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',
-    [req.user.id]
+    "SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name",
+    [req.user.id],
   );
 
   if (!r.rows.length) {
@@ -979,70 +808,181 @@ app.get('/api/locais', authMiddleware, async (req, res) => {
       `INSERT INTO stock_locations(id,user_id,name)
        VALUES($1,$2,$3)
        ON CONFLICT DO NOTHING`,
-      [
-        id,
-        req.user.id,
-        'Loja Física'
-      ]
+      [id, req.user.id, "Loja Física"],
     );
 
     r = await pool.query(
-      'SELECT id,name FROM stock_locations WHERE user_id=$1',
-      [req.user.id]
+      "SELECT id,name FROM stock_locations WHERE user_id=$1",
+      [req.user.id],
     );
   }
 
   res.json(r.rows);
 });
 
-app.post('/api/locais', authMiddleware, async (req, res) => {
+app.post("/api/locais", authMiddleware, async (req, res) => {
   const { id, name } = req.body || {};
 
   if (!name)
     return res.status(400).json({
-      error: 'Nome obrigatório.'
+      error: "Nome obrigatório.",
     });
 
   if (id) {
     await pool.query(
-      'UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3',
-      [
-        name,
-        id,
-        req.user.id
-      ]
+      "UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3",
+      [name, id, req.user.id],
     );
   } else {
     await pool.query(
-      'INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3)',
-      [
-        `loc_${crypto.randomUUID()}`,
-        req.user.id,
-        name
-      ]
+      "INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3)",
+      [`loc_${crypto.randomUUID()}`, req.user.id, name],
     );
   }
 
   const r = await pool.query(
-    'SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name',
-    [req.user.id]
+    "SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name",
+    [req.user.id],
   );
 
   res.json(r.rows);
 });
 
 // ==========================================
+
+function normalizeStockLocation(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function canonicalStockLocation(value) {
+  const normalized = normalizeStockLocation(value);
+
+  if (normalized.includes("degustacao") || normalized === "degusta") {
+    return "degustacao";
+  }
+
+  if (
+    normalized === "loja" ||
+    normalized.includes("lojafisica") ||
+    normalized === "fisica"
+  ) {
+    return "lojafisica";
+  }
+
+  return normalized;
+}
+
+/**
+ * Resolve a chave verdadeira usada em products.stocks.
+ * Aceita IDs e nomes de locais enviados pelo PDV.
+ * Não escolhe silenciosamente o primeiro local do estoque.
+ */
+function resolveStockLocation(item, stocks, variationStocks = {}) {
+  const selectedValues = [
+    item?.stockLocation,
+    item?.stock_location,
+    item?.local,
+    item?.location,
+  ].filter((value) => value != null && String(value).trim() !== "");
+
+  const locationLists = [item?.stockLocations, item?.stock_locations].filter(
+    Array.isArray,
+  );
+
+  const descriptors = locationLists.flat();
+
+  // Se o PDV enviou um ID, também procura o nome correspondente.
+  const expandedValues = [...selectedValues];
+
+  for (const selected of selectedValues) {
+    const selectedNormalized = normalizeStockLocation(selected);
+
+    for (const descriptor of descriptors) {
+      if (!descriptor || typeof descriptor !== "object") continue;
+
+      const id = descriptor.id ?? descriptor.value;
+      const name = descriptor.name ?? descriptor.label;
+
+      if (id != null && normalizeStockLocation(id) === selectedNormalized) {
+        if (name) expandedValues.push(name);
+        if (id) expandedValues.push(id);
+      }
+
+      if (name != null && normalizeStockLocation(name) === selectedNormalized) {
+        if (id) expandedValues.push(id);
+        if (name) expandedValues.push(name);
+      }
+    }
+  }
+
+  const availableKeys = [
+    ...new Set([
+      ...Object.keys(stocks || {}),
+      ...Object.keys(variationStocks || {}),
+    ]),
+  ];
+
+  for (const candidate of expandedValues) {
+    // Primeiro, procura correspondência exata com a chave do banco.
+    const exactKey = availableKeys.find(
+      (key) => String(key) === String(candidate),
+    );
+
+    if (exactKey) return exactKey;
+
+    const candidateNormalized = normalizeStockLocation(candidate);
+    const candidateCanonical = canonicalStockLocation(candidate);
+
+    // Depois, compara nomes/IDs normalizados.
+    const matchedKey = availableKeys.find((key) => {
+      return (
+        normalizeStockLocation(key) === candidateNormalized ||
+        canonicalStockLocation(key) === candidateCanonical
+      );
+    });
+
+    if (matchedKey) return matchedKey;
+  }
+
+  // Compatibilidade com IDs comuns, somente se essa chave existir.
+  const aliases = {
+    degustacao: ["degustacao", "degustação", "Degustação"],
+    lojafisica: ["loja-física", "loja_física", "loja", "Loja Física"],
+  };
+
+  for (const candidate of expandedValues) {
+    const canonical = canonicalStockLocation(candidate);
+    const possibleAliases = aliases[canonical] || [];
+
+    const match = availableKeys.find((key) =>
+      possibleAliases.some(
+        (alias) =>
+          normalizeStockLocation(alias) === normalizeStockLocation(key),
+      ),
+    );
+
+    if (match) return match;
+  }
+
+  return null;
+}
+
 // VENDAS
 // ==========================================
 
-app.get('/api/sales', authMiddleware, async (req, res) => {
+app.get("/api/sales", authMiddleware, async (req, res) => {
   const r = await pool.query(
-    'SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC',
-    [req.user.id]
+    "SELECT * FROM sales WHERE user_id=$1 ORDER BY date DESC",
+    [req.user.id],
   );
 
   res.json(
-    r.rows.map(s => ({
+    r.rows.map((s) => ({
       ...s,
       customerId: s.customer_id,
       customerName: s.customer_name,
@@ -1050,205 +990,91 @@ app.get('/api/sales', authMiddleware, async (req, res) => {
       total: Number(s.total || 0),
       subtotal: Number(s.subtotal || 0),
       discount: Number(s.discount || 0),
-      cashbackEarned: Number(
-        s.cashback_earned ||
-        s.earned_cashback ||
-        0
-      ),
-      items: json(
-        s.items,
-        []
-      )
-    }))
+      cashbackEarned: Number(s.cashback_earned || s.earned_cashback || 0),
+      items: json(s.items, []),
+    })),
   );
 });
 
-app.post('/api/sales', authMiddleware, async (req, res) => {
+app.post("/api/sales", authMiddleware, async (req, res) => {
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     const s = req.body || {};
-    const id =
-      s.id ||
-      `sale_${crypto.randomUUID()}`;
+    const id = s.id || `sale_${crypto.randomUUID()}`;
 
-    const customerId =
-      s.customerId ||
-      s.customer_id ||
-      null;
+    // Evita duas requisições simultâneas da mesma venda
+    // descontarem o estoque duas vezes.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+      [String(req.user.id), String(id)],
+    );
 
-    let customerPhone =
-      s.customerPhone ||
-      s.customer_phone ||
-      null;
+    const existingSale = await client.query(
+      "SELECT id FROM sales WHERE id=$1 AND user_id=$2",
+      [id, req.user.id],
+    );
 
-    let customerName =
-      s.customerName ||
-      s.customer_name ||
-      'Cliente Geral';
+    if (existingSale.rows.length) {
+      await client.query("ROLLBACK");
+
+      return res.status(200).json({
+        success: true,
+        duplicate: true,
+        saleId: id,
+        message:
+          "Esta venda já foi registrada; o estoque não foi descontado novamente.",
+      });
+    }
+
+    const customerId = s.customerId || s.customer_id || null;
+
+    let customerPhone = s.customerPhone || s.customer_phone || null;
+    let customerName = s.customerName || s.customer_name || "Cliente Geral";
 
     if (customerId) {
       const cr = await client.query(
-        'SELECT name,phone FROM customers WHERE id=$1 AND user_id=$2',
-        [
-          customerId,
-          req.user.id
-        ]
+        "SELECT name, phone FROM customers WHERE id=$1 AND user_id=$2",
+        [customerId, req.user.id],
       );
 
       if (cr.rows[0]) {
-        customerName =
-          cr.rows[0].name;
-
-        customerPhone =
-          cr.rows[0].phone;
+        customerName = cr.rows[0].name;
+        customerPhone = cr.rows[0].phone;
       }
     }
 
-    const items =
-      Array.isArray(s.items)
-        ? s.items
-        : [];
+    const items = Array.isArray(s.items) ? s.items : [];
+    const subtotal = Number(s.subtotal ?? s.total ?? 0);
+    const total = Number(s.total ?? 0);
+    const cashback = Number(s.cashbackEarned ?? s.earned_cashback ?? 0);
 
-    const subtotal =
-      Number(
-        s.subtotal ??
-        s.total ??
-        0
-      );
-
-    const total =
-      Number(
-        s.total ??
-        0
-      );
-
-    const cashback =
-      Number(
-        s.cashbackEarned ??
-        s.earned_cashback ??
-        0
-      );
-
-    await client.query(
-      `INSERT INTO sales(
-        id,user_id,customer_id,customer_name,
-        customer_phone,seller,payment_method,
-        discount,subtotal,total,cashback_earned,
-        earned_cashback,gender,sales_channel,
-        delivery_type,items,date
-      )
-      VALUES(
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-        $11,$12,$13,$14,$15,$16
-      )
-      ON CONFLICT(id,user_id)
-      DO UPDATE SET
-        customer_id=$3,
-        customer_name=$4,
-        customer_phone=$5,
-        seller=$6,
-        payment_method=$7,
-        discount=$8,
-        subtotal=$9,
-        total=$10,
-        cashback_earned=$11,
-        earned_cashback=$11,
-        gender=$12,
-        sales_channel=$13,
-        delivery_type=$14,
-        items=$15,
-        date=$16`,
-      [
-        id,
-        req.user.id,
-        customerId,
-        customerName,
-        customerPhone,
-        s.seller || null,
-        s.paymentMethod ||
-          s.payment_method ||
-          'Pix',
-        Number(s.discount || 0),
-        subtotal,
-        total,
-        cashback,
-        s.gender ||
-          'Prefiro não informar',
-        s.salesChannel ||
-          s.sales_channel ||
-          'Loja física',
-        s.deliveryType ||
-          s.delivery_type ||
-          'Retirada',
-        JSON.stringify(items),
-        s.date ||
-          new Date().toISOString()
-      ]
-    );
-
-    if (
-      customerId &&
-      cashback > 0
-    ) {
-      const expDate =
-        new Date();
-
-      expDate.setDate(
-        expDate.getDate() + 30
-      );
-
-      const expDateStr =
-        expDate
-          .toISOString()
-          .split('T')[0];
-
-      await client.query(
-        `UPDATE customers
-         SET cashback=COALESCE(cashback,0)+$1,
-             cashback_expiration_date=$2,
-             cashback_expiry=$2
-         WHERE id=$3 AND user_id=$4`,
-        [
-          cashback,
-          expDateStr,
-          customerId,
-          req.user.id
-        ]
-      );
-    }
-
+    // Consolida itens repetidos do mesmo produto e variação,
+    // mas não mistura vendas feitas em locais diferentes.
     const consolidatedItems = {};
 
     for (const item of items) {
-      const pid =
-        item.productId ||
-        item.id ||
-        item.product_id;
+      const pid = item.productId || item.product_id || item.id;
+      const variationName = String(
+        item.variationName ?? item.variation ?? "",
+      ).trim();
 
-      const variationName =
-        String(
-          item.variationName ||
-          item.variation ||
-          ''
-        ).trim();
+      const rawQty = item.quantity ?? item.qty ?? 1;
+      const qty = Number(rawQty);
 
-      const qty =
-        Number(
-          item.quantity ||
-          item.qty ||
-          1
-        );
+      const requestedLocation =
+        item.stockLocation ??
+        item.stock_location ??
+        item.local ??
+        item.location ??
+        "";
 
-      if (
-        !pid ||
-        qty <= 0
-      ) continue;
+      if (!pid || !Number.isFinite(qty) || qty <= 0) continue;
 
-      const key =
-        `${pid}___${variationName}`;
+      const locationKey = canonicalStockLocation(requestedLocation);
+      const key = `${pid}___${normalizeStockLocation(variationName)}___${locationKey}`;
 
       if (consolidatedItems[key]) {
         consolidatedItems[key].qty += qty;
@@ -1256,209 +1082,195 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
         consolidatedItems[key] = {
           pid,
           variationName,
+          requestedLocation,
           qty,
-          item
+          item,
         };
       }
     }
 
-    for (const key in consolidatedItems) {
-      const {
-        pid,
-        variationName,
-        qty,
-        item
-      } = consolidatedItems[key];
-
-      if (
-        !pid ||
-        qty <= 0
-      ) continue;
+    // Verifica os produtos e atualiza apenas o saldo do local selecionado.
+    for (const entry of Object.values(consolidatedItems)) {
+      const { pid, variationName, requestedLocation, qty, item } = entry;
 
       const pr = await client.query(
-        `SELECT id,stocks,variations,control_stock
+        `SELECT id, name, stocks, variations, control_stock
          FROM products
          WHERE id=$1 AND user_id=$2
          FOR UPDATE`,
-        [
-          pid,
-          req.user.id
-        ]
+        [pid, req.user.id],
       );
 
-      if (
-        !pr.rows[0] ||
-        !pr.rows[0].control_stock
-      ) continue;
+      // Nunca altera produto pertencente a outro usuário.
+      if (!pr.rows[0]) {
+        throw new Error(`Produto "${pid}" não encontrado nesta loja.`);
+      }
 
-      let stocks =
-        json(
-          pr.rows[0].stocks,
-          {}
+      if (!pr.rows[0].control_stock) continue;
+
+      const stocks = json(pr.rows[0].stocks, {});
+      let variations = json(pr.rows[0].variations, []);
+
+      if (!stocks || typeof stocks !== "object" || Array.isArray(stocks)) {
+        throw new Error(
+          `O estoque do produto "${pr.rows[0].name}" está inválido.`,
         );
+      }
 
-      let variations =
-        json(
-          pr.rows[0].variations,
-          []
+      const cleanTargetVariation = normalizeStockLocation(variationName);
+
+      let variationIndex = -1;
+
+      if (cleanTargetVariation && Array.isArray(variations)) {
+        variationIndex = variations.findIndex((v) => {
+          const name = typeof v === "string" ? v : v?.name || "";
+          return normalizeStockLocation(name) === cleanTargetVariation;
+        });
+      }
+
+      const variationObject =
+        variationIndex >= 0 && typeof variations[variationIndex] === "object"
+          ? variations[variationIndex]
+          : null;
+
+      const variationStocks =
+        variationObject &&
+        variationObject.stocks &&
+        typeof variationObject.stocks === "object"
+          ? variationObject.stocks
+          : {};
+
+      // Se a variação possui estoque próprio, usa suas chaves.
+      // Caso contrário, usa o estoque principal do produto.
+      const hasVariationStockKeys = Object.keys(variationStocks).length > 0;
+      const useVariationStock = variationIndex >= 0 && hasVariationStockKeys;
+
+      const targetStocks = useVariationStock ? variationStocks : stocks;
+
+      const loc = resolveStockLocation(
+        item,
+        stocks,
+        useVariationStock ? variationStocks : {},
+      );
+
+      if (!loc || !Object.prototype.hasOwnProperty.call(targetStocks, loc)) {
+        throw new Error(
+          `Não foi possível identificar o estoque de "${pr.rows[0].name}" ` +
+            `para o local "${requestedLocation || "não informado"}". ` +
+            "Confira os locais e as quantidades cadastradas no produto.",
         );
+      }
 
-      const loc =
-        item.stockLocation ||
-        item.stock_location ||
-        Object.keys(stocks)[0] ||
-        'loja-fisica'||'degustação';
+      const currentStock = Number(targetStocks[loc] ?? 0);
 
-      const cleanTargetVar =
-        variationName
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(
-            /[\u0300-\u036f]/g,
-            ''
-          )
-          .trim();
+      if (!Number.isFinite(currentStock) || currentStock < 0) {
+        throw new Error(
+          `O saldo de estoque do produto "${pr.rows[0].name}" está inválido.`,
+        );
+      }
 
-      if (
-        cleanTargetVar &&
-        Array.isArray(variations) &&
-        variations.length > 0
-      ) {
-        let variationMatched =
-          false;
+      // Desconta apenas do local escolhido, sem alterar o outro.
+      targetStocks[loc] = Math.max(0, currentStock - qty);
 
-        variations =
-          variations.map(v => {
-            const vObj =
-              typeof v === 'string'
-                ? {
-                    name: v,
-                    stocks: {}
-                  }
-                : {
-                    ...v,
-                    stocks:
-                      v.stocks || {}
-                  };
+      if (useVariationStock) {
+        variations[variationIndex] = {
+          ...variationObject,
+          stocks: {
+            ...variationStocks,
+            [loc]: targetStocks[loc],
+          },
+        };
 
-            const vNameRaw =
-              (
-                vObj.name ||
-                ''
-              ).trim();
-
-            const cleanCurrentVar =
-              vNameRaw
-                .toLowerCase()
-                .normalize('NFD')
-                .replace(
-                  /[\u0300-\u036f]/g,
-                  ''
-                )
-                .trim();
-
-            if (
-              cleanCurrentVar ===
-              cleanTargetVar
-            ) {
-              const currentVarStock =
-                Number(
-                  vObj.stocks[loc] ??
-                  0
-                );
-
-              vObj.stocks[loc] =
-                Math.max(
-                  0,
-                  currentVarStock - qty
-                );
-
-              variationMatched =
-                true;
-            }
-
-            return typeof v === 'string'
-              ? vObj.name
-              : vObj;
-          });
-
-        if (variationMatched) {
-          await client.query(
-            `UPDATE products
-             SET variations=$1
-             WHERE id=$2 AND user_id=$3`,
-            [
-              JSON.stringify(
-                variations
-              ),
-              pid,
-              req.user.id
-            ]
-          );
-        } else {
-          stocks[loc] =
-            Math.max(
-              0,
-              Number(
-                stocks[loc] || 0
-              ) - qty
-            );
-
-          await client.query(
-            `UPDATE products
-             SET stocks=$1
-             WHERE id=$2 AND user_id=$3`,
-            [
-              JSON.stringify(
-                stocks
-              ),
-              pid,
-              req.user.id
-            ]
-          );
-        }
-      } else if (loc) {
-        stocks[loc] =
-          Math.max(
-            0,
-            Number(
-              stocks[loc] || 0
-            ) - qty
-          );
-
+        await client.query(
+          `UPDATE products
+           SET variations=$1
+           WHERE id=$2 AND user_id=$3`,
+          [JSON.stringify(variations), pid, req.user.id],
+        );
+      } else {
         await client.query(
           `UPDATE products
            SET stocks=$1
            WHERE id=$2 AND user_id=$3`,
-          [
-            JSON.stringify(
-              stocks
-            ),
-            pid,
-            req.user.id
-          ]
+          [JSON.stringify(stocks), pid, req.user.id],
         );
       }
     }
 
-    await client.query('COMMIT');
+    // Registra a venda na mesma transação da baixa de estoque.
+    await client.query(
+      `INSERT INTO sales(
+        id, user_id, customer_id, customer_name,
+        customer_phone, seller, payment_method,
+        discount, subtotal, total, cashback_earned,
+        earned_cashback, gender, sales_channel,
+        delivery_type, items, date
+      )
+      VALUES(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+        $11,$12,$13,$14,$15,$16
+      )`,
+      [
+        id,
+        req.user.id,
+        customerId,
+        customerName,
+        customerPhone,
+        s.seller || null,
+        s.paymentMethod || s.payment_method || "Pix",
+        Number(s.discount || 0),
+        subtotal,
+        total,
+        cashback,
+        s.gender || "Prefiro não informar",
+        s.salesChannel || s.sales_channel || "Loja física",
+        s.deliveryType || s.delivery_type || "Retirada",
+        JSON.stringify(items),
+        s.date || new Date().toISOString(),
+      ],
+    );
 
-    res.status(201).json({
+    if (customerId && cashback > 0) {
+      const expDate = new Date();
+      expDate.setDate(expDate.getDate() + 30);
+      const expDateStr = expDate.toISOString().split("T")[0];
+
+      await client.query(
+        `UPDATE customers
+         SET cashback=COALESCE(cashback,0)+$1,
+             cashback_expiration_date=$2,
+             cashback_expiry=$2
+         WHERE id=$3 AND user_id=$4`,
+        [cashback, expDateStr, customerId, req.user.id],
+      );
+    }
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
       success: true,
       saleId: id,
       customerPhone,
-      earnedCashback: cashback
+      earnedCashback: cashback,
     });
   } catch (e) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
 
-    console.error(
-      '[SALE]',
-      e
-    );
+    console.error("[SALE]", e);
 
-    res.status(500).json({
-      error: 'Erro ao registrar venda.'
+    const message = String(e?.message || "");
+
+    if (
+      message.includes("Não foi possível identificar o estoque") ||
+      message.includes("não encontrado nesta loja") ||
+      message.includes("está inválido")
+    ) {
+      return res.status(400).json({ error: message });
+    }
+
+    return res.status(500).json({
+      error: "Erro ao registrar venda.",
+      details: message,
     });
   } finally {
     client.release();
@@ -1475,27 +1287,30 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
 
 async function getSellers(req, res) {
   try {
-    const r = await pool.query(`
+    const r = await pool.query(
+      `
       SELECT id, name, commission_pct
       FROM sellers
       WHERE user_id = $1
       ORDER BY name ASC
-    `, [req.user.id]);
+    `,
+      [req.user.id],
+    );
 
     res.json(
-      r.rows.map(s => ({
+      r.rows.map((s) => ({
         id: s.id,
         name: s.name,
         commissionPct: Number(s.commission_pct ?? 5),
-        commission_pct: Number(s.commission_pct ?? 5)
-      }))
+        commission_pct: Number(s.commission_pct ?? 5),
+      })),
     );
   } catch (e) {
-    console.error('[SELLER GET ERROR]', e);
+    console.error("[SELLER GET ERROR]", e);
 
     res.status(500).json({
-      error: 'Erro ao carregar vendedores.',
-      details: e.message
+      error: "Erro ao carregar vendedores.",
+      details: e.message,
     });
   }
 }
@@ -1505,33 +1320,24 @@ async function saveOrUpdateSeller(req, res) {
     const s = req.body || {};
     const uid = req.user.id;
 
-    const id = String(
-      req.params.id ||
-      s.id ||
-      `sel_${crypto.randomUUID()}`
-    );
+    const id = String(req.params.id || s.id || `sel_${crypto.randomUUID()}`);
 
-    const name = String(
-      s.name || 'Vendedor'
-    ).trim();
+    const name = String(s.name || "Vendedor").trim();
 
     if (!name) {
       return res.status(400).json({
-        error: 'Nome do vendedor é obrigatório.'
+        error: "Nome do vendedor é obrigatório.",
       });
     }
 
-    const raw =
-      s.commissionPct != null
-        ? s.commissionPct
-        : s.commission_pct;
+    const raw = s.commissionPct != null ? s.commissionPct : s.commission_pct;
 
     const n = parseFloat(raw);
 
-    const commissionPct =
-      Number.isFinite(n) ? n : 5;
+    const commissionPct = Number.isFinite(n) ? n : 5;
 
-    const r = await pool.query(`
+    const r = await pool.query(
+      `
       INSERT INTO sellers (
         id,
         user_id,
@@ -1550,12 +1356,9 @@ async function saveOrUpdateSeller(req, res) {
         id,
         name,
         commission_pct
-    `, [
-      id,
-      uid,
-      name,
-      commissionPct
-    ]);
+    `,
+      [id, uid, name, commissionPct],
+    );
 
     const v = r.rows[0];
 
@@ -1563,20 +1366,15 @@ async function saveOrUpdateSeller(req, res) {
       success: true,
       id: v.id,
       name: v.name,
-      commissionPct: Number(
-        v.commission_pct ?? 5
-      ),
-      commission_pct: Number(
-        v.commission_pct ?? 5
-      )
+      commissionPct: Number(v.commission_pct ?? 5),
+      commission_pct: Number(v.commission_pct ?? 5),
     });
-
   } catch (e) {
-    console.error('[SELLER SAVE ERROR]', e);
+    console.error("[SELLER SAVE ERROR]", e);
 
     res.status(500).json({
-      error: 'Erro ao salvar vendedor no banco de dados.',
-      details: e.message
+      error: "Erro ao salvar vendedor no banco de dados.",
+      details: e.message,
     });
   }
 }
@@ -1585,150 +1383,99 @@ async function deleteSeller(req, res) {
   try {
     const id = String(req.params.id);
 
-    const r = await pool.query(`
+    const r = await pool.query(
+      `
       DELETE FROM sellers
       WHERE id = $1
         AND user_id = $2
       RETURNING id
-    `, [
-      id,
-      req.user.id
-    ]);
+    `,
+      [id, req.user.id],
+    );
 
     if (!r.rowCount) {
       return res.status(404).json({
-        error: 'Vendedor não encontrado para este usuário.'
+        error: "Vendedor não encontrado para este usuário.",
       });
     }
 
     console.log(
-      `[SELLER DELETE] vendedor=${id} usuario=${req.user.id} excluido do banco`
+      `[SELLER DELETE] vendedor=${id} usuario=${req.user.id} excluido do banco`,
     );
 
     res.json({
       success: true,
-      id: r.rows[0].id
+      id: r.rows[0].id,
     });
-
   } catch (e) {
-    console.error('[SELLER DELETE ERROR]', e);
+    console.error("[SELLER DELETE ERROR]", e);
 
     res.status(500).json({
-      error: 'Erro ao excluir vendedor do banco de dados.',
-      details: e.message
+      error: "Erro ao excluir vendedor do banco de dados.",
+      details: e.message,
     });
   }
 }
 
 // GET
-app.get(
-  '/api/sellers',
-  authMiddleware,
-  getSellers
-);
+app.get("/api/sellers", authMiddleware, getSellers);
 
-app.get(
-  '/api/vendedores',
-  authMiddleware,
-  getSellers
-);
+app.get("/api/vendedores", authMiddleware, getSellers);
 
 // POST
-app.post(
-  '/api/sellers',
-  authMiddleware,
-  saveOrUpdateSeller
-);
+app.post("/api/sellers", authMiddleware, saveOrUpdateSeller);
 
-app.post(
-  '/api/vendedores',
-  authMiddleware,
-  saveOrUpdateSeller
-);
+app.post("/api/vendedores", authMiddleware, saveOrUpdateSeller);
 
 // PUT
-app.put(
-  '/api/sellers/:id',
-  authMiddleware,
-  saveOrUpdateSeller
-);
+app.put("/api/sellers/:id", authMiddleware, saveOrUpdateSeller);
 
-app.put(
-  '/api/vendedores/:id',
-  authMiddleware,
-  saveOrUpdateSeller
-);
+app.put("/api/vendedores/:id", authMiddleware, saveOrUpdateSeller);
 
 // DELETE
-app.delete(
-  '/api/sellers/:id',
-  authMiddleware,
-  deleteSeller
-);
+app.delete("/api/sellers/:id", authMiddleware, deleteSeller);
 
-app.delete(
-  '/api/vendedores/:id',
-  authMiddleware,
-  deleteSeller
-);
+app.delete("/api/vendedores/:id", authMiddleware, deleteSeller);
 // ==========================================
 // FIADOS
 // ==========================================
 
-app.get('/api/fiados', authMiddleware, async (req, res) => {
+app.get("/api/fiados", authMiddleware, async (req, res) => {
   const r = await pool.query(
-    'SELECT * FROM fiados WHERE user_id=$1 ORDER BY created_at DESC',
-    [req.user.id]
+    "SELECT * FROM fiados WHERE user_id=$1 ORDER BY created_at DESC",
+    [req.user.id],
   );
 
   res.json(
-    r.rows.map(f => ({
+    r.rows.map((f) => ({
       ...f,
       id: f.id,
       customerId: f.customer_id,
       customerName: f.customer_name,
       customerPhone: f.customer_phone,
-      installments:
-        json(
-          f.installments,
-          []
-        ),
-      date: f.created_at
-    }))
+      installments: json(f.installments, []),
+      date: f.created_at,
+    })),
   );
 });
 
-app.post('/api/fiados', authMiddleware, async (req, res) => {
+app.post("/api/fiados", authMiddleware, async (req, res) => {
   const f = req.body || {};
 
-  const id =
-    f.id ||
-    `fiado_${crypto.randomUUID()}`;
+  const id = f.id || `fiado_${crypto.randomUUID()}`;
 
-  let phone =
-    f.customerPhone ||
-    f.customer_phone ||
-    null;
+  let phone = f.customerPhone || f.customer_phone || null;
 
-  if (
-    f.customerId ||
-    f.customer_id
-  ) {
+  if (f.customerId || f.customer_id) {
     const c = await pool.query(
       `SELECT phone
        FROM customers
        WHERE id=$1
        AND user_id=$2`,
-      [
-        f.customerId ||
-          f.customer_id,
-        req.user.id
-      ]
+      [f.customerId || f.customer_id, req.user.id],
     );
 
-    phone =
-      c.rows[0]?.phone ||
-      phone;
+    phone = c.rows[0]?.phone || phone;
   }
 
   await pool.query(
@@ -1751,49 +1498,33 @@ app.post('/api/fiados', authMiddleware, async (req, res) => {
     [
       id,
       req.user.id,
-      f.customerId ||
-        f.customer_id ||
-        null,
-      f.customerName ||
-        f.customer_name ||
-        'Cliente',
+      f.customerId || f.customer_id || null,
+      f.customerName || f.customer_name || "Cliente",
       phone,
-      typeof f.products === 'string'
+      typeof f.products === "string"
         ? f.products
-        : JSON.stringify(
-            f.products || []
-          ),
-      f.origin ||
-        'manual',
-      JSON.stringify(
-        f.installments || []
-      )
-    ]
+        : JSON.stringify(f.products || []),
+      f.origin || "manual",
+      JSON.stringify(f.installments || []),
+    ],
   );
 
   res.status(201).json({
     success: true,
-    id
+    id,
   });
 });
 
-app.delete(
-  '/api/fiados/:id',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      'DELETE FROM fiados WHERE id=$1 AND user_id=$2',
-      [
-        req.params.id,
-        req.user.id
-      ]
-    );
+app.delete("/api/fiados/:id", authMiddleware, async (req, res) => {
+  await pool.query("DELETE FROM fiados WHERE id=$1 AND user_id=$2", [
+    req.params.id,
+    req.user.id,
+  ]);
 
-    res.json({
-      success: true
-    });
-  }
-);
+  res.json({
+    success: true,
+  });
+});
 
 // ==========================================
 // PDV / CASHBACK
@@ -1801,223 +1532,146 @@ app.delete(
 
 const defaultPdv = {
   messageTemplate:
-    'Olá {nome}, você realizou uma compra e ganhou R$ {cashback} de cashback!',
+    "Olá {nome}, você realizou uma compra e ganhou R$ {cashback} de cashback!",
   reminderDays1: 1,
   reminderDays2: 7,
   reminderDays3: 15,
   cashbackPercentage: 3,
   cashbackValidityDays: 30,
-  activeReminderButton: false
+  activeReminderButton: false,
 };
 
-const handleGetConfig =
-  async (req, res) => {
-    const r =
-      await pool.query(
-        'SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',
-        [req.user.id]
-      );
+const handleGetConfig = async (req, res) => {
+  const r = await pool.query(
+    "SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1",
+    [req.user.id],
+  );
 
-    const c = {
-      ...defaultPdv,
-      ...json(
-        r.rows[0]?.pdv_config,
-        {}
-      )
-    };
-
-    res.json({
-      ...c,
-      cashbackPercentage:
-        Number(
-          c.cashbackPercentage ?? 3
-        ),
-      cashbackValidityDays:
-        Number(
-          c.cashbackValidityDays ?? 30
-        ),
-      cashbackMessage:
-        c.cashbackMessage ||
-        c.messageTemplate ||
-        defaultPdv.messageTemplate
-    });
+  const c = {
+    ...defaultPdv,
+    ...json(r.rows[0]?.pdv_config, {}),
   };
 
-const handleSaveConfig =
-  async (req, res) => {
-    const r =
-      await pool.query(
-        'SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1',
-        [req.user.id]
-      );
+  res.json({
+    ...c,
+    cashbackPercentage: Number(c.cashbackPercentage ?? 3),
+    cashbackValidityDays: Number(c.cashbackValidityDays ?? 30),
+    cashbackMessage:
+      c.cashbackMessage || c.messageTemplate || defaultPdv.messageTemplate,
+  });
+};
 
-    const currentConfig =
-      json(
-        r.rows[0]?.pdv_config,
-        {}
-      );
+const handleSaveConfig = async (req, res) => {
+  const r = await pool.query(
+    "SELECT pdv_config FROM user_pdv_configs WHERE user_id=$1",
+    [req.user.id],
+  );
 
-    const updatedConfig = {
-      ...defaultPdv,
-      ...currentConfig,
-      ...req.body,
-      cashbackPercentage:
-        Number(
-          req.body.cashbackPercentage ??
-          currentConfig.cashbackPercentage ??
-          defaultPdv.cashbackPercentage
-        ),
-      cashbackValidityDays:
-        Number(
-          req.body.cashbackValidityDays ??
-          currentConfig.cashbackValidityDays ??
-          defaultPdv.cashbackValidityDays
-        ),
-      cashbackMessage:
-        req.body.cashbackMessage ||
-        req.body.messageTemplate ||
-        currentConfig.cashbackMessage ||
-        currentConfig.messageTemplate ||
-        defaultPdv.messageTemplate,
-      messageTemplate:
-        req.body.messageTemplate ||
-        req.body.cashbackMessage ||
-        currentConfig.messageTemplate ||
-        defaultPdv.messageTemplate
-    };
+  const currentConfig = json(r.rows[0]?.pdv_config, {});
 
-    await pool.query(
-      `INSERT INTO user_pdv_configs(
+  const updatedConfig = {
+    ...defaultPdv,
+    ...currentConfig,
+    ...req.body,
+    cashbackPercentage: Number(
+      req.body.cashbackPercentage ??
+        currentConfig.cashbackPercentage ??
+        defaultPdv.cashbackPercentage,
+    ),
+    cashbackValidityDays: Number(
+      req.body.cashbackValidityDays ??
+        currentConfig.cashbackValidityDays ??
+        defaultPdv.cashbackValidityDays,
+    ),
+    cashbackMessage:
+      req.body.cashbackMessage ||
+      req.body.messageTemplate ||
+      currentConfig.cashbackMessage ||
+      currentConfig.messageTemplate ||
+      defaultPdv.messageTemplate,
+    messageTemplate:
+      req.body.messageTemplate ||
+      req.body.cashbackMessage ||
+      currentConfig.messageTemplate ||
+      defaultPdv.messageTemplate,
+  };
+
+  await pool.query(
+    `INSERT INTO user_pdv_configs(
         user_id,pdv_config
       )
       VALUES($1,$2)
       ON CONFLICT(user_id)
       DO UPDATE SET pdv_config=$2`,
-      [
-        req.user.id,
-        JSON.stringify(
-          updatedConfig
-        )
-      ]
-    );
+    [req.user.id, JSON.stringify(updatedConfig)],
+  );
 
-    res.json({
-      success: true
-    });
-  };
+  res.json({
+    success: true,
+  });
+};
 
-app.get(
-  '/api/pdv/config',
-  authMiddleware,
-  handleGetConfig
-);
+app.get("/api/pdv/config", authMiddleware, handleGetConfig);
 
-app.post(
-  '/api/pdv/config',
-  authMiddleware,
-  handleSaveConfig
-);
+app.post("/api/pdv/config", authMiddleware, handleSaveConfig);
 
-app.put(
-  '/api/pdv/config',
-  authMiddleware,
-  handleSaveConfig
-);
+app.put("/api/pdv/config", authMiddleware, handleSaveConfig);
 
-app.get(
-  '/api/cashback-config',
-  authMiddleware,
-  handleGetConfig
-);
+app.get("/api/cashback-config", authMiddleware, handleGetConfig);
 
-app.post(
-  '/api/cashback-config',
-  authMiddleware,
-  handleSaveConfig
-);
+app.post("/api/cashback-config", authMiddleware, handleSaveConfig);
 
-app.put(
-  '/api/cashback-config',
-  authMiddleware,
-  handleSaveConfig
-);
+app.put("/api/cashback-config", authMiddleware, handleSaveConfig);
 
 // ==========================================
 // PRÉ-TREINO
 // ==========================================
 
-app.get(
-  '/api/pre-treino/products',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const r = await pool.query(
-        `SELECT id,name,cost,price,stock
+app.get("/api/pre-treino/products", authMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id,name,cost,price,stock
          FROM pre_treino_produtos
          WHERE user_id=$1
          ORDER BY created_at DESC`,
-        [req.user.id]
-      );
+      [req.user.id],
+    );
 
-      res.json(
-        r.rows.map(p => ({
-          id: p.id,
-          name: p.name,
-          nome: p.name,
-          cost: Number(
-            p.cost || 0
-          ),
-          custo: Number(
-            p.cost || 0
-          ),
-          price: Number(
-            p.price || 0
-          ),
-          stock: Number(
-            p.stock || 0
-          )
-        }))
-      );
-    } catch (e) {
-      console.error(
-        '[PRE-TREINO PRODUCTS GET]',
-        e
-      );
+    res.json(
+      r.rows.map((p) => ({
+        id: p.id,
+        name: p.name,
+        nome: p.name,
+        cost: Number(p.cost || 0),
+        custo: Number(p.cost || 0),
+        price: Number(p.price || 0),
+        stock: Number(p.stock || 0),
+      })),
+    );
+  } catch (e) {
+    console.error("[PRE-TREINO PRODUCTS GET]", e);
 
-      res.status(500).json({
-        error:
-          'Erro ao buscar produtos de pré-treino.'
-      });
-    }
+    res.status(500).json({
+      error: "Erro ao buscar produtos de pré-treino.",
+    });
   }
-);
+});
 
-app.post(
-  '/api/pre-treino/products',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const p = req.body || {};
+app.post("/api/pre-treino/products", authMiddleware, async (req, res) => {
+  try {
+    const p = req.body || {};
 
-      const id =
-        p.id ||
-        `ptp_${crypto.randomUUID()}`;
+    const id = p.id || `ptp_${crypto.randomUUID()}`;
 
-      const name =
-        String(
-          p.name ||
-          p.nome ||
-          ''
-        ).trim();
+    const name = String(p.name || p.nome || "").trim();
 
-      if (!name)
-        return res.status(400).json({
-          error:
-            'Nome do produto é obrigatório.'
-        });
+    if (!name)
+      return res.status(400).json({
+        error: "Nome do produto é obrigatório.",
+      });
 
-      await pool.query(
-        `INSERT INTO pre_treino_produtos(
+    await pool.query(
+      `INSERT INTO pre_treino_produtos(
           id,user_id,name,cost,price,stock
         )
         VALUES(
@@ -2029,237 +1683,141 @@ app.post(
           cost=$4,
           price=$5,
           stock=$6`,
-        [
-          id,
-          req.user.id,
-          name,
-          Number(
-            p.cost ??
-            p.custo ??
-            0
-          ),
-          Number(
-            p.price ??
-            p.preco ??
-            0
-          ),
-          Number(
-            p.stock ??
-            p.estoque ??
-            0
-          )
-        ]
-      );
+      [
+        id,
+        req.user.id,
+        name,
+        Number(p.cost ?? p.custo ?? 0),
+        Number(p.price ?? p.preco ?? 0),
+        Number(p.stock ?? p.estoque ?? 0),
+      ],
+    );
 
-      const r = await pool.query(
-        `SELECT id,name,cost,price,stock
+    const r = await pool.query(
+      `SELECT id,name,cost,price,stock
          FROM pre_treino_produtos
          WHERE id=$1 AND user_id=$2`,
-        [
-          id,
-          req.user.id
-        ]
-      );
+      [id, req.user.id],
+    );
 
-      res.status(201).json({
-        ...r.rows[0],
-        cost: Number(
-          r.rows[0].cost || 0
-        ),
-        price: Number(
-          r.rows[0].price || 0
-        ),
-        stock: Number(
-          r.rows[0].stock || 0
-        )
-      });
-    } catch (e) {
-      console.error(
-        '[PRE-TREINO PRODUCTS POST]',
-        e
-      );
+    res.status(201).json({
+      ...r.rows[0],
+      cost: Number(r.rows[0].cost || 0),
+      price: Number(r.rows[0].price || 0),
+      stock: Number(r.rows[0].stock || 0),
+    });
+  } catch (e) {
+    console.error("[PRE-TREINO PRODUCTS POST]", e);
 
-      res.status(500).json({
-        error:
-          'Erro ao salvar produto de pré-treino.'
-      });
-    }
+    res.status(500).json({
+      error: "Erro ao salvar produto de pré-treino.",
+    });
   }
-);
+});
 
-app.delete(
-  '/api/pre-treino/products/:id',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      await pool.query(
-        `DELETE FROM pre_treino_produtos
+app.delete("/api/pre-treino/products/:id", authMiddleware, async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM pre_treino_produtos
          WHERE id=$1 AND user_id=$2`,
-        [
-          req.params.id,
-          req.user.id
-        ]
-      );
+      [req.params.id, req.user.id],
+    );
 
-      res.json({
-        success: true
-      });
-    } catch (e) {
-      console.error(
-        '[PRE-TREINO PRODUCTS DELETE]',
-        e
-      );
+    res.json({
+      success: true,
+    });
+  } catch (e) {
+    console.error("[PRE-TREINO PRODUCTS DELETE]", e);
 
-      res.status(500).json({
-        error:
-          'Erro ao remover produto de pré-treino.'
-      });
-    }
+    res.status(500).json({
+      error: "Erro ao remover produto de pré-treino.",
+    });
   }
-);
+});
 
-app.get(
-  '/api/pre-treino/customers',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const r = await pool.query(
-        `SELECT *
+app.get("/api/pre-treino/customers", authMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT *
          FROM pre_treino_clientes
          WHERE user_id=$1
          ORDER BY created_at DESC`,
-        [req.user.id]
-      );
+      [req.user.id],
+    );
 
-      res.json(
-        r.rows.map(c => {
-          const valorMensalidade =
-            Number(
-              c.valor_mensalidade || 0
-            );
+    res.json(
+      r.rows.map((c) => {
+        const valorMensalidade = Number(c.valor_mensalidade || 0);
 
-          const dataInicio =
-            c.data_inicio || '';
+        const dataInicio = c.data_inicio || "";
 
-          const dataFim =
-            c.data_fim || '';
+        const dataFim = c.data_fim || "";
 
-          const valorAvulso =
-            Number(
-              c.valor_avulso || 0
-            );
+        const valorAvulso = Number(c.valor_avulso || 0);
 
-          const statusMensalidade =
-            c.status_mensalidade ||
-            'Pendente (Não Pago)';
+        const statusMensalidade = c.status_mensalidade || "Pendente (Não Pago)";
 
-          const tipo =
-            c.tipo ||
-            'mensal';
+        const tipo = c.tipo || "mensal";
 
-          return {
-            id: c.id,
-            name: c.name,
-            phone: c.phone,
-            tipo,
-            valorMensalidade,
-            valor_mensalidade:
-              valorMensalidade,
-            dataInicio,
-            data_inicio:
-              dataInicio,
-            dataFim,
-            data_fim:
-              dataFim,
-            valorAvulso,
-            valor_avulso:
-              valorAvulso,
-            statusMensalidade,
-            status_mensalidade:
-              statusMensalidade
-          };
-        })
-      );
-    } catch (e) {
-      console.error(
-        '[PRE-TREINO CUSTOMERS GET]',
-        e
-      );
+        return {
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          tipo,
+          valorMensalidade,
+          valor_mensalidade: valorMensalidade,
+          dataInicio,
+          data_inicio: dataInicio,
+          dataFim,
+          data_fim: dataFim,
+          valorAvulso,
+          valor_avulso: valorAvulso,
+          statusMensalidade,
+          status_mensalidade: statusMensalidade,
+        };
+      }),
+    );
+  } catch (e) {
+    console.error("[PRE-TREINO CUSTOMERS GET]", e);
 
-      res.status(500).json({
-        error:
-          'Erro ao buscar clientes de pré-treino.'
-      });
-    }
+    res.status(500).json({
+      error: "Erro ao buscar clientes de pré-treino.",
+    });
   }
-);
+});
 
-app.post(
-  '/api/pre-treino/customers',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const c = req.body || {};
+app.post("/api/pre-treino/customers", authMiddleware, async (req, res) => {
+  try {
+    const c = req.body || {};
 
-      const id =
-        c.id ||
-        `ptc_${crypto.randomUUID()}`;
+    const id = c.id || `ptc_${crypto.randomUUID()}`;
 
-      const name =
-        String(
-          c.name ||
-          c.nome ||
-          ''
-        ).trim();
+    const name = String(c.name || c.nome || "").trim();
 
-      const phone =
-        String(
-          c.phone ||
-          c.telefone ||
-          ''
-        ).trim();
+    const phone = String(c.phone || c.telefone || "").trim();
 
-      if (!name || !phone)
-        return res.status(400).json({
-          error:
-            'Nome e telefone são obrigatórios.'
-        });
+    if (!name || !phone)
+      return res.status(400).json({
+        error: "Nome e telefone são obrigatórios.",
+      });
 
-      const tipo =
-        c.tipo ||
-        'mensal';
+    const tipo = c.tipo || "mensal";
 
-      const valorMensalidade =
-        Number(
-          c.valorMensalidade ??
-          c.valor_mensalidade ??
-          0
-        );
+    const valorMensalidade = Number(
+      c.valorMensalidade ?? c.valor_mensalidade ?? 0,
+    );
 
-      const dataInicio =
-        c.dataInicio ||
-        c.data_inicio ||
-        null;
+    const dataInicio = c.dataInicio || c.data_inicio || null;
 
-      const dataFim =
-        c.dataFim ||
-        c.data_fim ||
-        null;
+    const dataFim = c.dataFim || c.data_fim || null;
 
-      const valorAvulso =
-        Number(
-          c.valorAvulso ??
-          c.valor_avulso ??
-          0
-        );
+    const valorAvulso = Number(c.valorAvulso ?? c.valor_avulso ?? 0);
 
-      const statusMensalidade =
-        c.statusMensalidade ||
-        c.status_mensalidade ||
-        'Pendente (Não Pago)';
+    const statusMensalidade =
+      c.statusMensalidade || c.status_mensalidade || "Pendente (Não Pago)";
 
-      await pool.query(
-        `INSERT INTO pre_treino_clientes(
+    await pool.query(
+      `INSERT INTO pre_treino_clientes(
           id,user_id,name,phone,tipo,
           valor_mensalidade,data_inicio,
           data_fim,valor_avulso,
@@ -2278,225 +1836,148 @@ app.post(
           data_fim=$8,
           valor_avulso=$9,
           status_mensalidade=$10`,
-        [
-          id,
-          req.user.id,
-          name,
-          phone,
-          tipo,
-          valorMensalidade,
-          dataInicio,
-          dataFim,
-          valorAvulso,
-          statusMensalidade
-        ]
-      );
+      [
+        id,
+        req.user.id,
+        name,
+        phone,
+        tipo,
+        valorMensalidade,
+        dataInicio,
+        dataFim,
+        valorAvulso,
+        statusMensalidade,
+      ],
+    );
 
-      const r = await pool.query(
-        'SELECT * FROM pre_treino_clientes WHERE id=$1 AND user_id=$2',
-        [
-          id,
-          req.user.id
-        ]
-      );
+    const r = await pool.query(
+      "SELECT * FROM pre_treino_clientes WHERE id=$1 AND user_id=$2",
+      [id, req.user.id],
+    );
 
-      const saved =
-        r.rows[0];
+    const saved = r.rows[0];
 
-      res.status(201).json({
-        id: saved.id,
-        name: saved.name,
-        phone: saved.phone,
-        tipo: saved.tipo,
-        valorMensalidade:
-          Number(
-            saved.valor_mensalidade || 0
-          ),
-        valor_mensalidade:
-          Number(
-            saved.valor_mensalidade || 0
-          ),
-        dataInicio:
-          saved.data_inicio || '',
-        data_inicio:
-          saved.data_inicio || '',
-        dataFim:
-          saved.data_fim || '',
-        data_fim:
-          saved.data_fim || '',
-        valorAvulso:
-          Number(
-            saved.valor_avulso || 0
-          ),
-        valor_avulso:
-          Number(
-            saved.valor_avulso || 0
-          ),
-        statusMensalidade:
-          saved.status_mensalidade ||
-          'Pendente (Não Pago)',
-        status_mensalidade:
-          saved.status_mensalidade ||
-          'Pendente (Não Pago)'
-      });
-    } catch (e) {
-      console.error(
-        '[PRE-TREINO CUSTOMERS POST]',
-        e
-      );
+    res.status(201).json({
+      id: saved.id,
+      name: saved.name,
+      phone: saved.phone,
+      tipo: saved.tipo,
+      valorMensalidade: Number(saved.valor_mensalidade || 0),
+      valor_mensalidade: Number(saved.valor_mensalidade || 0),
+      dataInicio: saved.data_inicio || "",
+      data_inicio: saved.data_inicio || "",
+      dataFim: saved.data_fim || "",
+      data_fim: saved.data_fim || "",
+      valorAvulso: Number(saved.valor_avulso || 0),
+      valor_avulso: Number(saved.valor_avulso || 0),
+      statusMensalidade: saved.status_mensalidade || "Pendente (Não Pago)",
+      status_mensalidade: saved.status_mensalidade || "Pendente (Não Pago)",
+    });
+  } catch (e) {
+    console.error("[PRE-TREINO CUSTOMERS POST]", e);
 
-      res.status(500).json({
-        error:
-          'Erro ao salvar cliente de pré-treino.'
-      });
-    }
+    res.status(500).json({
+      error: "Erro ao salvar cliente de pré-treino.",
+    });
   }
-);
+});
 
 app.delete(
-  '/api/pre-treino/customers/:id',
+  "/api/pre-treino/customers/:id",
   authMiddleware,
   async (req, res) => {
     try {
       await pool.query(
         `DELETE FROM pre_treino_clientes
          WHERE id=$1 AND user_id=$2`,
-        [
-          req.params.id,
-          req.user.id
-        ]
+        [req.params.id, req.user.id],
       );
 
       res.json({
-        success: true
+        success: true,
       });
     } catch (e) {
-      console.error(
-        '[PRE-TREINO CUSTOMERS DELETE]',
-        e
-      );
+      console.error("[PRE-TREINO CUSTOMERS DELETE]", e);
 
       res.status(500).json({
-        error:
-          'Erro ao remover cliente de pré-treino.'
+        error: "Erro ao remover cliente de pré-treino.",
       });
     }
-  }
+  },
 );
 
-app.get(
-  '/api/pre-treino/records',
-  authMiddleware,
-  async (req, res) => {
-    const r = await pool.query(
-      `SELECT *
+app.get("/api/pre-treino/records", authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    `SELECT *
        FROM pre_treino_registros
        WHERE user_id=$1
        ORDER BY created_at DESC`,
-      [req.user.id]
-    );
+    [req.user.id],
+  );
 
-    res.json(
-      r.rows.map(x => ({
-        id: x.id,
-        customerId: x.customer_id,
-        customer_id: x.customer_id,
-        customerName: x.nome_cliente,
-        customer_name: x.nome_cliente,
-        nome_cliente: x.nome_cliente,
-        customerPhone:
-          x.telefone_cliente,
-        customer_phone:
-          x.telefone_cliente,
-        telefone_cliente:
-          x.telefone_cliente,
-        productId: x.produto_id,
-        produto_id: x.produto_id,
-        productName:
-          x.nome_produto,
-        product_name:
-          x.nome_produto,
-        nome_produto:
-          x.nome_produto,
-        cost:
-          Number(x.custo || 0),
-        custo:
-          Number(x.custo || 0),
-        value:
-          Number(x.valor || 0),
-        valor:
-          Number(x.valor || 0),
-        type:
-          x.tipo_consumo ||
-          'avulso',
-        tipo_consumo:
-          x.tipo_consumo ||
-          'avulso',
-        date: x.data,
-        data: x.data,
-        time: x.horario,
-        horario: x.horario,
-        createdAt:
-          x.created_at,
-        created_at:
-          x.created_at
-      }))
-    );
-  }
-);
+  res.json(
+    r.rows.map((x) => ({
+      id: x.id,
+      customerId: x.customer_id,
+      customer_id: x.customer_id,
+      customerName: x.nome_cliente,
+      customer_name: x.nome_cliente,
+      nome_cliente: x.nome_cliente,
+      customerPhone: x.telefone_cliente,
+      customer_phone: x.telefone_cliente,
+      telefone_cliente: x.telefone_cliente,
+      productId: x.produto_id,
+      produto_id: x.produto_id,
+      productName: x.nome_produto,
+      product_name: x.nome_produto,
+      nome_produto: x.nome_produto,
+      cost: Number(x.custo || 0),
+      custo: Number(x.custo || 0),
+      value: Number(x.valor || 0),
+      valor: Number(x.valor || 0),
+      type: x.tipo_consumo || "avulso",
+      tipo_consumo: x.tipo_consumo || "avulso",
+      date: x.data,
+      data: x.data,
+      time: x.horario,
+      horario: x.horario,
+      createdAt: x.created_at,
+      created_at: x.created_at,
+    })),
+  );
+});
 
-app.post(
-  '/api/pre-treino/records',
-  authMiddleware,
-  async (req, res) => {
-    const r =
-      req.body || {};
+app.post("/api/pre-treino/records", authMiddleware, async (req, res) => {
+  const r = req.body || {};
 
-    const id =
-      r.id ||
-      `ptr_${crypto.randomUUID()}`;
+  const id = r.id || `ptr_${crypto.randomUUID()}`;
 
-    let customerName =
-      r.customerName ||
-      r.nomeCliente ||
-      r.nome_cliente ||
-      'Cliente avulso';
+  let customerName =
+    r.customerName || r.nomeCliente || r.nome_cliente || "Cliente avulso";
 
-    let phone =
-      r.customerPhone ||
-      r.telefoneCliente ||
-      r.telefone_cliente ||
-      null;
+  let phone =
+    r.customerPhone || r.telefoneCliente || r.telefone_cliente || null;
 
-    const cid =
-      r.customerId ||
-      r.customer_id ||
-      null;
+  const cid = r.customerId || r.customer_id || null;
 
-    if (cid) {
-      const c =
-        await pool.query(
-          `SELECT name,phone
+  if (cid) {
+    const c = await pool.query(
+      `SELECT name,phone
            FROM pre_treino_clientes
            WHERE id=$1
            AND user_id=$2`,
-          [
-            cid,
-            req.user.id
-          ]
-        );
+      [cid, req.user.id],
+    );
 
-      if (c.rows[0]) {
-        customerName =
-          c.rows[0].name;
+    if (c.rows[0]) {
+      customerName = c.rows[0].name;
 
-        phone =
-          c.rows[0].phone;
-      }
+      phone = c.rows[0].phone;
     }
+  }
 
-    await pool.query(
-      `INSERT INTO pre_treino_registros(
+  await pool.query(
+    `INSERT INTO pre_treino_registros(
         id,user_id,customer_id,
         nome_cliente,telefone_cliente,
         produto_id,nome_produto,
@@ -2518,55 +1999,30 @@ app.post(
         tipo_consumo=$10,
         data=$11,
         horario=$12`,
-      [
-        id,
-        req.user.id,
-        cid,
-        customerName,
-        phone,
-        r.productId ||
-          r.produto_id ||
-          null,
-        r.productName ||
-          r.nomeProduto ||
-          r.nome_produto ||
-          '',
-        Number(
-          r.cost ??
-          r.custo ??
-          0
-        ),
-        Number(
-          r.value ??
-          r.valor ??
-          0
-        ),
-        r.type ||
-          r.tipo_consumo ||
-          'avulso',
-        r.date ||
-          r.data ||
-          new Date()
-            .toISOString()
-            .slice(0, 10),
-        r.time ||
-          r.horario ||
-          new Date().toLocaleTimeString(
-            'pt-BR',
-            {
-              hour: '2-digit',
-              minute: '2-digit'
-            }
-          )
-      ]
-    );
+    [
+      id,
+      req.user.id,
+      cid,
+      customerName,
+      phone,
+      r.productId || r.produto_id || null,
+      r.productName || r.nomeProduto || r.nome_produto || "",
+      Number(r.cost ?? r.custo ?? 0),
+      Number(r.value ?? r.valor ?? 0),
+      r.type || r.tipo_consumo || "avulso",
+      r.date || r.data || new Date().toISOString().slice(0, 10),
+      r.time ||
+        r.horario ||
+        new Date().toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+    ],
+  );
 
-    if (
-      r.productId ||
-      r.produto_id
-    ) {
-      await pool.query(
-        `UPDATE pre_treino_produtos
+  if (r.productId || r.produto_id) {
+    await pool.query(
+      `UPDATE pre_treino_produtos
          SET stock=
            GREATEST(
              0,
@@ -2575,45 +2031,30 @@ app.post(
          WHERE id=$1
          AND user_id=$2
          AND COALESCE(stock,0)>0`,
-        [
-          r.productId ||
-            r.produto_id,
-          req.user.id
-        ]
-      );
-    }
-
-    res.status(201).json({
-      success: true,
-      id
-    });
-  }
-);
-
-app.delete(
-  '/api/pre-treino/records/:id',
-  authMiddleware,
-  async (req, res) => {
-    await pool.query(
-      `DELETE FROM pre_treino_registros
-       WHERE id=$1 AND user_id=$2`,
-      [
-        req.params.id,
-        req.user.id
-      ]
+      [r.productId || r.produto_id, req.user.id],
     );
-
-    res.json({
-      success: true
-    });
   }
-);
 
-app.get(
-  '/api/pre-treino/reports',
-  authMiddleware,
-  async (req, res) => {
-    const baseQuery = `
+  res.status(201).json({
+    success: true,
+    id,
+  });
+});
+
+app.delete("/api/pre-treino/records/:id", authMiddleware, async (req, res) => {
+  await pool.query(
+    `DELETE FROM pre_treino_registros
+       WHERE id=$1 AND user_id=$2`,
+    [req.params.id, req.user.id],
+  );
+
+  res.json({
+    success: true,
+  });
+});
+
+app.get("/api/pre-treino/reports", authMiddleware, async (req, res) => {
+  const baseQuery = `
       SELECT
         (
           SELECT COALESCE(SUM(valor),0)
@@ -2640,15 +2081,10 @@ app.get(
         ) AS custo
     `;
 
-    const base =
-      await pool.query(
-        baseQuery,
-        [req.user.id]
-      );
+  const base = await pool.query(baseQuery, [req.user.id]);
 
-    const clients =
-      await pool.query(
-        `SELECT
+  const clients = await pool.query(
+    `SELECT
           nome_cliente,
           telefone_cliente,
           COUNT(*)::int AS consumos,
@@ -2662,12 +2098,11 @@ app.get(
            consumos DESC,
            valor DESC
          LIMIT 20`,
-        [req.user.id]
-      );
+    [req.user.id],
+  );
 
-    const products =
-      await pool.query(
-        `SELECT
+  const products = await pool.query(
+    `SELECT
           produto_id,
           nome_produto,
           COUNT(*)::int AS consumos,
@@ -2681,301 +2116,176 @@ app.get(
            consumos DESC,
            valor DESC
          LIMIT 20`,
-        [req.user.id]
-      );
+    [req.user.id],
+  );
 
-    const faturamentoTotal =
-      Number(
-        base.rows[0].faturamento ||
-        0
-      );
+  const faturamentoTotal = Number(base.rows[0].faturamento || 0);
 
-    const custoTotal =
-      Number(
-        base.rows[0].custo ||
-        0
-      );
+  const custoTotal = Number(base.rows[0].custo || 0);
 
-    res.json({
-      summary: {
-        totalConsumos:
-          base.rows[0].total_consumos,
-        faturamento:
-          faturamentoTotal,
-        custo:
-          custoTotal,
-        lucro:
-          faturamentoTotal -
-          custoTotal
-      },
-      topClients:
-        clients.rows,
-      topProducts:
-        products.rows
-    });
-  }
-);
+  res.json({
+    summary: {
+      totalConsumos: base.rows[0].total_consumos,
+      faturamento: faturamentoTotal,
+      custo: custoTotal,
+      lucro: faturamentoTotal - custoTotal,
+    },
+    topClients: clients.rows,
+    topProducts: products.rows,
+  });
+});
 
 // ==========================================
 // WHATSAPP
 // ==========================================
 
 async function createWhatsAppSession(userId) {
-  if (sessions.has(userId))
-    return sessions.get(userId);
+  if (sessions.has(userId)) return sessions.get(userId);
 
   const dir = path.join(
     authRoot,
-    crypto
-      .createHash('sha256')
-      .update(userId)
-      .digest('hex')
+    crypto.createHash("sha256").update(userId).digest("hex"),
   );
 
-  fs.mkdirSync(
-    dir,
-    { recursive: true }
-  );
+  fs.mkdirSync(dir, { recursive: true });
 
-  const {
-    state,
-    saveCreds
-  } =
-    await useMultiFileAuthState(
-      dir
-    );
+  const { state, saveCreds } = await useMultiFileAuthState(dir);
 
-  const sock =
-    makeWASocket({
-      auth: state,
-      printQRInTerminal: false,
-      browser: [
-        'BYSE PRO',
-        'Chrome',
-        '1.0'
-      ]
-    });
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: false,
+    browser: ["BYSE PRO", "Chrome", "1.0"],
+  });
 
   const session = {
     sock,
-    status: 'connecting',
+    status: "connecting",
     qr: null,
-    phone: null
+    phone: null,
   };
 
-  sessions.set(
-    userId,
-    session
-  );
+  sessions.set(userId, session);
+
+  sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on(
-    'creds.update',
-    saveCreds
-  );
-
-  sock.ev.on(
-    'connection.update',
-    async ({
-      connection,
-      lastDisconnect,
-      qr
-    }) => {
+    "connection.update",
+    async ({ connection, lastDisconnect, qr }) => {
       if (qr) {
-        session.status =
-          'qr_needed';
+        session.status = "qr_needed";
 
-        session.qr =
-          await QRCode.toDataURL(
-            qr,
-            {
-              margin: 2,
-              scale: 6
-            }
-          );
+        session.qr = await QRCode.toDataURL(qr, {
+          margin: 2,
+          scale: 6,
+        });
       }
 
-      if (connection === 'open') {
-        session.status =
-          'connected';
+      if (connection === "open") {
+        session.status = "connected";
 
-        session.qr =
-          null;
+        session.qr = null;
 
-        session.phone =
-          sock.user?.id ||
-          null;
+        session.phone = sock.user?.id || null;
       }
 
-      if (connection === 'close') {
-        const code =
-          lastDisconnect
-            ?.error
-            ?.output
-            ?.statusCode;
+      if (connection === "close") {
+        const code = lastDisconnect?.error?.output?.statusCode;
 
-        session.status =
-          'disconnected';
+        session.status = "disconnected";
 
-        session.qr =
-          null;
+        session.qr = null;
 
-        if (
-          code !==
-          DisconnectReason.loggedOut
-        ) {
-          sessions.delete(
-            userId
-          );
+        if (code !== DisconnectReason.loggedOut) {
+          sessions.delete(userId);
 
           setTimeout(
-            () =>
-              createWhatsAppSession(
-                userId
-              ).catch(
-                console.error
-              ),
-            3000
+            () => createWhatsAppSession(userId).catch(console.error),
+            3000,
           );
         }
       }
-    }
+    },
   );
 
   return session;
 }
 
-app.get(
-  '/api/whatsapp/status',
-  authMiddleware,
-  async (req, res) => {
-    const s =
-      await createWhatsAppSession(
-        req.user.id
-      );
+app.get("/api/whatsapp/status", authMiddleware, async (req, res) => {
+  const s = await createWhatsAppSession(req.user.id);
 
-    res.json({
-      status: s.status,
-      qr: s.qr,
-      phone: s.phone
+  res.json({
+    status: s.status,
+    qr: s.qr,
+    phone: s.phone,
+  });
+});
+
+app.get("/api/whatsapp/qr", authMiddleware, async (req, res) => {
+  const s = await createWhatsAppSession(req.user.id);
+
+  if (s.status === "connected") {
+    return res.status(409).json({
+      error: "WhatsApp já está conectado.",
     });
   }
-);
 
-app.get(
-  '/api/whatsapp/qr',
-  authMiddleware,
-  async (req, res) => {
-    const s =
-      await createWhatsAppSession(
-        req.user.id
-      );
+  res.json({
+    success: Boolean(s.qr),
+    qr: s.qr,
+    message: s.qr
+      ? "QR pronto."
+      : "QR ainda não foi gerado; aguarde alguns segundos.",
+  });
+});
 
-    if (
-      s.status ===
-      'connected'
-    ) {
-      return res.status(409).json({
-        error:
-          'WhatsApp já está conectado.'
-      });
-    }
+app.post("/api/whatsapp/reset", authMiddleware, async (req, res) => {
+  const uid = req.user.id;
 
-    res.json({
-      success: Boolean(s.qr),
-      qr: s.qr,
-      message:
-        s.qr
-          ? 'QR pronto.'
-          : 'QR ainda não foi gerado; aguarde alguns segundos.'
-    });
-  }
-);
+  const s = sessions.get(uid);
 
-app.post(
-  '/api/whatsapp/reset',
-  authMiddleware,
-  async (req, res) => {
-    const uid =
-      req.user.id;
+  try {
+    if (s?.sock) await s.sock.logout().catch(() => {});
 
-    const s =
-      sessions.get(uid);
+    sessions.delete(uid);
 
-    try {
-      if (s?.sock)
-        await s.sock
-          .logout()
-          .catch(() => {});
-
-      sessions.delete(
-        uid
-      );
-
-      const dir =
-        path.join(
-          authRoot,
-          crypto
-            .createHash('sha256')
-            .update(uid)
-            .digest('hex')
-        );
-
-      fs.rmSync(
-        dir,
-        {
-          recursive: true,
-          force: true
-        }
-      );
-
-      await createWhatsAppSession(
-        uid
-      );
-
-      res.json({
-        success: true
-      });
-    } catch (e) {
-      console.error(e);
-
-      res.status(500).json({
-        error:
-          'Não foi possível reiniciar a sessão.'
-      });
-    }
-  }
-);
-
-app.get(
-  '/api/whatsapp',
-  authMiddleware,
-  async (req, res) => {
-    const r =
-      await pool.query(
-        'SELECT schedules FROM user_whatsapp_schedules WHERE user_id=$1',
-        [req.user.id]
-      );
-
-    res.json(
-      json(
-        r.rows[0]?.schedules,
-        []
-      )
+    const dir = path.join(
+      authRoot,
+      crypto.createHash("sha256").update(uid).digest("hex"),
     );
+
+    fs.rmSync(dir, {
+      recursive: true,
+      force: true,
+    });
+
+    await createWhatsAppSession(uid);
+
+    res.json({
+      success: true,
+    });
+  } catch (e) {
+    console.error(e);
+
+    res.status(500).json({
+      error: "Não foi possível reiniciar a sessão.",
+    });
   }
-);
+});
 
-app.post(
-  '/api/whatsapp',
-  authMiddleware,
-  async (req, res) => {
-    const schedules =
-      Array.isArray(req.body)
-        ? req.body
-        : [];
+app.get("/api/whatsapp", authMiddleware, async (req, res) => {
+  const r = await pool.query(
+    "SELECT schedules FROM user_whatsapp_schedules WHERE user_id=$1",
+    [req.user.id],
+  );
 
-    await pool.query(
-      `INSERT INTO user_whatsapp_schedules(
+  res.json(json(r.rows[0]?.schedules, []));
+});
+
+app.post("/api/whatsapp", authMiddleware, async (req, res) => {
+  const schedules = Array.isArray(req.body) ? req.body : [];
+
+  await pool.query(
+    `INSERT INTO user_whatsapp_schedules(
         user_id,schedules,updated_at
       )
       VALUES($1,$2,NOW())
@@ -2983,314 +2293,177 @@ app.post(
       DO UPDATE SET
         schedules=$2,
         updated_at=NOW()`,
-      [
-        req.user.id,
-        JSON.stringify(
-          schedules
-        )
-      ]
-    );
+    [req.user.id, JSON.stringify(schedules)],
+  );
 
-    res.json({
-      success: true
+  res.json({
+    success: true,
+  });
+});
+
+app.post("/api/whatsapp/send-batch", authMiddleware, async (req, res) => {
+  const s = await createWhatsAppSession(req.user.id);
+
+  if (s.status !== "connected") {
+    return res.status(409).json({
+      error: "Conecte o WhatsApp deste usuário antes de enviar mensagens.",
     });
   }
-);
 
-app.post(
-  '/api/whatsapp/send-batch',
-  authMiddleware,
-  async (req, res) => {
-    const s =
-      await createWhatsAppSession(
-        req.user.id
-      );
-
-    if (
-      s.status !==
-      'connected'
-    ) {
-      return res.status(409).json({
-        error:
-          'Conecte o WhatsApp deste usuário antes de enviar mensagens.'
-      });
-    }
-
-    let sql =
-      `SELECT id,name,phone,cashback
+  let sql = `SELECT id,name,phone,cashback
        FROM customers
        WHERE user_id=$1
        AND phone<>''`;
 
-    const params =
-      [req.user.id];
+  const params = [req.user.id];
 
-    if (
-      !req.body.sendToAll &&
-      Array.isArray(
-        req.body.customerIds
-      ) &&
-      req.body.customerIds.length
-    ) {
-      sql +=
-        ' AND id=ANY($2)';
+  if (
+    !req.body.sendToAll &&
+    Array.isArray(req.body.customerIds) &&
+    req.body.customerIds.length
+  ) {
+    sql += " AND id=ANY($2)";
 
-      params.push(
-        req.body.customerIds
-      );
-    }
-
-    const customers =
-      await pool.query(
-        sql,
-        params
-      );
-
-    let sent = 0;
-
-    for (
-      const c of customers.rows
-    ) {
-      const phone =
-        String(
-          c.phone
-        ).replace(
-          /\D/g,
-          ''
-        );
-
-      if (!phone)
-        continue;
-
-      const msg =
-        String(
-          req.body.text || ''
-        )
-          .replaceAll(
-            '{nome}',
-            c.name ||
-              'Cliente'
-          )
-          .replaceAll(
-            '{saldo}',
-            `R$ ${Number(
-              c.cashback || 0
-            ).toFixed(2)}`
-          );
-
-      try {
-        await s.sock.sendMessage(
-          `${
-            phone.startsWith('55')
-              ? phone
-              : '55' + phone
-          }@s.whatsapp.net`,
-          {
-            text: msg
-          }
-        );
-
-        sent++;
-
-        await new Promise(
-          r =>
-            setTimeout(
-              r,
-              1500
-            )
-        );
-      } catch (e) {
-        console.error(
-          '[WA SEND]',
-          e.message
-        );
-      }
-    }
-
-    res.json({
-      success: true,
-      message:
-        `${sent} mensagem(ns) enviada(s).`,
-      sent
-    });
+    params.push(req.body.customerIds);
   }
-);
+
+  const customers = await pool.query(sql, params);
+
+  let sent = 0;
+
+  for (const c of customers.rows) {
+    const phone = String(c.phone).replace(/\D/g, "");
+
+    if (!phone) continue;
+
+    const msg = String(req.body.text || "")
+      .replaceAll("{nome}", c.name || "Cliente")
+      .replaceAll("{saldo}", `R$ ${Number(c.cashback || 0).toFixed(2)}`);
+
+    try {
+      await s.sock.sendMessage(
+        `${phone.startsWith("55") ? phone : "55" + phone}@s.whatsapp.net`,
+        {
+          text: msg,
+        },
+      );
+
+      sent++;
+
+      await new Promise((r) => setTimeout(r, 1500));
+    } catch (e) {
+      console.error("[WA SEND]", e.message);
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `${sent} mensagem(ns) enviada(s).`,
+    sent,
+  });
+});
 
 // ==========================================
 // AGENDADOR WHATSAPP
 // ==========================================
 
 cron.schedule(
-  '* * * * *',
+  "* * * * *",
   async () => {
     try {
-      const rows =
-        await pool.query(
-          'SELECT user_id,schedules FROM user_whatsapp_schedules'
-        );
+      const rows = await pool.query(
+        "SELECT user_id,schedules FROM user_whatsapp_schedules",
+      );
 
-      const now =
-        new Date();
+      const now = new Date();
 
-      const day =
-        [
-          'domingo',
-          'segunda',
-          'terça',
-          'quarta',
-          'quinta',
-          'sexta',
-          'sábado'
-        ][
-          now.getDay()
-        ];
+      const day = [
+        "domingo",
+        "segunda",
+        "terça",
+        "quarta",
+        "quinta",
+        "sexta",
+        "sábado",
+      ][now.getDay()];
 
-      const time =
-        now.toLocaleTimeString(
-          'pt-BR',
-          {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone:
-              'America/Sao_Paulo'
-          }
-        );
+      const time = now.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "America/Sao_Paulo",
+      });
 
-      for (
-        const row of rows.rows
-      ) {
-        for (
-          const sch of json(
-            row.schedules,
-            []
-          )
-        ) {
+      for (const row of rows.rows) {
+        for (const sch of json(row.schedules, [])) {
           if (
             !sch.enabled ||
             sch.time !== time ||
-            !Array.isArray(
-              sch.days
-            ) ||
+            !Array.isArray(sch.days) ||
             !sch.days.includes(day)
           ) {
             continue;
           }
 
-          const s =
-            sessions.get(
-              row.user_id
-            );
+          const s = sessions.get(row.user_id);
 
-          if (
-            !s ||
-            s.status !==
-              'connected'
-          ) {
+          if (!s || s.status !== "connected") {
             continue;
           }
 
-          let sql =
-            `SELECT name,phone,cashback
+          let sql = `SELECT name,phone,cashback
              FROM customers
              WHERE user_id=$1
              AND phone<>''`;
 
-          const params =
-            [row.user_id];
+          const params = [row.user_id];
 
           if (
             !sch.sendToAll &&
-            Array.isArray(
-              sch.customerIds
-            ) &&
+            Array.isArray(sch.customerIds) &&
             sch.customerIds.length
           ) {
-            sql +=
-              ' AND id=ANY($2)';
+            sql += " AND id=ANY($2)";
 
-            params.push(
-              sch.customerIds
-            );
+            params.push(sch.customerIds);
           }
 
-          const cs =
-            await pool.query(
-              sql,
-              params
-            );
+          const cs = await pool.query(sql, params);
 
-          for (
-            const c of cs.rows
-          ) {
-            const phone =
-              String(
-                c.phone
-              ).replace(
-                /\D/g,
-                ''
+          for (const c of cs.rows) {
+            const phone = String(c.phone).replace(/\D/g, "");
+
+            if (!phone) continue;
+
+            const msg = String(sch.text || "")
+              .replaceAll("{nome}", c.name || "Cliente")
+              .replaceAll(
+                "{saldo}",
+                `R$ ${Number(c.cashback || 0).toFixed(2)}`,
               );
-
-            if (!phone)
-              continue;
-
-            const msg =
-              String(
-                sch.text || ''
-              )
-                .replaceAll(
-                  '{nome}',
-                  c.name ||
-                    'Cliente'
-                )
-                .replaceAll(
-                  '{saldo}',
-                  `R$ ${Number(
-                    c.cashback || 0
-                  ).toFixed(2)}`
-                );
 
             await s.sock
               .sendMessage(
                 `${
-                  phone.startsWith(
-                    '55'
-                  )
-                    ? phone
-                    : '55' + phone
+                  phone.startsWith("55") ? phone : "55" + phone
                 }@s.whatsapp.net`,
                 {
-                  text: msg
-                }
+                  text: msg,
+                },
               )
-              .catch(
-                e =>
-                  console.error(
-                    e.message
-                  )
-              );
+              .catch((e) => console.error(e.message));
 
-            await new Promise(
-              r =>
-                setTimeout(
-                  r,
-                  1200
-                )
-            );
+            await new Promise((r) => setTimeout(r, 1200));
           }
         }
       }
     } catch (e) {
-      console.error(
-        '[WA CRON]',
-        e
-      );
+      console.error("[WA CRON]", e);
     }
   },
   {
-    timezone:
-      'America/Sao_Paulo'
-  }
+    timezone: "America/Sao_Paulo",
+  },
 );
 
 // ==========================================
@@ -3300,60 +2473,32 @@ cron.schedule(
 try {
   await initDb();
 } catch (err) {
-  console.error(
-    '[INIT DB ERROR] Falha ao inicializar o banco de dados:',
-    err
-  );
+  console.error("[INIT DB ERROR] Falha ao inicializar o banco de dados:", err);
 }
 
-const httpServer =
-  app.listen(
-    PORT,
-    '0.0.0.0',
-    () => {
-      console.log(
-        `BYSE PRO API em http://0.0.0.0:${PORT} | frontend esperado:${FRONTEND_URL}`
-      );
-    }
+const httpServer = app.listen(PORT, "0.0.0.0", () => {
+  console.log(
+    `BYSE PRO API em http://0.0.0.0:${PORT} | frontend esperado:${FRONTEND_URL}`,
   );
+});
 
-const shutdown =
-  async signal => {
-    console.log(
-      `Encerrando servidor (${signal})...`
-    );
+const shutdown = async (signal) => {
+  console.log(`Encerrando servidor (${signal})...`);
 
-    for (
-      const [
-        uid,
-        session
-      ] of sessions
-    ) {
-      try {
-        session.sock.end(
-          undefined
-        );
-      } catch {}
+  for (const [uid, session] of sessions) {
+    try {
+      session.sock.end(undefined);
+    } catch {}
 
-      sessions.delete(
-        uid
-      );
-    }
+    sessions.delete(uid);
+  }
 
-    httpServer.close(
-      async () => {
-        await pool.end();
-        process.exit(0);
-      }
-    );
-  };
+  httpServer.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
+};
 
-process.on(
-  'SIGINT',
-  () => shutdown('SIGINT')
-);
+process.on("SIGINT", () => shutdown("SIGINT"));
 
-process.on(
-  'SIGTERM',
-  () => shutdown('SIGTERM')
-);
+process.on("SIGTERM", () => shutdown("SIGTERM"));

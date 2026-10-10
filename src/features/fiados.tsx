@@ -125,9 +125,13 @@ function Fiados({
 }) {
   const [showForm, setShowForm] = useState(false);
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
+  const [customerMode, setCustomerMode] = useState("registered");
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [products, setProducts] = useState("");
   const [value, setValue] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("byse_token");
@@ -138,39 +142,70 @@ function Fiados({
   };
 
   const add = async () => {
-    if (!customerId || !value) return;
-    const c = customers.find((c) => c.id === customerId);
-    const d = dueDate
-      ? new Date(dueDate + "T12:00:00")
-      : new Date();
-    
+    const selectedCustomer = customerMode === "registered"
+      ? customers.find((c) => String(c.id) === String(customerId))
+      : null;
+    const customerName = customerMode === "registered"
+      ? selectedCustomer?.name
+      : newCustomerName.trim();
+
+    if (!customerName) {
+      alert(customerMode === "registered"
+        ? "Selecione um cliente ou escolha cadastrar um novo."
+        : "Informe o nome do novo cliente.");
+      return;
+    }
+    if (!String(value).trim() || Number(value) <= 0) {
+      alert("Informe um valor válido para o fiado.");
+      return;
+    }
+
+    const d = dueDate ? new Date(dueDate + "T12:00:00") : new Date();
     const item = {
       id: "fd" + Date.now(),
-      customerId,
-      customerName: c?.name || "Cliente",
+      customerId: customerMode === "registered"
+        ? selectedCustomer?.id
+        : "manual-" + Date.now(),
+      customerName,
+      customerPhone: customerMode === "new" ? newCustomerPhone.trim() : (selectedCustomer?.phone || selectedCustomer?.telephone || ""),
       date: new Date(),
-      products,
+      products: products.trim(),
       origin: "manual",
       installments: [{ value: Number(value) || 0, dueDate: d, paid: false }]
     };
 
-    const updated = [...fiados, item];
-    setFiados(updated);
+    // Atualização otimista: o fiado aparece imediatamente na tela,
+    // sem esperar a resposta da API.
+    const previousFiados = Array.isArray(fiados) ? fiados : [];
+    setFiados([...previousFiados, item]);
+    setShowForm(false);
+    setCustomerId(customers[0]?.id || "");
+    setCustomerMode("registered");
+    setNewCustomerName("");
+    setNewCustomerPhone("");
+    setProducts("");
+    setValue("");
+    setDueDate("");
+    setSaving(true);
 
     try {
-      await fetch(`${API_URL}/fiados`, {
+      const response = await fetch(`${API_URL}/fiados`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify(item)
       });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(detail || `Falha ao salvar fiado (${response.status})`);
+      }
     } catch (err) {
-      console.error("Erro ao salvar fiado no servidor:", err);
+      console.error("Erro ao sincronizar fiado com o servidor:", err);
+      // Mantém o item visível para não fazê-lo desaparecer da interface.
+      // A persistência após recarregar depende de a API aceitar o registro.
+      alert("O fiado já foi exibido na tela, mas houve falha ao salvar no servidor. Verifique a URL da API/conexão antes de recarregar a página.");
+    } finally {
+      setSaving(false);
     }
-
-    setShowForm(false);
-    setProducts("");
-    setValue("");
-    setDueDate("");
   };
 
   const toggle = async (id) => {
@@ -288,23 +323,79 @@ function Fiados({
             marginBottom: 16
           }}
         >
-          <select
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            style={{ width: "100%", padding: 9, marginBottom: 8 }}
-          >
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+            Cliente
+          </label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <button
+              type="button"
+              onClick={() => setCustomerMode("registered")}
+              style={{
+                border: "1px solid " + (customerMode === "registered" ? accent : border),
+                background: customerMode === "registered" ? accent : "transparent",
+                color: customerMode === "registered" ? "#fff" : text,
+                borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontWeight: 700
+              }}
+            >
+              Selecionar cadastrado
+            </button>
+            <button
+              type="button"
+              onClick={() => setCustomerMode("new")}
+              style={{
+                border: "1px solid " + (customerMode === "new" ? accent : border),
+                background: customerMode === "new" ? accent : "transparent",
+                color: customerMode === "new" ? "#fff" : text,
+                borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontWeight: 700
+              }}
+            >
+              <Plus size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
+              Novo cliente
+            </button>
+          </div>
 
+          {customerMode === "registered" ? (
+            <select
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              style={{ width: "100%", padding: 9, marginBottom: 8, boxSizing: "border-box" }}
+            >
+              <option value="">Selecione um cliente</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.phone || c.telephone ? ` — ${c.phone || c.telephone}` : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <>
+              <input
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                placeholder="Nome do novo cliente *"
+                style={{ width: "100%", padding: 9, marginBottom: 8, boxSizing: "border-box" }}
+              />
+              <input
+                value={newCustomerPhone}
+                onChange={(e) => setNewCustomerPhone(e.target.value)}
+                placeholder="Telefone/WhatsApp (opcional)"
+                inputMode="tel"
+                style={{ width: "100%", padding: 9, marginBottom: 8, boxSizing: "border-box" }}
+              />
+              <div style={{ color: subtext, fontSize: 12, marginBottom: 8 }}>
+                O cliente será identificado neste fiado mesmo que ainda não esteja no cadastro geral.
+              </div>
+            </>
+          )}
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+            Produto(s) ou descrição
+          </label>
           <input
             value={products}
             onChange={(e) => setProducts(e.target.value)}
-            placeholder="Produtos"
-            style={{ width: "100%", padding: 9, marginBottom: 8 }}
+            placeholder="Digite qualquer produto, mesmo sem cadastro"
+            style={{ width: "100%", padding: 9, marginBottom: 8, boxSizing: "border-box" }}
           />
 
           <input
@@ -324,6 +415,7 @@ function Fiados({
 
           <button
             onClick={add}
+            disabled={saving}
             style={{
               background: accent,
               color: "#fff",
@@ -331,10 +423,11 @@ function Fiados({
               borderRadius: 8,
               padding: "9px 14px",
               fontWeight: 700,
-              cursor: "pointer"
+              cursor: saving ? "wait" : "pointer",
+              opacity: saving ? 0.7 : 1
             }}
           >
-            Salvar
+            {saving ? "Salvando..." : "Salvar fiado"}
           </button>
         </div>
       )}

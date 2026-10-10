@@ -200,7 +200,10 @@ export function PDV({
         if (typeof data.saleWhatsappPhone === "string") {
           setSaleWhatsappPhone(data.saleWhatsappPhone);
           try {
-            localStorage.setItem(getSaleWhatsappPhoneStorageKey(), data.saleWhatsappPhone);
+            localStorage.setItem(
+              getSaleWhatsappPhoneStorageKey(),
+              data.saleWhatsappPhone,
+            );
           } catch {}
         }
 
@@ -294,15 +297,19 @@ export function PDV({
     setWhatsappPhoneSaveStatus("");
     const ok = await saveUserSettings({ saleWhatsappPhone });
     setSavingWhatsappPhone(false);
-    setWhatsappPhoneSaveStatus(ok ? "Número salvo para este login." : "Não foi possível salvar no servidor. Tente novamente.");
+    setWhatsappPhoneSaveStatus(
+      ok
+        ? "Número salvo para este login."
+        : "Não foi possível salvar no servidor. Tente novamente.",
+    );
   };
 
   const availableStockLocations =
     stockLocations && stockLocations.length > 0
       ? stockLocations
       : [
-          { id: "loja-fisica", name: "Loja Física" },
-          { id: "degustacao", name: "Degustação" },
+          { id: "Loja Física", name: "Loja Física" },
+          { id: "Degustação", name: "Degustação" },
         ];
 
   const [selectedStockLoc, setSelectedStockLoc] = useState(
@@ -535,39 +542,30 @@ export function PDV({
     const localName = currentLocObj ? currentLocObj.name : "Estoque Principal";
 
     const formattedItems = cart.map((item) => {
-      const varName = (item.variationName || item.variation || "").trim();
+      const varName = String(item.variationName || item.variation || "").trim();
 
       const itemQty = Math.max(1, Number(item.qty || item.quantity || 1));
 
       return {
         ...item,
 
+        // Identificação do produto
         productId: item.id,
+        product_id: item.id,
 
         price: Number(item.price || 0),
-
         qty: itemQty,
-
         quantity: itemQty,
 
-        /*
-         * IMPORTANTE:
-         * Enviamos a localização selecionada em TODOS os formatos
-         * utilizados pelo sistema.
-         *
-         * O backend dará prioridade a esses campos antes de qualquer
-         * fallback.
-         */
-        stockLocation: selectedStockLoc,
-        stock_location: selectedStockLoc,
+        // ID do local escolhido
+        stockLocation: String(selectedStockLoc),
+        stock_location: String(selectedStockLoc),
 
-        // Compatibilidade com versões anteriores do PDV.
-        stockLocations: selectedStockLoc,
-        stock_locations: selectedStockLoc,
-
+        // Nome correspondente ao local escolhido
         local: localName,
         location: localName,
 
+        // Variação
         variationName: varName,
         variation: varName,
       };
@@ -685,10 +683,13 @@ export function PDV({
           : `55${whatsappDigits}`;
 
         const nomeCliente = selectedCustomer?.name || "Cliente Geral";
-        const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL",
-        });
+        const cashbackGanhoFormatado = cashbackEarnedVal.toLocaleString(
+          "pt-BR",
+          {
+            style: "currency",
+            currency: "BRL",
+          },
+        );
         const vencimentoFormatado = new Date(
           Date.now() + Number(cashbackValidityDays || 30) * 86400000,
         ).toLocaleDateString("pt-BR");
@@ -741,7 +742,7 @@ export function PDV({
       <style>{`
         @media print {
           @page {
-            size: A4 portrait;
+            size: A4 portrait !important;
             margin: 10mm;
           }
           body * {
@@ -755,9 +756,11 @@ export function PDV({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 190mm !important;
-            max-width: 190mm !important;
-            min-height: 270mm !important;
+            width: 180mm !important;
+            max-width: 180mm !important;
+            min-height: 0 !important;
+            height: auto !important;
+            box-sizing: border-box !important;
             font-family: monospace !important;
             padding: 4px !important;
             color: #000 !important;
@@ -1011,13 +1014,7 @@ export function PDV({
             title="PDV — Ponto de Venda & Cashback"
             sub="Busque um cliente por nome ou telefone, cadastre ou inicie uma venda rápida com gestão integrada"
           />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: device === "desktop" ? "1fr 1fr" : "1fr",
-              gap: 20,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
             <div
               style={{
                 background: card,
@@ -1026,103 +1023,7 @@ export function PDV({
                 padding: 20,
               }}
             >
-              <div
-                style={{
-                  marginBottom: 20,
-                  padding: 14,
-                  background: `${border}15`,
-                  border: `1px solid ${border}`,
-                  borderRadius: 10,
-                }}
-              >
-                <label style={lbl(subtext)}>
-                  SEU NÚMERO DE WHATSAPP PARA NOTIFICAÇÕES DE VENDAS
-                </label>
-                <input
-                  type="tel"
-                  value={saleWhatsappPhone}
-                  onChange={(e) => handleSaleWhatsappPhoneChange(e.target.value)}
-                  onBlur={handleSaleWhatsappPhoneBlur}
-                  placeholder="Ex.: (83) 99999-9999 ou +55 83 99999-9999"
-                  autoComplete="tel"
-                  style={{
-                    ...inputStyle(border, text),
-                    width: "100%",
-                    marginTop: 8,
-                    marginBottom: 6,
-                    boxSizing: "border-box",
-                  }}
-                />
-                <div style={{ color: subtext, fontSize: 11, lineHeight: 1.4 }}>
-                  Informe o número do WhatsApp que receberá a mensagem quando uma venda for finalizada. O número fica salvo por login e pode ser alterado a qualquer momento.
-                </div>
-                {whatsappPhoneSaveStatus && (
-                  <div role="status" style={{ color: whatsappPhoneSaveStatus.startsWith("Número salvo") ? "#16a34a" : "#dc2626", fontSize: 11, marginTop: 5 }}>
-                    {whatsappPhoneSaveStatus}
-                  </div>
-                )}
-                {savingWhatsappPhone && (
-                  <div style={{ color: subtext, fontSize: 11, marginTop: 5 }}>Salvando número...</div>
-                )}
-                <div style={{ height: 1, background: border, margin: "14px 0" }} />
-                <label style={lbl(subtext)}>
-                  MENSAGEM ENVIADA PELO WHATSAPP AO FINALIZAR A VENDA
-                </label>
-                <textarea
-                  value={saleWhatsappMessage}
-                  onChange={(e) =>
-                    handleSaleWhatsappMessageChange(e.target.value)
-                  }
-                  onBlur={handleSaleWhatsappMessageBlur}
-                  rows={5}
-                  placeholder="Digite a mensagem que será enviada ao cliente após finalizar a venda..."
-                  style={{
-                    ...inputStyle(border, text),
-                    width: "100%",
-                    minHeight: 110,
-                    marginTop: 8,
-                    resize: "vertical",
-                    boxSizing: "border-box",
-                  }}
-                />
-                <div
-                  style={{
-                    color: subtext,
-                    fontSize: 11,
-                    marginTop: 6,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  Variáveis disponíveis: <strong>{"{nome}"}</strong>,{" "}
-                  <strong>{"{cashback}"}</strong>, <strong>{"{saldo}"}</strong>,{" "}
-                  <strong>{"{vencimento}"}</strong> e{" "}
-                  <strong>{"{total}"}</strong>. A mensagem é salva
-                  automaticamente ao sair do campo.
-                </div>
-              </div>
-
-              <button
-                onClick={startOrderWithoutCustomer}
-                style={{
-                  background: accent,
-                  color: "#fff",
-                  border: "none",
-                  padding: "12px",
-                  borderRadius: 8,
-                  width: "100%",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                  marginBottom: 20,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
-              >
-                <ShoppingCart size={18} /> Venda Rápida (Sem Cadastro)
-              </button>
-
-              <div
+                            <div
                 style={{
                   borderTop: `1px solid ${border}`,
                   paddingTop: 15,
@@ -1307,6 +1208,43 @@ export function PDV({
                   <UserPlus size={18} /> Cadastrar Novo Cliente
                 </button>
               </div>
+
+            </div>
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
+                <label style={lbl(subtext)}>
+                  MENSAGEM ENVIADA PELO WHATSAPP AO FINALIZAR A VENDA
+                </label>
+                <textarea
+                  value={saleWhatsappMessage}
+                  onChange={(e) =>
+                    handleSaleWhatsappMessageChange(e.target.value)
+                  }
+                  onBlur={handleSaleWhatsappMessageBlur}
+                  rows={3}
+                  placeholder="Digite a mensagem que será enviada ao cliente após finalizar a venda..."
+                  style={{
+                    ...inputStyle(border, text),
+                    width: "100%",
+                    minHeight: 76,
+                    marginTop: 8,
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div
+                  style={{
+                    color: subtext,
+                    fontSize: 11,
+                    marginTop: 6,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Variáveis disponíveis: <strong>{"{nome}"}</strong>,{" "}
+                  <strong>{"{cashback}"}</strong>, <strong>{"{saldo}"}</strong>,{" "}
+                  <strong>{"{vencimento}"}</strong> e{" "}
+                  <strong>{"{total}"}</strong>. A mensagem é salva
+                  automaticamente ao sair do campo.
+                </div>
             </div>
 
             <div
@@ -1314,11 +1252,93 @@ export function PDV({
                 background: card,
                 border: `1px solid ${border}`,
                 borderRadius: 14,
-                padding: 20,
+                padding: 16,
+              }}
+            >
+                            <button
+                onClick={startOrderWithoutCustomer}
+                style={{
+                  background: accent,
+                  color: "#fff",
+                  border: "none",
+                  padding: "12px",
+                  borderRadius: 8,
+                  width: "100%",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  marginBottom: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                <ShoppingCart size={18} /> Venda Rápida (Sem Cadastro)
+              </button>
+
+
+            </div>
+
+
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
+                <label style={lbl(subtext)}>
+                  SEU NÚMERO DE WHATSAPP PARA NOTIFICAÇÕES DE VENDAS
+                </label>
+                <input
+                  type="tel"
+                  value={saleWhatsappPhone}
+                  onChange={(e) =>
+                    handleSaleWhatsappPhoneChange(e.target.value)
+                  }
+                  onBlur={handleSaleWhatsappPhoneBlur}
+                  placeholder="Ex.: (83) 99999-9999 ou +55 83 99999-9999"
+                  autoComplete="tel"
+                  style={{
+                    ...inputStyle(border, text),
+                    width: "100%",
+                    marginTop: 8,
+                    marginBottom: 6,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <div style={{ color: subtext, fontSize: 11, lineHeight: 1.4 }}>
+                  Informe o número do WhatsApp que receberá a mensagem quando
+                  uma venda for finalizada. O número fica salvo por login e pode
+                  ser alterado a qualquer momento.
+                </div>
+                {whatsappPhoneSaveStatus && (
+                  <div
+                    role="status"
+                    style={{
+                      color: whatsappPhoneSaveStatus.startsWith("Número salvo")
+                        ? "#16a34a"
+                        : "#dc2626",
+                      fontSize: 11,
+                      marginTop: 5,
+                    }}
+                  >
+                    {whatsappPhoneSaveStatus}
+                  </div>
+                )}
+                {savingWhatsappPhone && (
+                  <div style={{ color: subtext, fontSize: 11, marginTop: 5 }}>
+                    Salvando número...
+                  </div>
+                )}
+
+            </div>
+
+            <div
+              style={{
+                background: card,
+                border: `1px solid ${border}`,
+                borderRadius: 14,
+                padding: 12,
+                minWidth: 0,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
-                gap: 16,
+                gap: 10,
               }}
             >
               <div>
@@ -1359,7 +1379,7 @@ export function PDV({
                     : `${border}20`,
                   border: `2px solid ${activeReminderButton ? accent : border}`,
                   borderRadius: 12,
-                  padding: 18,
+                  padding: 12,
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -1402,7 +1422,7 @@ export function PDV({
                   style={{
                     background: activeReminderButton ? accent : subtext,
                     color: "#fff",
-                    padding: "6px 14px",
+                    padding: "5px 10px",
                     borderRadius: 8,
                     fontSize: 12,
                     fontWeight: 600,
