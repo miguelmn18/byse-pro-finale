@@ -1021,9 +1021,13 @@ export function PDV({
                 border: `1px solid ${border}`,
                 borderRadius: 14,
                 padding: 20,
+                minHeight: "68vh",
+                boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
               }}
             >
-                            <div
+              <div
                 style={{
                   borderTop: `1px solid ${border}`,
                   paddingTop: 15,
@@ -1031,37 +1035,104 @@ export function PDV({
                 }}
               ></div>
 
-              <label style={lbl(subtext)}>
-                BUSCAR CLIENTE (DIGITE O NOME OU TELEFONE)
-              </label>
               <div
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  marginTop: 8,
-                  position: "relative",
+                  border: `1px solid ${`${accent}70`}`,
+                  background: `${accent}08`,
+                  borderRadius: 10,
+                  padding: 12,
+                  marginBottom: 12,
+                  width: "100%",
+                  height:"100%",
+                  boxSizing: "border-box",
                 }}
               >
-                <input
-                  value={phoneQuery}
-                  onChange={(e) => handleCustomerInputChange(e.target.value)}
-                  onKeyDown={handleKeyDownSearch}
-                  placeholder="Digite o nome ou (00) 00000-0000 (Pressione Enter)..."
-                  style={{ ...inputStyle(border, text), flex: 1 }}
-                />
-                <button
-                  onClick={search}
+                <label style={{ ...lbl(text), fontWeight: 800 }}>
+                  BUSCAR CLIENTE (NOME OU TELEFONE)
+                </label>
+                <div
                   style={{
-                    background: accent,
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "0 15px",
-                    cursor: "pointer",
+                    display: "flex",
+                    gap: 8,
+                    marginTop: 8,
+                    position: "relative",
+                    minWidth: 0,
                   }}
-                  title="Buscar"
                 >
-                  <Search size={20} color="#fff" />
-                </button>
+                  <input
+                    value={phoneQuery}
+                    onChange={(e) => handleCustomerInputChange(e.target.value)}
+                    onKeyDown={handleKeyDownSearch}
+                    placeholder="Digite o nome ou telefone..."
+                    style={{ ...inputStyle(border, text), flex: 1, minWidth: 0 }}
+                  />
+                  <button
+                    onClick={search}
+                    style={{
+                      background: accent,
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "0 13px",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                    }}
+                    title="Buscar"
+                    aria-label="Buscar cliente"
+                  >
+                    <Search size={20} color="#fff" />
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: 8,
+                    marginTop: 12,
+                  }}
+                >
+                  <button
+                    onClick={() => setStep("register")}
+                    style={{
+                      background: "transparent",
+                      color: accent,
+                      border: `1px solid ${accent}`,
+                      padding: "10px 8px",
+                      borderRadius: 8,
+                      minWidth: 0,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      fontWeight: 700,
+                      fontSize: 12,
+                    }}
+                  >
+                    <UserPlus size={16} />
+                    <span>Cadastrar cliente</span>
+                  </button>
+                  <button
+                    onClick={startOrderWithoutCustomer}
+                    style={{
+                      background: accent,
+                      color: "#fff",
+                      border: `1px solid ${accent}`,
+                      padding: "10px 8px",
+                      borderRadius: 8,
+                      minWidth: 0,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      fontWeight: 700,
+                      fontSize: 12,
+                    }}
+                  >
+                    <ShoppingCart size={16} />
+                    <span>Venda rápida</span>
+                  </button>
+                </div>
               </div>
 
               {customerSuggestions.length > 0 && (
@@ -1181,62 +1252,60 @@ export function PDV({
                   </p>
                 )}
 
-              <div
-                style={{
-                  marginTop: foundCustomer ? 12 : 20,
-                  borderTop: `1px solid ${border}`,
-                  paddingTop: 15,
-                }}
-              >
-                <button
-                  onClick={() => setStep("register")}
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: 12,
+                minWidth: 0,
+                alignItems: "start",
+              }}
+            >
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 12, padding: 12, minWidth: 0, boxSizing: "border-box" }}>
+                <div
                   style={{
-                    background: "transparent",
-                    color: accent,
-                    border: `1px solid ${accent}`,
-                    padding: 10,
-                    borderRadius: 8,
-                    width: "100%",
-                    cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
                     gap: 8,
-                    fontWeight: "bold",
+                    color: text,
+                    background: `${accent}12`,
+                    border: `1px solid ${`${accent}70`}`,
+                    borderRadius: 8,
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    lineHeight: 1.3,
                   }}
                 >
-                  <UserPlus size={18} /> Cadastrar Novo Cliente
-                </button>
-              </div>
-
-            </div>
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
-                <label style={lbl(subtext)}>
-                  MENSAGEM ENVIADA PELO WHATSAPP AO FINALIZAR A VENDA
-                </label>
+                  <span aria-hidden="true">💬</span>
+                  <span>Mensagem enviada ao finalizar venda</span>
+                </div>
                 <textarea
                   value={saleWhatsappMessage}
                   onChange={(e) =>
                     handleSaleWhatsappMessageChange(e.target.value)
                   }
                   onBlur={handleSaleWhatsappMessageBlur}
-                  rows={3}
-                  placeholder="Digite a mensagem que será enviada ao cliente após finalizar a venda..."
+                  rows={2}
+                  placeholder="Mensagem enviada ao cliente após finalizar a venda..."
                   style={{
                     ...inputStyle(border, text),
                     width: "100%",
-                    minHeight: 76,
-                    marginTop: 8,
+                    minHeight: 58,
+                    marginTop: 6,
+                    padding: "8px 10px",
                     resize: "vertical",
                     boxSizing: "border-box",
+                    fontSize: 12,
                   }}
                 />
                 <div
                   style={{
                     color: subtext,
-                    fontSize: 11,
-                    marginTop: 6,
-                    lineHeight: 1.4,
+                    fontSize: 10,
+                    marginTop: 4,
+                    lineHeight: 1.35,
                   }}
                 >
                   Variáveis disponíveis: <strong>{"{nome}"}</strong>,{" "}
@@ -1247,43 +1316,25 @@ export function PDV({
                 </div>
             </div>
 
-            <div
-              style={{
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 14,
-                padding: 16,
-              }}
-            >
-                            <button
-                onClick={startOrderWithoutCustomer}
-                style={{
-                  background: accent,
-                  color: "#fff",
-                  border: "none",
-                  padding: "12px",
-                  borderRadius: 8,
-                  width: "100%",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                  marginBottom: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
-              >
-                <ShoppingCart size={18} /> Venda Rápida (Sem Cadastro)
-              </button>
-
-
-            </div>
-
-
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
-                <label style={lbl(subtext)}>
-                  SEU NÚMERO DE WHATSAPP PARA NOTIFICAÇÕES DE VENDAS
-                </label>
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 12, padding: 12, minWidth: 0, boxSizing: "border-box" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    color: text,
+                    background: `${accent}12`,
+                    border: `1px solid ${`${accent}70`}`,
+                    borderRadius: 8,
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    lineHeight: 1.3,
+                  }}
+                >
+                  <span aria-hidden="true">📱</span>
+                  <span>Configure seu WhatsApp antes de vender</span>
+                </div>
                 <input
                   type="tel"
                   value={saleWhatsappPhone}
@@ -1296,15 +1347,24 @@ export function PDV({
                   style={{
                     ...inputStyle(border, text),
                     width: "100%",
-                    marginTop: 8,
-                    marginBottom: 6,
+                    marginTop: 6,
+                    marginBottom: 4,
+                    padding: "8px 10px",
+                    fontSize: 12,
                     boxSizing: "border-box",
                   }}
                 />
-                <div style={{ color: subtext, fontSize: 11, lineHeight: 1.4 }}>
-                  Informe o número do WhatsApp que receberá a mensagem quando
-                  uma venda for finalizada. O número fica salvo por login e pode
-                  ser alterado a qualquer momento.
+                <div
+                  style={{
+                    color: subtext,
+                    fontSize: 11,
+                    lineHeight: 1.35,
+                    marginTop: 3,
+                  }}
+                >
+                  Cadastre aqui o número que será usado para enviar as mensagens
+                  aos seus clientes. Ele fica vinculado ao seu login e pode ser
+                  alterado depois.
                 </div>
                 {whatsappPhoneSaveStatus && (
                   <div
@@ -1326,6 +1386,7 @@ export function PDV({
                   </div>
                 )}
 
+            </div>
             </div>
 
             <div
