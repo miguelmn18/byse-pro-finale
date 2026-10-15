@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 
 import React, { useEffect, useState } from 'react';
@@ -31,6 +32,8 @@ interface Product {
   price: number;
   vip_price?: number;
   vipPrice?: number;
+  vip_price_3x?: number;
+  vipPrice3x?: number;
   description?: string;
   image_url?: string;
   imageUrl?: string;
@@ -46,36 +49,31 @@ export default function Catalogo({
   accent,
   text
 }: any) {
-
   const [cfg, setCfg] = useState<any>({});
   const [vipPassword, setVipPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [query, setQuery] = useState('');
 
-  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
-  const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [selectedCategory, setSelectedCategory] =
+    useState<string>('Todos');
 
-  const [isVipUnlocked, setIsVipUnlocked] = useState<boolean>(false);
-  const [vipPasswordInput, setVipPasswordInput] = useState<string>('');
-  const [showVipModal, setShowVipModal] = useState<boolean>(false);
+  const [cart, setCart] = useState<
+    { product: Product; quantity: number }[]
+  >([]);
 
-  /*
-   * ============================================================
-   * CONTROLE DE VISIBILIDADE DO CATÁLOGO
-   * ============================================================
-   *
-   * true  = produtos e preços aparecem normalmente
-   * false = produtos e preços ficam ocultos
-   *
-   * Essa configuração é somente visual e não altera os dados
-   * dos produtos nem o banco de dados.
-   */
-  const [isCatalogVisible, setIsCatalogVisible] = useState<boolean>(true);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isVipUnlocked, setIsVipUnlocked] = useState(false);
+  const [vipPasswordInput, setVipPasswordInput] = useState('');
+  const [showVipModal, setShowVipModal] = useState(false);
 
-  // Correção: garante que a URL base não duplique o prefixo /api
-  const cleanApiUrl = (apiUrl || 'http://localhost:3333').replace(/\/$/, '');
+  // true: preços visíveis
+  // false: somente os preços ficam ocultos.
+  const [isCatalogVisible, setIsCatalogVisible] = useState(true);
+
+  const cleanApiUrl = (
+    apiUrl || 'http://localhost:3333'
+  ).replace(/\/$/, '');
 
   const base = cleanApiUrl.endsWith('/api')
     ? cleanApiUrl.slice(0, -4)
@@ -83,118 +81,235 @@ export default function Catalogo({
 
   const headers = () => ({
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${localStorage.getItem('byse_token') || ''}`
+    Authorization: `Bearer ${
+      localStorage.getItem('byse_token') || ''
+    }`
   });
 
   useEffect(() => {
-    (async () => {
+    let active = true;
+
+    const loadConfig = async () => {
       try {
-        const r = await fetch(`${base}/api/catalogo/config`, {
-          headers: headers()
-        });
+        const response = await fetch(
+          `${base}/api/catalogo/config`,
+          { headers: headers() }
+        );
 
-        if (r.ok) {
-          const loaded = await r.json();
-          setCfg(loaded);
+        if (!response.ok) return;
 
-          // Sincroniza o botão de visibilidade com o que está salvo no servidor
-          if (loaded.catalogVisible !== undefined) {
-            setIsCatalogVisible(Boolean(loaded.catalogVisible));
-          }
+        const loaded = await response.json();
+
+        if (!active) return;
+
+        setCfg(loaded);
+
+        if (loaded.catalogVisible !== undefined) {
+          setIsCatalogVisible(
+            Boolean(loaded.catalogVisible)
+          );
         }
-      } catch (e) {
-        console.error(e);
+      } catch (error) {
+        console.error(
+          'Erro ao carregar configurações do catálogo:',
+          error
+        );
       }
-    })();
+    };
+
+    loadConfig();
+
+    return () => {
+      active = false;
+    };
   }, [base]);
 
   const publicUrl =
     cfg.publicUrl ||
-    `${window.location.origin}/catalogo/${userId || ''}`;
+    `${window.location.origin}/publicCatalog/${userId || ''}`;
 
   const save = async () => {
     setSaving(true);
     setSaved(false);
 
     try {
-      const r = await fetch(`${base}/api/catalogo/config`, {
-        method: 'PUT',
-        headers: headers(),
-        body: JSON.stringify({
-          ...cfg,
-          catalogVisible: isCatalogVisible,
-          ...(vipPassword.trim() ? { vipPassword: vipPassword.trim() } : {})
-        })
-      });
+      const payload = {
+        ...cfg,
+        catalogVisible: isCatalogVisible,
+        ...(vipPassword.trim()
+          ? { vipPassword: vipPassword.trim() }
+          : {})
+      };
 
-      if (!r.ok) {
-        throw new Error();
+      const response = await fetch(
+        `${base}/api/catalogo/config`,
+        {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Falha ao salvar configurações');
       }
 
-      const d = await r.json();
+      const data = await response.json();
 
-      setCfg({
-        ...cfg,
-        publicUrl: d.publicUrl,
+      setCfg((prev: any) => ({
+        ...prev,
+        ...data,
+        whatsapp: payload.whatsapp,
+        catalogVisible: isCatalogVisible,
         vipConfigured:
-          Boolean(vipPassword) || cfg.vipConfigured
-      });
+          Boolean(vipPassword.trim()) ||
+          prev.vipConfigured
+      }));
 
       setVipPassword('');
       setSaved(true);
-
-    } catch (e) {
-      alert('Não foi possível salvar as configurações do catálogo.');
+    } catch (error) {
+      console.error(error);
+      alert(
+        'Não foi possível salvar as configurações do catálogo.'
+      );
     } finally {
       setSaving(false);
     }
   };
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(publicUrl);
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2000);
+    } catch {
+      alert('Não foi possível copiar o link.');
+    }
+  };
 
-    setSaved(true);
+  const toggleCatalogVisibility = async () => {
+    const previous = isCatalogVisible;
+    const next = !previous;
 
-    setTimeout(() => {
-      setSaved(false);
-    }, 2000);
+    setIsCatalogVisible(next);
+    setCfg((prev: any) => ({
+      ...prev,
+      catalogVisible: next
+    }));
+
+    try {
+      const response = await fetch(
+        `${base}/api/catalogo/config`,
+        {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify({
+            ...cfg,
+            catalogVisible: next
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Falha ao salvar visibilidade');
+      }
+
+      const data = await response.json();
+
+      setCfg((prev: any) => ({
+        ...prev,
+        ...data,
+        catalogVisible: next
+      }));
+    } catch (error) {
+      console.error(error);
+
+      setIsCatalogVisible(previous);
+      setCfg((prev: any) => ({
+        ...prev,
+        catalogVisible: previous
+      }));
+
+      alert(
+        'Não foi possível atualizar a visibilidade dos preços.'
+      );
+    }
   };
 
   const categories = [
     'Todos',
     ...Array.from(
       new Set(
-        products.map(
-          (p: any) => p.category || 'Geral'
+        products.map((product: any) =>
+          product.category || 'Geral'
         )
       )
     )
   ];
 
-  const filteredProducts = products.filter((product: any) => {
-    const matchesCategory =
-      selectedCategory === 'Todos' ||
-      product.category === selectedCategory;
+  const filteredProducts = products.filter(
+    (product: any) => {
+      const matchesCategory =
+        selectedCategory === 'Todos' ||
+        (product.category || 'Geral') === selectedCategory;
 
-    const matchesSearch =
-      String(product.name || '')
-        .toLowerCase()
-        .includes(query.toLowerCase()) ||
-      String(product.description || '')
-        .toLowerCase()
-        .includes(query.toLowerCase());
+      const search = query.toLowerCase();
 
-    return matchesCategory && matchesSearch;
-  });
+      const matchesSearch =
+        String(product.name || '')
+          .toLowerCase()
+          .includes(search) ||
+        String(product.description || '')
+          .toLowerCase()
+          .includes(search) ||
+        String(product.category || '')
+          .toLowerCase()
+          .includes(search);
+
+      return matchesCategory && matchesSearch;
+    }
+  );
+
+  const getVipPrice = (product: any) =>
+    product.vip_price !== undefined
+      ? product.vip_price
+      : product.vipPrice;
+
+  const getVipPrice3x = (product: any) =>
+    product.vip_price_3x !== undefined
+      ? product.vip_price_3x
+      : product.vipPrice3x;
+
+  const getEffectivePrice = (product: any) => {
+    const vipPrice = getVipPrice(product);
+
+    if (
+      isVipUnlocked &&
+      vipPrice !== undefined &&
+      vipPrice !== null &&
+      Number(vipPrice) > 0
+    ) {
+      return Number(vipPrice);
+    }
+
+    return Number(product.price || 0);
+  };
+
+  const formatCurrency = (value: number) =>
+    Number(value || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    });
 
   const addToCart = (product: Product) => {
-    setCart(prevCart => {
-      const existing = prevCart.find(
-        item => item.product.id === product.id
+    setCart((previous) => {
+      const existing = previous.find(
+        (item) => item.product.id === product.id
       );
 
       if (existing) {
-        return prevCart.map(item =>
+        return previous.map((item) =>
           item.product.id === product.id
             ? {
                 ...item,
@@ -205,7 +320,7 @@ export default function Catalogo({
       }
 
       return [
-        ...prevCart,
+        ...previous,
         {
           product,
           quantity: 1
@@ -220,50 +335,33 @@ export default function Catalogo({
     productId: string | number,
     delta: number
   ) => {
-    setCart(prevCart => {
-      return prevCart
-        .map(item => {
-          if (item.product.id === productId) {
-            const newQty = item.quantity + delta;
-
-            return newQty > 0
-              ? {
-                  ...item,
-                  quantity: newQty
-                }
-              : null;
+    setCart((previous) =>
+      previous
+        .map((item) => {
+          if (item.product.id !== productId) {
+            return item;
           }
 
-          return item;
+          const quantity = item.quantity + delta;
+
+          return quantity > 0
+            ? { ...item, quantity }
+            : null;
         })
         .filter(Boolean) as {
         product: Product;
         quantity: number;
-      }[];
-    });
+      }[]
+    );
   };
 
-  const calculateTotal = () => {
-    return cart.reduce((total, item) => {
-      const vipVal =
-        item.product.vip_price !== undefined
-          ? item.product.vip_price
-          : item.product.vipPrice;
-
-      const price =
-        isVipUnlocked &&
-        vipVal !== null &&
-        vipVal !== undefined &&
-        vipVal > 0
-          ? vipVal
-          : item.product.price;
-
-      return (
+  const calculateTotal = () =>
+    cart.reduce(
+      (total, item) =>
         total +
-        Number(price || 0) * item.quantity
-      );
-    }, 0);
-  };
+        getEffectivePrice(item.product) * item.quantity,
+      0
+    );
 
   const handleCheckoutWhatsApp = () => {
     if (!cfg.whatsapp) {
@@ -278,37 +376,32 @@ export default function Catalogo({
     }*\n\n`;
 
     if (isVipUnlocked) {
-      message += `🔓 _Aplicando Condição de Preço VIP_\n\n`;
+      message +=
+        '🔓 _Aplicando Condição de Preço VIP_\n\n';
     }
 
-    cart.forEach(item => {
-      const vipVal =
-        item.product.vip_price !== undefined
-          ? item.product.vip_price
-          : item.product.vipPrice;
-
-      const price =
-        isVipUnlocked &&
-        vipVal !== null &&
-        vipVal !== undefined &&
-        Number(vipVal) > 0
-          ? vipVal
-          : item.product.price;
+    cart.forEach((item) => {
+      const price = getEffectivePrice(item.product);
 
       message += `• ${item.quantity}x ${
         item.product.name
-      } - R$ ${(
-        Number(price || 0) * item.quantity
-      ).toFixed(2)}\n`;
+      } - ${formatCurrency(price * item.quantity)}\n`;
     });
 
-    message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
+    message += `\n*Total:* ${formatCurrency(calculateTotal())}`;
 
     const digits = String(cfg.whatsapp).replace(/\D/g, '');
-    const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
+    const cleanPhone = digits.startsWith('55')
+      ? digits
+      : `55${digits}`;
 
-    if (cleanPhone.length < 12 || cleanPhone.length > 13) {
-      alert('Informe um WhatsApp válido com código do país, DDD e número.');
+    if (
+      cleanPhone.length < 12 ||
+      cleanPhone.length > 13
+    ) {
+      alert(
+        'Informe um WhatsApp válido com código do país, DDD e número.'
+      );
       return;
     }
 
@@ -320,44 +413,39 @@ export default function Catalogo({
     );
   };
 
-  /*
-   * ============================================================
-   * FUNÇÃO DE ALTERAÇÃO DA VISIBILIDADE
-   * ============================================================
-   */
-  /*
-   * ============================================================
-   * VISIBILIDADE DO CATÁLOGO (ADMIN + VITRINE PÚBLICA)
-   * ============================================================
-   *
-   * O botão agora grava o campo catalogVisible no servidor,
-   * portanto ele controla também o que o cliente vê no
-   * PublicCatalog (vitrine pública).
-   */
-  const toggleCatalogVisibility = async () => {
-    const next = !isCatalogVisible;
+  const cardStyle: React.CSSProperties = {
+    background: card,
+    border: `1px solid ${border}`,
+    borderRadius: 16,
+    padding: 20,
+    boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
+  };
 
-    // Atualização otimista da interface
-    setIsCatalogVisible(next);
-    setCfg((prev: any) => ({ ...prev, catalogVisible: next }));
+  const inputStyle: React.CSSProperties = {
+    boxSizing: 'border-box',
+    width: '100%',
+    padding: '11px 12px',
+    border: `1px solid ${border}`,
+    borderRadius: 10,
+    background: 'transparent',
+    color: text,
+    fontSize: 13,
+    outline: 0
+  };
 
-    try {
-      const r = await fetch(`${base}/api/catalogo/config`, {
-        method: 'PUT',
-        headers: headers(),
-        body: JSON.stringify({
-          ...cfg,
-          catalogVisible: next
-        })
-      });
-
-      if (!r.ok) throw new Error();
-    } catch (e) {
-      // Reverte caso o servidor recuse a alteração
-      setIsCatalogVisible(!next);
-      setCfg((prev: any) => ({ ...prev, catalogVisible: !next }));
-      alert('Não foi possível atualizar a visibilidade do catálogo.');
-    }
+  const buttonStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    padding: '9px 14px',
+    borderRadius: 10,
+    border: `1px solid ${border}`,
+    background: 'transparent',
+    color: text,
+    cursor: 'pointer',
+    fontSize: 12,
+    fontWeight: 700
   };
 
   return (
@@ -367,16 +455,13 @@ export default function Catalogo({
         paddingBottom: 40
       }}
     >
-
       <SectionTitle
         title="Catálogo & Vitrine Digital"
         sub="Gerencie seu link público e configure a senha de acesso VIP para os seus clientes"
         subtext={subtext}
       />
 
-      {/* ========================================================
-          BLOCO ADMINISTRATIVO
-          ======================================================== */}
+      {/* CONFIGURAÇÕES DO CATÁLOGO */}
 
       <div
         style={{
@@ -387,19 +472,9 @@ export default function Catalogo({
           marginBottom: 24
         }}
       >
-
         {/* LINK PÚBLICO */}
 
-        <div
-          style={{
-            background: card,
-            border: `1px solid ${border}`,
-            borderRadius: 16,
-            padding: 20,
-            boxShadow:
-              '0 4px 20px rgba(0,0,0,0.02)'
-          }}
-        >
+        <div style={cardStyle}>
           <div
             style={{
               display: 'flex',
@@ -453,70 +528,39 @@ export default function Catalogo({
               readOnly
               value={publicUrl}
               style={{
+                ...inputStyle,
                 flex: 1,
-                padding: '10px 12px',
-                border: `1px solid ${border}`,
-                borderRadius: 10,
-                background: 'transparent',
-                color: text,
-                fontSize: 12,
-                outline: 0
+                minWidth: 0,
+                fontSize: 12
               }}
             />
 
             <button
               onClick={copy}
+              title="Copiar link"
               style={{
-                padding: '0 14px',
-                border: 0,
-                borderRadius: 10,
+                ...buttonStyle,
                 background: accent,
-                color: '#fff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
+                border: 0,
+                color: '#fff'
               }}
-              title="Copiar Link"
             >
               <Copy size={16} />
             </button>
 
             <button
-              onClick={() =>
-                window.open(
-                  publicUrl,
-                  '_blank'
-                )
-              }
-              style={{
-                padding: '0 14px',
-                border: `1px solid ${border}`,
-                borderRadius: 10,
-                background: 'transparent',
-                color: text,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title="Abrir em Nova Aba"
+              onClick={() => window.open(publicUrl, '_blank')}
+              title="Abrir em nova aba"
+              style={buttonStyle}
             >
               <ExternalLink size={16} />
             </button>
           </div>
         </div>
 
-        {/* WHATSAPP DA LOJA — CONFIGURAÇÃO POR LOGIN */}
-        <div
-          style={{
-            background: card,
-            border: `1px solid ${border}`,
-            borderRadius: 16,
-            padding: 20,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
-          }}
-        >
+        {/* WHATSAPP DA LOJA */}
+
+        <div style={cardStyle}>
           <div
             style={{
               display: 'flex',
@@ -535,87 +579,108 @@ export default function Catalogo({
             >
               <MessageCircle size={18} />
             </div>
+
             <div>
-              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>
+              <h4
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 800
+                }}
+              >
                 WhatsApp para receber pedidos
               </h4>
-              <p style={{ fontSize: 11, color: subtext, margin: 0 }}>
-                Este número receberá os pedidos feitos no catálogo público desta loja.
+
+              <p
+                style={{
+                  fontSize: 11,
+                  color: subtext,
+                  margin: 0
+                }}
+              >
+                Número que receberá os pedidos desta loja.
               </p>
             </div>
           </div>
 
           <label
             htmlFor="catalog-store-whatsapp"
-            style={{ display: 'block', fontSize: 12, fontWeight: 700, margin: '14px 0 6px', color: text }}
+            style={{
+              display: 'block',
+              fontSize: 12,
+              fontWeight: 700,
+              margin: '14px 0 6px'
+            }}
           >
             Número do WhatsApp com DDD
           </label>
+
           <input
             id="catalog-store-whatsapp"
             type="tel"
             inputMode="tel"
             autoComplete="tel"
             value={cfg.whatsapp || ''}
-            onChange={e => setCfg((prev: any) => ({ ...prev, whatsapp: e.target.value }))}
+            onChange={(event) =>
+              setCfg((previous: any) => ({
+                ...previous,
+                whatsapp: event.target.value
+              }))
+            }
             placeholder="Ex.: +55 83 99999-9999"
-            style={{
-              boxSizing: 'border-box',
-              width: '100%',
-              padding: '11px 12px',
-              border: `1px solid ${border}`,
-              borderRadius: 10,
-              background: 'transparent',
-              color: text,
-              fontSize: 13,
-              outline: 0
-            }}
+            style={inputStyle}
           />
-          <p style={{ fontSize: 11, color: subtext, lineHeight: 1.5, margin: '8px 0 12px' }}>
-            Informe o código do país (55), DDD e número. A configuração é salva para o login desta loja.
+
+          <p
+            style={{
+              fontSize: 11,
+              color: subtext,
+              lineHeight: 1.5,
+              margin: '8px 0 12px'
+            }}
+          >
+            Informe o código do país, DDD e número. A
+            configuração será salva para este login.
           </p>
+
           <button
             onClick={save}
             disabled={saving}
             style={{
+              ...buttonStyle,
               width: '100%',
-              padding: '11px 14px',
+              padding: 11,
               border: 0,
-              borderRadius: 10,
               background: '#16a34a',
               color: '#fff',
-              cursor: saving ? 'wait' : 'pointer',
               opacity: saving ? 0.7 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              fontSize: 12,
-              fontWeight: 800
+              cursor: saving ? 'wait' : 'pointer'
             }}
           >
             <Save size={14} />
             {saving ? 'Salvando...' : 'Salvar WhatsApp da loja'}
           </button>
+
           {saved && (
-            <p style={{ fontSize: 11, color: '#22c55e', margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <CheckCircle2 size={13} /> Número salvo com sucesso.
+            <p
+              style={{
+                fontSize: 11,
+                color: '#22c55e',
+                margin: '8px 0 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5
+              }}
+            >
+              <CheckCircle2 size={13} />
+              Configuração salva com sucesso.
             </p>
           )}
         </div>
 
         {/* SENHA VIP */}
 
-        <div
-          style={{
-            background: card,
-            border: `1px solid ${border}`,
-            borderRadius: 16,
-            padding: 20,
-            boxShadow:
-              '0 4px 20px rgba(0,0,0,0.02)'
-          }}
-        >
+        <div style={cardStyle}>
           <div
             style={{
               display: 'flex',
@@ -653,7 +718,7 @@ export default function Catalogo({
                   margin: 0
                 }}
               >
-                Proteja ofertas exclusivas na vitrine pública
+                Configure o acesso às ofertas VIP.
               </p>
             </div>
           </div>
@@ -668,23 +733,18 @@ export default function Catalogo({
             <input
               type="password"
               value={vipPassword}
-              onChange={e =>
-                setVipPassword(e.target.value)
+              onChange={(event) =>
+                setVipPassword(event.target.value)
               }
               placeholder={
                 cfg.vipConfigured
-                  ? 'Senha VIP ativa (digite para alterar)'
+                  ? 'Digite para alterar a senha VIP'
                   : 'Defina a senha VIP da loja'
               }
               style={{
+                ...inputStyle,
                 flex: 1,
-                padding: '10px 12px',
-                border: `1px solid ${border}`,
-                borderRadius: 10,
-                background: 'transparent',
-                color: text,
-                fontSize: 12,
-                outline: 0
+                minWidth: 0
               }}
             />
 
@@ -692,18 +752,11 @@ export default function Catalogo({
               onClick={save}
               disabled={saving}
               style={{
-                padding: '0 16px',
-                border: 0,
-                borderRadius: 10,
+                ...buttonStyle,
                 background: accent,
+                border: 0,
                 color: '#fff',
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6
+                whiteSpace: 'nowrap'
               }}
             >
               <Save size={14} />
@@ -712,41 +765,26 @@ export default function Catalogo({
           </div>
 
           {saved && (
-            <span
+            <p
               style={{
                 fontSize: 11,
                 color: '#22c55e',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                marginTop: 6
+                marginTop: 8
               }}
             >
               <CheckCircle2 size={13} />
               Configuração salva com sucesso!
-            </span>
+            </p>
           )}
         </div>
-
       </div>
 
-      {/* ========================================================
-          VITRINE
-          ======================================================== */}
+      {/* SIMULADOR DA VITRINE */}
 
-      <div
-        style={{
-          background: card,
-          border: `1px solid ${border}`,
-          borderRadius: 16,
-          padding: 20,
-          boxShadow:
-            '0 4px 20px rgba(0,0,0,0.02)'
-        }}
-      >
-
-        {/* CABEÇALHO DA VITRINE */}
-
+      <div style={cardStyle}>
         <div
           style={{
             display: 'flex',
@@ -757,7 +795,6 @@ export default function Catalogo({
             gap: 12
           }}
         >
-
           <div>
             <div
               style={{
@@ -766,10 +803,7 @@ export default function Catalogo({
                 gap: 6
               }}
             >
-              <Sparkles
-                size={16}
-                color={accent}
-              />
+              <Sparkles size={16} color={accent} />
 
               <h3
                 style={{
@@ -786,14 +820,12 @@ export default function Catalogo({
               style={{
                 fontSize: 12,
                 color: subtext,
-                margin: '2px 0 0 0'
+                margin: '4px 0 0'
               }}
             >
-              Veja como seu cliente enxergará o catálogo e teste o acesso aos preços VIP
+              Teste a vitrine e o acesso aos preços VIP.
             </p>
           </div>
-
-          {/* BOTÕES */}
 
           <div
             style={{
@@ -803,36 +835,19 @@ export default function Catalogo({
               flexWrap: 'wrap'
             }}
           >
-
-            {/* =================================================
-                NOVO BOTÃO DE VISIBILIDADE
-                ================================================= */}
-
             <button
               onClick={toggleCatalogVisibility}
               title={
                 isCatalogVisible
-                  ? 'Ocultar valores'
-                  : 'Mostrar valores'
+                  ? 'Ocultar somente os valores'
+                  : 'Mostrar os valores'
               }
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '8px 14px',
-                borderRadius: 10,
-                fontSize: 12,
-                fontWeight: 700,
-                border: `1px solid ${border}`,
+                ...buttonStyle,
                 background: isCatalogVisible
                   ? 'transparent'
                   : `${accent}12`,
-                color: isCatalogVisible
-                  ? text
-                  : accent,
-                cursor: 'pointer',
-                transition:
-                  'all 0.2s ease'
+                color: isCatalogVisible ? text : accent
               }}
             >
               {isCatalogVisible ? (
@@ -846,30 +861,17 @@ export default function Catalogo({
                 : 'Mostrar valores'}
             </button>
 
-            {/* BOTÃO VIP */}
-
             <button
-              onClick={() =>
-                setShowVipModal(true)
-              }
+              onClick={() => setShowVipModal(true)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 14px',
-                borderRadius: 10,
-                fontSize: 12,
-                fontWeight: 700,
+                ...buttonStyle,
                 border: isVipUnlocked
                   ? '1px solid #10b981'
                   : `1px solid ${border}`,
                 background: isVipUnlocked
                   ? '#ecfdf5'
                   : 'transparent',
-                color: isVipUnlocked
-                  ? '#047857'
-                  : text,
-                cursor: 'pointer'
+                color: isVipUnlocked ? '#047857' : text
               }}
             >
               <ShieldCheck size={14} />
@@ -879,37 +881,26 @@ export default function Catalogo({
                 : 'Inserir Senha VIP (Cliente)'}
             </button>
 
-            {/* CARRINHO */}
-
             <button
-              onClick={() =>
-                setIsCartOpen(true)
-              }
+              onClick={() => setIsCartOpen(true)}
               style={{
+                ...buttonStyle,
                 position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 16px',
-                borderRadius: 10,
+                padding: '9px 16px',
                 background: accent,
-                color: '#fff',
-                fontSize: 12,
-                fontWeight: 700,
                 border: 0,
-                cursor: 'pointer'
+                color: '#fff'
               }}
             >
               <ShoppingBag size={14} />
-
               Carrinho
 
               {cart.length > 0 && (
                 <span
                   style={{
                     position: 'absolute',
-                    top: -6,
-                    right: -6,
+                    top: -7,
+                    right: -7,
                     background: '#f43f5e',
                     color: '#fff',
                     fontSize: 10,
@@ -924,20 +915,14 @@ export default function Catalogo({
                   }}
                 >
                   {cart.reduce(
-                    (sum, item) =>
-                      sum + item.quantity,
+                    (sum, item) => sum + item.quantity,
                     0
                   )}
                 </span>
               )}
             </button>
-
           </div>
         </div>
-
-        {/* ======================================================
-            AVISO QUANDO OS PRODUTOS ESTÃO OCULTOS
-            ====================================================== */}
 
         {!isCatalogVisible && (
           <div
@@ -956,18 +941,13 @@ export default function Catalogo({
               fontWeight: 700
             }}
           >
-            <EyeOff
-              size={16}
-              color={accent}
-            />
-
-            Produtos e valores ocultos
+            <EyeOff size={16} color={accent} />
+            Os preços estão ocultos. Imagens e informações dos
+            produtos continuam visíveis.
           </div>
         )}
 
-        {/* ========================================================
-            BUSCA E CATEGORIAS
-            ======================================================== */}
+        {/* BUSCA */}
 
         <div
           style={{
@@ -977,13 +957,7 @@ export default function Catalogo({
             marginBottom: 20
           }}
         >
-
-          <div
-            style={{
-              position: 'relative',
-              width: '100%'
-            }}
-          >
+          <div style={{ position: 'relative', width: '100%' }}>
             <Search
               size={15}
               color={subtext}
@@ -991,28 +965,17 @@ export default function Catalogo({
                 position: 'absolute',
                 left: 14,
                 top: '50%',
-                transform:
-                  'translateY(-50%)'
+                transform: 'translateY(-50%)'
               }}
             />
 
             <input
               value={query}
-              onChange={e =>
-                setQuery(e.target.value)
-              }
-              placeholder="Pesquisar produtos disponíveis no catálogo..."
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Pesquisar produtos no catálogo..."
               style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                border: `1px solid ${border}`,
-                borderRadius: 10,
-                padding:
-                  '10px 12px 10px 40px',
-                background: 'transparent',
-                color: text,
-                fontSize: 13,
-                outline: 0
+                ...inputStyle,
+                padding: '10px 12px 10px 40px'
               }}
             />
           </div>
@@ -1025,21 +988,14 @@ export default function Catalogo({
               paddingBottom: 4
             }}
           >
-            {categories.map(category => (
+            {categories.map((category: string) => (
               <button
                 key={category}
-                onClick={() =>
-                  setSelectedCategory(
-                    category
-                  )
-                }
+                onClick={() => setSelectedCategory(category)}
                 style={{
+                  ...buttonStyle,
                   padding: '7px 14px',
-                  borderRadius: 10,
-                  fontSize: 12,
-                  fontWeight: 700,
                   whiteSpace: 'nowrap',
-                  cursor: 'pointer',
                   border:
                     selectedCategory === category
                       ? 0
@@ -1051,9 +1007,7 @@ export default function Catalogo({
                   color:
                     selectedCategory === category
                       ? '#fff'
-                      : text,
-                  transition:
-                    'all 0.2s ease'
+                      : text
                 }}
               >
                 {category}
@@ -1062,12 +1016,11 @@ export default function Catalogo({
           </div>
         </div>
 
-        {/* ========================================================
-            GRID DE PRODUTOS
-            ======================================================== */}
+        {/* PRODUTOS
+            Importante: as informações e imagens não dependem
+            mais de isCatalogVisible. Somente os preços dependem. */}
 
         {filteredProducts.length === 0 ? (
-
           <div
             style={{
               textAlign: 'center',
@@ -1077,10 +1030,7 @@ export default function Catalogo({
           >
             <ShoppingBag
               size={36}
-              style={{
-                opacity: 0.3,
-                marginBottom: 8
-              }}
+              style={{ opacity: 0.3, marginBottom: 8 }}
             />
 
             <p
@@ -1093,9 +1043,7 @@ export default function Catalogo({
               Nenhum produto encontrado nesta categoria.
             </p>
           </div>
-
         ) : (
-
           <div
             style={{
               display: 'grid',
@@ -1104,24 +1052,15 @@ export default function Catalogo({
               gap: 16
             }}
           >
-
-            {filteredProducts.map((p: any) => {
-
-              const vipVal =
-                p.vip_price !== undefined
-                  ? p.vip_price
-                  : p.vipPrice;
+            {filteredProducts.map((product: any) => {
+              const vipVal = getVipPrice(product);
+              const vip3xVal = getVipPrice3x(product);
 
               const hasVipPrice =
                 isVipUnlocked &&
                 vipVal !== undefined &&
                 vipVal !== null &&
                 Number(vipVal) > 0;
-
-              const vip3xVal =
-                p.vip_price_3x !== undefined
-                  ? p.vip_price_3x
-                  : p.vipPrice3x;
 
               const hasVip3xPrice =
                 isVipUnlocked &&
@@ -1130,262 +1069,141 @@ export default function Catalogo({
                 Number(vip3xVal) > 0;
 
               const imgUrl =
-                p.image_url || p.imageUrl;
+                product.image_url || product.imageUrl;
 
               return (
-
                 <div
-                  key={p.id}
+                  key={product.id}
                   style={{
                     border: `1px solid ${border}`,
                     borderRadius: 14,
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
-                    justifyContent:
-                      'space-between',
+                    justifyContent: 'space-between',
                     background: card,
-                    transition:
-                      'transform 0.2s ease, box-shadow 0.2s ease'
+                    minWidth: 0
                   }}
                 >
-
                   <div>
+                    {/* IMAGEM SEMPRE VISÍVEL */}
 
-                    {/* =================================================
-                        IMAGEM DO PRODUTO
-                        ================================================= */}
-
-                    {isCatalogVisible ? (
-
-                      imgUrl ? (
-
-                        <div
+                    {imgUrl ? (
+                      <div
+                        style={{
+                          width: '100%',
+                          aspectRatio: '4 / 5',
+                          overflow: 'hidden',
+                          background: 'rgba(0,0,0,0.03)'
+                        }}
+                      >
+                        <img
+                          src={imgUrl}
+                          alt={product.name || 'Produto'}
+                          loading="lazy"
                           style={{
-                            height: 150,
+                            display: 'block',
                             width: '100%',
-                            overflow: 'hidden',
-                            background:
-                              'rgba(0,0,0,0.03)'
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'center'
                           }}
-                        >
-                          <img
-                            src={imgUrl}
-                            alt={p.name}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
-                            }}
-                          />
-                        </div>
-
-                      ) : (
-
-                        <div
-                          style={{
-                            height: 100,
-                            width: '100%',
-                            display: 'flex',
-                            alignItems:
-                              'center',
-                            justifyContent:
-                              'center',
-                            background:
-                              'rgba(0,0,0,0.02)',
-                            color: subtext
-                          }}
-                        >
-                          <Tag
-                            size={24}
-                            style={{
-                              opacity: 0.4
-                            }}
-                          />
-                        </div>
-
-                      )
-
+                        />
+                      </div>
                     ) : (
-
-                      /* =================================================
-                         PLACEHOLDER QUANDO OCULTO
-                         ================================================= */
-
                       <div
                         style={{
                           height: 150,
                           width: '100%',
                           display: 'flex',
-                          alignItems:
-                            'center',
-                          justifyContent:
-                            'center',
-                          flexDirection:
-                            'column',
-                          gap: 8,
-                          background:
-                            'rgba(0,0,0,0.025)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'rgba(0,0,0,0.02)',
                           color: subtext
                         }}
                       >
-                        <EyeOff
+                        <Tag
                           size={28}
-                          style={{
-                            opacity: 0.45
-                          }}
+                          style={{ opacity: 0.4 }}
                         />
-
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            opacity: 0.7
-                          }}
-                        >
-                          Produto oculto
-                        </span>
                       </div>
-
                     )}
 
-                    {/* =================================================
-                        INFORMAÇÕES DO PRODUTO
-                        ================================================= */}
+                    {/* NOME, CATEGORIA E DESCRIÇÃO SEMPRE VISÍVEIS */}
 
-                    {isCatalogVisible ? (
-
-                      <div
+                    <div style={{ padding: 14 }}>
+                      <span
                         style={{
-                          padding: 14
+                          display: 'inline-block',
+                          fontSize: 10,
+                          fontWeight: 800,
+                          textTransform: 'uppercase',
+                          background: `${accent}15`,
+                          color: accent,
+                          padding: '3px 8px',
+                          borderRadius: 6
                         }}
                       >
+                        {product.category || 'Geral'}
+                      </span>
 
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 800,
-                            textTransform:
-                              'uppercase',
-                            background:
-                              `${accent}15`,
-                            color: accent,
-                            padding:
-                              '3px 8px',
-                            borderRadius: 6
-                          }}
-                        >
-                          {p.category ||
-                            'Geral'}
-                        </span>
-
-                        <b
-                          style={{
-                            display: 'block',
-                            fontSize: 14,
-                            marginTop: 8,
-                            lineHeight: 1.3,
-                            letterSpacing:
-                              '-0.2px'
-                          }}
-                        >
-                          {p.name}
-                        </b>
-
-                        {p.description && (
-                          <p
-                            style={{
-                              fontSize: 12,
-                              color: subtext,
-                              margin:
-                                '6px 0 0 0',
-                              display:
-                                '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient:
-                                'vertical',
-                              overflow:
-                                'hidden',
-                              lineHeight: 1.4
-                            }}
-                          >
-                            {p.description}
-                          </p>
-                        )}
-
-                      </div>
-
-                    ) : (
-
-                      <div
+                      <b
                         style={{
-                          padding: 14,
-                          minHeight: 75,
-                          display: 'flex',
-                          alignItems:
-                            'center',
-                          justifyContent:
-                            'center'
+                          display: 'block',
+                          fontSize: 14,
+                          marginTop: 8,
+                          lineHeight: 1.3,
+                          letterSpacing: '-0.2px',
+                          overflowWrap: 'anywhere'
                         }}
                       >
-                        <span
+                        {product.name || 'Produto sem nome'}
+                      </b>
+
+                      {product.description && (
+                        <p
                           style={{
                             fontSize: 12,
                             color: subtext,
-                            fontWeight: 700
+                            margin: '6px 0 0',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            lineHeight: 1.4
                           }}
                         >
-                          Informações ocultas
-                        </span>
-                      </div>
-
-                    )}
-
+                          {product.description}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
-                  {/* ====================================================
-                      PREÇO + ADICIONAR
-                      ==================================================== */}
+                  {/* SOMENTE OS VALORES SÃO OCULTADOS */}
 
                   <div
                     style={{
-                      padding:
-                        '0 14px 14px 14px',
+                      padding: '0 14px 14px',
                       display: 'flex',
-                      alignItems:
-                        'center',
-                      justifyContent:
-                        'space-between',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
                       marginTop: 'auto'
                     }}
                   >
-
-                    <div>
-
+                    <div style={{ minWidth: 0 }}>
                       {isCatalogVisible ? (
-
                         hasVipPrice ? (
-
                           <div>
-
                             <span
                               style={{
                                 fontSize: 11,
                                 color: subtext,
-                                textDecoration:
-                                  'line-through'
+                                textDecoration: 'line-through'
                               }}
                             >
-                              {Number(
-                                p.price || 0
-                              ).toLocaleString(
-                                'pt-BR',
-                                {
-                                  style:
-                                    'currency',
-                                  currency:
-                                    'BRL'
-                                }
+                              {formatCurrency(
+                                Number(product.price || 0)
                               )}
                             </span>
 
@@ -1393,40 +1211,24 @@ export default function Catalogo({
                               style={{
                                 fontSize: 15,
                                 fontWeight: 900,
-                                color:
-                                  '#10b981',
+                                color: '#10b981',
                                 margin: 0,
-                                display:
-                                  'flex',
-                                alignItems:
-                                  'center',
+                                display: 'flex',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
                                 gap: 4
                               }}
                             >
-                              {Number(
-                                vipVal
-                              ).toLocaleString(
-                                'pt-BR',
-                                {
-                                  style:
-                                    'currency',
-                                  currency:
-                                    'BRL'
-                                }
-                              )}
+                              {formatCurrency(Number(vipVal))}
 
                               <span
                                 style={{
                                   fontSize: 9,
-                                  background:
-                                    '#ecfdf5',
-                                  color:
-                                    '#047857',
-                                  padding:
-                                    '1px 4px',
+                                  background: '#ecfdf5',
+                                  color: '#047857',
+                                  padding: '1px 4px',
                                   borderRadius: 4,
-                                  fontWeight:
-                                    800
+                                  fontWeight: 800
                                 }}
                               >
                                 VIP
@@ -1443,28 +1245,14 @@ export default function Catalogo({
                                   marginTop: 2
                                 }}
                               >
-                                ou 3x de{' '}
-                                {(
+                                3x de{' '}
+                                {formatCurrency(
                                   Number(vip3xVal) / 3
-                                ).toLocaleString('pt-BR', {
-                                  style: 'currency',
-                                  currency: 'BRL'
-                                })}{' '}
-                                (VIP 3x:{' '}
-                                {Number(
-                                  vip3xVal
-                                ).toLocaleString('pt-BR', {
-                                  style: 'currency',
-                                  currency: 'BRL'
-                                })}
-                                )
+                                )}
                               </span>
                             )}
-
                           </div>
-
                         ) : (
-
                           <p
                             style={{
                               fontSize: 15,
@@ -1473,28 +1261,16 @@ export default function Catalogo({
                               color: text
                             }}
                           >
-                            {Number(
-                              p.price || 0
-                            ).toLocaleString(
-                              'pt-BR',
-                              {
-                                style:
-                                  'currency',
-                                currency:
-                                  'BRL'
-                              }
+                            {formatCurrency(
+                              Number(product.price || 0)
                             )}
                           </p>
-
                         )
-
                       ) : (
-
                         <div
                           style={{
                             display: 'flex',
-                            alignItems:
-                              'center',
+                            alignItems: 'center',
                             gap: 6,
                             color: subtext
                           }}
@@ -1510,69 +1286,49 @@ export default function Catalogo({
                             Valor oculto
                           </span>
                         </div>
-
                       )}
-
                     </div>
 
                     <button
-                      onClick={() =>
-                        addToCart(p)
-                      }
+                      onClick={() => addToCart(product)}
                       style={{
-                        padding:
-                          '7px 12px',
+                        ...buttonStyle,
+                        flexShrink: 0,
+                        padding: '8px 12px',
                         border: 0,
-                        borderRadius: 10,
                         background: accent,
-                        color: '#fff',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: 'pointer'
+                        color: '#fff'
                       }}
                     >
                       Adicionar
                     </button>
-
                   </div>
-
                 </div>
               );
             })}
-
           </div>
-
         )}
-
       </div>
 
-      {/* ==========================================================
-          GAVETA LATERAL DO CARRINHO
-          ========================================================== */}
+      {/* CARRINHO */}
 
       {isCartOpen && (
-
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 50,
+            zIndex: 1000,
             overflow: 'hidden'
           }}
         >
-
           <div
+            onClick={() => setIsCartOpen(false)}
             style={{
               position: 'absolute',
               inset: 0,
-              background:
-                'rgba(0,0,0,0.5)',
-              backdropFilter:
-                'blur(2px)'
+              background: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(2px)'
             }}
-            onClick={() =>
-              setIsCartOpen(false)
-            }
           />
 
           <div
@@ -1581,522 +1337,327 @@ export default function Catalogo({
               top: 0,
               bottom: 0,
               right: 0,
-              maxWidth: '100%',
+              width: '100%',
+              maxWidth: 420,
+              background: card,
+              borderLeft: `1px solid ${border}`,
+              boxShadow: '-10px 0 30px rgba(0,0,0,0.1)',
               display: 'flex',
-              paddingLeft: 30
+              flexDirection: 'column'
             }}
           >
+            {/* CABEÇALHO DO CARRINHO */}
 
             <div
               style={{
-                width: 380,
-                background: card,
-                borderLeft:
-                  `1px solid ${border}`,
-                boxShadow:
-                  '-10px 0 30px rgba(0,0,0,0.1)',
+                padding: 18,
+                borderBottom: `1px solid ${border}`,
                 display: 'flex',
-                flexDirection:
-                  'column'
+                alignItems: 'center',
+                justifyContent: 'space-between'
               }}
             >
-
-              {/* CABEÇALHO */}
-
-              <div
+              <h4
                 style={{
-                  padding: 18,
-                  borderBottom:
-                    `1px solid ${border}`,
+                  margin: 0,
                   display: 'flex',
-                  alignItems:
-                    'center',
-                  justifyContent:
-                    'space-between'
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 16,
+                  fontWeight: 800
                 }}
               >
+                <ShoppingBag size={18} color={accent} />
+                Carrinho de Compras
+              </h4>
 
-                <h4
+              <button
+                onClick={() => setIsCartOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 0,
+                  cursor: 'pointer',
+                  color: subtext
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* ITENS DO CARRINHO */}
+
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: 18,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12
+              }}
+            >
+              {cart.length === 0 ? (
+                <div
                   style={{
-                    margin: 0,
-                    display: 'flex',
-                    alignItems:
-                      'center',
-                    gap: 8,
-                    fontSize: 16,
-                    fontWeight: 800
-                  }}
-                >
-                  <ShoppingBag
-                    size={18}
-                    color={accent}
-                  />
-
-                  Carrinho de Compras
-                </h4>
-
-                <button
-                  onClick={() =>
-                    setIsCartOpen(false)
-                  }
-                  style={{
-                    background:
-                      'transparent',
-                    border: 0,
-                    cursor:
-                      'pointer',
+                    textAlign: 'center',
+                    padding: '48px 0',
                     color: subtext
                   }}
                 >
-                  <X size={18} />
-                </button>
-
-              </div>
-
-              {/* ITENS */}
-
-              <div
-                style={{
-                  flex: 1,
-                  overflowY: 'auto',
-                  padding: 18,
-                  display: 'flex',
-                  flexDirection:
-                    'column',
-                  gap: 12
-                }}
-              >
-
-                {cart.length === 0 ? (
-
-                  <div
+                  <ShoppingBag
+                    size={40}
                     style={{
-                      textAlign:
-                        'center',
-                      padding:
-                        '48px 0',
-                      color:
-                        subtext
+                      opacity: 0.3,
+                      marginBottom: 8
+                    }}
+                  />
+
+                  <p
+                    style={{
+                      fontSize: 13,
+                      margin: 0,
+                      fontWeight: 600
                     }}
                   >
-                    <ShoppingBag
-                      size={40}
-                      style={{
-                        opacity: 0.3,
-                        marginBottom: 8
-                      }}
-                    />
-
-                    <p
-                      style={{
-                        fontSize: 13,
-                        margin: 0,
-                        fontWeight: 600
-                      }}
-                    >
-                      O carrinho está vazio
-                    </p>
-                  </div>
-
-                ) : (
-
-                  cart.map(item => {
-
-                    const vipVal =
-                      item.product
-                        .vip_price !==
-                      undefined
-                        ? item.product
-                            .vip_price
-                        : item.product
-                            .vipPrice;
-
-                    const price =
-                      isVipUnlocked &&
-                      vipVal !== null &&
-                      vipVal !==
-                        undefined &&
-                      Number(vipVal) >
-                        0
-                        ? vipVal
-                        : item.product
-                            .price;
-
-                    return (
-
-                      <div
-                        key={
-                          item.product
-                            .id
-                        }
-                        style={{
-                          display:
-                            'flex',
-                          alignItems:
-                            'center',
-                          justifyContent:
-                            'space-between',
-                          background:
-                            'rgba(0,0,0,0.02)',
-                          padding: 12,
-                          borderRadius:
-                            12,
-                          border:
-                            `1px solid ${border}`
-                        }}
-                      >
-
-                        <div
-                          style={{
-                            flex: 1,
-                            paddingRight:
-                              10
-                          }}
-                        >
-
-                          {isCatalogVisible ? (
-
-                            <>
-                              <span
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight:
-                                    800,
-                                  display:
-                                    'block',
-                                  lineHeight:
-                                    1.2
-                                }}
-                              >
-                                {
-                                  item
-                                    .product
-                                    .name
-                                }
-                              </span>
-
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  color:
-                                    accent,
-                                  fontWeight:
-                                    700,
-                                  marginTop:
-                                    2,
-                                  display:
-                                    'block'
-                                }}
-                              >
-                                {Number(
-                                  price ||
-                                    0
-                                ).toLocaleString(
-                                  'pt-BR',
-                                  {
-                                    style:
-                                      'currency',
-                                    currency:
-                                      'BRL'
-                                  }
-                                )}{' '}
-                                un
-                              </span>
-                            </>
-
-                          ) : (
-
-                            <div
-                              style={{
-                                display:
-                                  'flex',
-                                alignItems:
-                                  'center',
-                                gap: 7,
-                                color:
-                                  subtext
-                              }}
-                            >
-                              <EyeOff
-                                size={14}
-                              />
-
-                              <span
-                                style={{
-                                  fontSize:
-                                    11,
-                                  fontWeight:
-                                    700
-                                }}
-                              >
-                                Produto e valor ocultos
-                              </span>
-                            </div>
-
-                          )}
-
-                        </div>
-
-                        {/* CONTROLE DE QUANTIDADE */}
-
-                        <div
-                          style={{
-                            display:
-                              'flex',
-                            alignItems:
-                              'center',
-                            gap: 8
-                          }}
-                        >
-
-                          <button
-                            onClick={() =>
-                              updateQuantity(
-                                item.product.id,
-                                -1
-                              )
-                            }
-                            style={{
-                              width: 26,
-                              height: 26,
-                              border:
-                                `1px solid ${border}`,
-                              borderRadius:
-                                8,
-                              background:
-                                'transparent',
-                              color:
-                                text,
-                              cursor:
-                                'pointer',
-                              display:
-                                'flex',
-                              alignItems:
-                                'center',
-                              justifyContent:
-                                'center'
-                            }}
-                          >
-                            <Minus
-                              size={12}
-                            />
-                          </button>
-
-                          <span
-                            style={{
-                              fontSize: 12,
-                              fontWeight:
-                                800,
-                              width: 16,
-                              textAlign:
-                                'center'
-                            }}
-                          >
-                            {
-                              item.quantity
-                            }
-                          </span>
-
-                          <button
-                            onClick={() =>
-                              updateQuantity(
-                                item.product.id,
-                                1
-                              )
-                            }
-                            style={{
-                              width: 26,
-                              height: 26,
-                              border:
-                                `1px solid ${border}`,
-                              borderRadius:
-                                8,
-                              background:
-                                'transparent',
-                              color:
-                                text,
-                              cursor:
-                                'pointer',
-                              display:
-                                'flex',
-                              alignItems:
-                                'center',
-                              justifyContent:
-                                'center'
-                            }}
-                          >
-                            <Plus
-                              size={12}
-                            />
-                          </button>
-
-                        </div>
-
-                      </div>
-
-                    );
-                  })
-
-                )}
-
-              </div>
-
-              {/* ====================================================
-                  RODAPÉ DO CARRINHO
-                  ==================================================== */}
-
-              {cart.length > 0 && (
-
-                <div
-                  style={{
-                    padding: 18,
-                    borderTop:
-                      `1px solid ${border}`,
-                    background:
-                      'rgba(0,0,0,0.01)'
-                  }}
-                >
-
+                    O carrinho está vazio
+                  </p>
+                </div>
+              ) : (
+                cart.map((item) => (
                   <div
+                    key={item.product.id}
                     style={{
                       display: 'flex',
-                      justifyContent:
-                        'space-between',
-                      alignItems:
-                        'center',
-                      marginBottom: 14
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      background: 'rgba(0,0,0,0.02)',
+                      padding: 12,
+                      borderRadius: 12,
+                      border: `1px solid ${border}`
                     }}
                   >
+                    {/* NOME SEMPRE VISÍVEL */}
 
-                    <span
+                    <div
                       style={{
-                        fontSize: 13,
-                        color:
-                          subtext,
-                        fontWeight:
-                          700
+                        flex: 1,
+                        minWidth: 0,
+                        paddingRight: 4
                       }}
                     >
-                      Total do Pedido:
-                    </span>
-
-                    {isCatalogVisible ? (
-
                       <span
                         style={{
-                          fontSize: 18,
-                          fontWeight: 900,
-                          color: text
+                          fontSize: 13,
+                          fontWeight: 800,
+                          display: 'block',
+                          lineHeight: 1.3,
+                          overflowWrap: 'anywhere'
                         }}
                       >
-                        {calculateTotal().toLocaleString(
-                          'pt-BR',
-                          {
-                            style:
-                              'currency',
-                            currency:
-                              'BRL'
-                          }
-                        )}
+                        {item.product.name}
                       </span>
 
-                    ) : (
+                      {/* SOMENTE O PREÇO É OCULTADO */}
+
+                      {isCatalogVisible ? (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: accent,
+                            fontWeight: 700,
+                            marginTop: 4,
+                            display: 'block'
+                          }}
+                        >
+                          {formatCurrency(
+                            getEffectivePrice(item.product)
+                          )}{' '}
+                          por unidade
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: subtext,
+                            fontWeight: 700,
+                            marginTop: 4,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5
+                          }}
+                        >
+                          <EyeOff size={12} />
+                          Valor oculto
+                        </span>
+                      )}
+                    </div>
+
+                    {/* QUANTIDADE */}
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexShrink: 0
+                      }}
+                    >
+                      <button
+                        onClick={() =>
+                          updateQuantity(item.product.id, -1)
+                        }
+                        style={{
+                          width: 28,
+                          height: 28,
+                          border: `1px solid ${border}`,
+                          borderRadius: 8,
+                          background: 'transparent',
+                          color: text,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <Minus size={12} />
+                      </button>
 
                       <span
                         style={{
-                          display:
-                            'flex',
-                          alignItems:
-                            'center',
-                          gap: 5,
                           fontSize: 12,
-                          fontWeight:
-                            700,
-                          color:
-                            subtext
+                          fontWeight: 800,
+                          width: 18,
+                          textAlign: 'center'
                         }}
                       >
-                        <EyeOff
-                          size={14}
-                        />
-
-                        Total oculto
+                        {item.quantity}
                       </span>
 
-                    )}
-
+                      <button
+                        onClick={() =>
+                          updateQuantity(item.product.id, 1)
+                        }
+                        style={{
+                          width: 28,
+                          height: 28,
+                          border: `1px solid ${border}`,
+                          borderRadius: 8,
+                          background: 'transparent',
+                          color: text,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
                   </div>
-
-                  <button
-                    onClick={
-                      handleCheckoutWhatsApp
-                    }
-                    style={{
-                      width: '100%',
-                      background:
-                        '#22c55e',
-                      color: '#fff',
-                      border: 0,
-                      borderRadius:
-                        12,
-                      padding: 14,
-                      fontWeight:
-                        800,
-                      display:
-                        'flex',
-                      alignItems:
-                        'center',
-                      justifyContent:
-                        'center',
-                      gap: 8,
-                      cursor:
-                        'pointer',
-                      fontSize: 14
-                    }}
-                  >
-                    <MessageCircle
-                      size={18}
-                    />
-
-                    Finalizar Pedido via WhatsApp
-                  </button>
-
-                </div>
-
+                ))
               )}
-
             </div>
 
+            {/* TOTAL E FINALIZAÇÃO */}
+
+            {cart.length > 0 && (
+              <div
+                style={{
+                  padding: 18,
+                  borderTop: `1px solid ${border}`,
+                  background: 'rgba(0,0,0,0.01)'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 14
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: subtext,
+                      fontWeight: 700
+                    }}
+                  >
+                    Total do Pedido:
+                  </span>
+
+                  {isCatalogVisible ? (
+                    <span
+                      style={{
+                        fontSize: 18,
+                        fontWeight: 900,
+                        color: text
+                      }}
+                    >
+                      {formatCurrency(calculateTotal())}
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: subtext
+                      }}
+                    >
+                      <EyeOff size={14} />
+                      Total oculto
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleCheckoutWhatsApp}
+                  style={{
+                    width: '100%',
+                    background: '#22c55e',
+                    color: '#fff',
+                    border: 0,
+                    borderRadius: 12,
+                    padding: 14,
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: 'pointer',
+                    fontSize: 14
+                  }}
+                >
+                  <MessageCircle size={18} />
+                  Finalizar Pedido via WhatsApp
+                </button>
+              </div>
+            )}
           </div>
-
         </div>
-
       )}
 
-      {/* ==========================================================
-          MODAL DE SENHA VIP
-          ========================================================== */}
+      {/* MODAL VIP */}
 
       {showVipModal && (
-
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 50,
+            zIndex: 1100,
             display: 'flex',
-            alignItems:
-              'center',
-            justifyContent:
-              'center',
+            alignItems: 'center',
+            justifyContent: 'center',
             padding: 16,
-            background:
-              'rgba(0,0,0,0.5)',
-            backdropFilter:
-              'blur(2px)'
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(2px)'
           }}
         >
-
           <div
             style={{
               background: card,
@@ -2104,38 +1665,27 @@ export default function Catalogo({
               maxWidth: 360,
               width: '100%',
               padding: 24,
-              border:
-                `1px solid ${border}`,
-              boxShadow:
-                '0 15px 35px rgba(0,0,0,0.1)'
+              border: `1px solid ${border}`,
+              boxShadow: '0 15px 35px rgba(0,0,0,0.1)'
             }}
           >
-
             <div
               style={{
-                textAlign:
-                  'center',
+                textAlign: 'center',
                 marginBottom: 16
               }}
             >
-
               <div
                 style={{
                   width: 44,
                   height: 44,
-                  background:
-                    '#f59e0b15',
+                  background: '#f59e0b15',
                   borderRadius: 12,
-                  display:
-                    'flex',
-                  alignItems:
-                    'center',
-                  justifyContent:
-                    'center',
-                  margin:
-                    '0 auto 10px auto',
-                  color:
-                    '#f59e0b'
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 10px',
+                  color: '#f59e0b'
                 }}
               >
                 <Lock size={22} />
@@ -2155,73 +1705,51 @@ export default function Catalogo({
                 style={{
                   fontSize: 12,
                   color: subtext,
-                  margin:
-                    '6px 0 0 0',
-                  lineHeight: 1.4
+                  margin: '6px 0 0',
+                  lineHeight: 1.5
                 }}
               >
-                Digite a senha fornecida pelo lojista para revelar os preços promocionais exclusivos.
+                Digite a senha VIP fornecida pelo lojista
+                para acessar os preços promocionais.
               </p>
-
             </div>
 
             <input
               type="password"
               placeholder="Digite a senha VIP"
-              value={
-                vipPasswordInput
+              value={vipPasswordInput}
+              onChange={(event) =>
+                setVipPasswordInput(event.target.value)
               }
-              onChange={e =>
-                setVipPasswordInput(
-                  e.target.value
-                )
-              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  alert(
+                    'A validação da senha VIP precisa ser realizada pelo servidor.'
+                  );
+                }
+              }}
               style={{
-                width: '100%',
-                boxSizing:
-                  'border-box',
-                padding:
-                  '10px 14px',
-                border:
-                  `1px solid ${border}`,
-                borderRadius: 10,
-                background:
-                  'transparent',
-                color: text,
-                fontSize: 13,
-                marginBottom: 14,
-                outline: 0
+                ...inputStyle,
+                marginBottom: 14
               }}
             />
 
             <div
               style={{
-                display:
-                  'flex',
+                display: 'flex',
                 gap: 10
               }}
             >
-
               <button
                 onClick={() => {
-                  setShowVipModal(
-                    false
-                  );
+                  setShowVipModal(false);
+                  setVipPasswordInput('');
                 }}
                 style={{
+                  ...buttonStyle,
                   flex: 1,
-                  padding: 10,
-                  borderRadius:
-                    10,
-                  border:
-                    `1px solid ${border}`,
-                  background:
-                    'transparent',
-                  color: text,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor:
-                    'pointer'
+                  padding: 10
                 }}
               >
                 Cancelar
@@ -2229,60 +1757,32 @@ export default function Catalogo({
 
               <button
                 onClick={() => {
-
-                  if (
-                    vipPasswordInput
-                      .trim()
-                      .length > 0
-                  ) {
-
-                    setIsVipUnlocked(
-                      true
-                    );
-
-                    setShowVipModal(
-                      false
-                    );
-
-                    setVipPasswordInput(
-                      ''
-                    );
-
-                  } else {
-
-                    alert(
-                      'Insira uma senha válida.'
-                    );
-
+                  if (!vipPasswordInput.trim()) {
+                    alert('Insira uma senha válida.');
+                    return;
                   }
 
+                  // Mantém o comportamento visual anterior.
+                  // Para segurança real, valide a senha no backend.
+                  setIsVipUnlocked(true);
+                  setShowVipModal(false);
+                  setVipPasswordInput('');
                 }}
                 style={{
+                  ...buttonStyle,
                   flex: 1,
                   padding: 10,
-                  borderRadius:
-                    10,
                   border: 0,
-                  background:
-                    '#f59e0b',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor:
-                    'pointer'
+                  background: '#f59e0b',
+                  color: '#fff'
                 }}
               >
                 Desbloquear
               </button>
-
             </div>
-
           </div>
-
         </div>
-
       )}
-
     </div>
   );
 }
