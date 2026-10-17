@@ -1039,439 +1039,415 @@ export function PDV({
         <div>
           <SectionTitle
             title="PDV — Ponto de Venda & Cashback"
-            sub="Busque um cliente por nome ou telefone, cadastre ou inicie uma venda rápida com gestão integrada"
+            sub="Encontre um cliente, cadastre um novo ou comece uma venda rápida. As configurações ficam abaixo."
           />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
+
+          {/* Área principal do PDV: prioriza busca e início da venda na primeira tela. */}
+          <section
+            aria-label="Iniciar atendimento"
+            style={{
+              minHeight: "min(680px, calc(100vh - 190px))",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "22px 0 34px",
+              boxSizing: "border-box",
+            }}
+          >
             <div
               style={{
+                width: "100%",
+                maxWidth: 1040,
+                margin: "0 auto",
                 background: card,
                 border: `1px solid ${border}`,
-                borderRadius: 14,
-                padding: 20,
+                borderRadius: 20,
+                padding: "clamp(20px, 4vw, 42px)",
+                boxSizing: "border-box",
+                boxShadow: "0 16px 40px rgba(0,0,0,0.10)",
               }}
             >
-                            <div
-                style={{
-                  borderTop: `1px solid ${border}`,
-                  paddingTop: 15,
-                  marginBottom: 15,
-                }}
-              ></div>
+              <div style={{ textAlign: "center", marginBottom: 28 }}>
+                <div
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 16,
+                    margin: "0 auto 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    background: accent,
+                  }}
+                >
+                  <Search size={26} />
+                </div>
+                <h2
+                  style={{
+                    color: text,
+                    fontSize: "clamp(22px, 3vw, 32px)",
+                    lineHeight: 1.2,
+                    margin: "0 0 9px",
+                    fontWeight: 750,
+                  }}
+                >
+                  Quem vamos atender hoje?
+                </h2>
+                <p
+                  style={{
+                    color: subtext,
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                    margin: 0,
+                  }}
+                >
+                  Pesquise pelo nome ou telefone para localizar um cliente e iniciar o pedido.
+                </p>
+              </div>
 
-              <label style={lbl(subtext)}>
-                BUSCAR CLIENTE (DIGITE O NOME OU TELEFONE)
+              <label style={{ ...lbl(subtext), display: "block", marginBottom: 9 }}>
+                BUSCAR CLIENTE
               </label>
               <div
                 style={{
                   display: "flex",
-                  gap: 8,
-                  marginTop: 8,
+                  gap: 10,
+                  alignItems: "stretch",
                   position: "relative",
                 }}
               >
-                <input
-                  value={phoneQuery}
-                  onChange={(e) => handleCustomerInputChange(e.target.value)}
-                  onKeyDown={handleKeyDownSearch}
-                  placeholder="Digite o nome ou (00) 00000-0000 (Pressione Enter)..."
-                  style={{ ...inputStyle(border, text), flex: 1 }}
-                />
+                <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                  <Search
+                    size={20}
+                    color={subtext}
+                    style={{
+                      position: "absolute",
+                      left: 16,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      pointerEvents: "none",
+                    }}
+                  />
+                  <input
+                    value={phoneQuery}
+                    onChange={(e) => handleCustomerInputChange(e.target.value)}
+                    onKeyDown={handleKeyDownSearch}
+                    placeholder="Digite o nome ou telefone do cliente..."
+                    aria-label="Buscar cliente por nome ou telefone"
+                    style={{
+                      ...inputStyle(border, text),
+                      width: "100%",
+                      minHeight: 58,
+                      boxSizing: "border-box",
+                      paddingLeft: 48,
+                      paddingRight: 14,
+                      fontSize: 16,
+                      borderRadius: 12,
+                    }}
+                  />
+                </div>
                 <button
                   onClick={search}
                   style={{
+                    minWidth: 118,
+                    minHeight: 58,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
                     background: accent,
+                    color: "#fff",
                     border: "none",
-                    borderRadius: 8,
-                    padding: "0 15px",
+                    borderRadius: 12,
+                    padding: "0 20px",
                     cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 15,
                   }}
-                  title="Buscar"
                 >
-                  <Search size={20} color="#fff" />
+                  <Search size={18} /> Buscar
+                </button>
+              </div>
+
+              {/* Ações de clientes ficam integradas ao mesmo painel de busca. */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                  gap: 10,
+                  marginTop: 14,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setPhoneQuery("");
+                    setFoundCustomer(null);
+                    setCustomerSuggestions(customers);
+                  }}
+                  style={{
+                    minHeight: 48,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 9,
+                    background: "transparent",
+                    color: text,
+                    border: `1px solid ${border}`,
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    cursor: "pointer",
+                    fontWeight: 650,
+                  }}
+                >
+                  <UserPlus size={18} /> Ver clientes cadastrados
+                </button>
+                <button
+                  onClick={() => setStep("register")}
+                  style={{
+                    minHeight: 48,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 9,
+                    background: "transparent",
+                    color: accent,
+                    border: `1px solid ${accent}`,
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  <UserPlus size={18} /> Cadastrar cliente
+                </button>
+                <button
+                  onClick={startOrderWithoutCustomer}
+                  style={{
+                    minHeight: 48,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 9,
+                    background: `${accent}12`,
+                    color: accent,
+                    border: `1px solid ${accent}55`,
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    cursor: "pointer",
+                    fontWeight: 750,
+                  }}
+                >
+                  <ShoppingCart size={18} /> Venda rápida sem cadastro
                 </button>
               </div>
 
               {customerSuggestions.length > 0 && (
                 <div
                   style={{
-                    marginTop: 8,
+                    marginTop: 16,
                     background: card,
                     border: `1px solid ${border}`,
-                    borderRadius: 8,
-                    maxHeight: 180,
+                    borderRadius: 12,
+                    maxHeight: 240,
                     overflowY: "auto",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                    zIndex: 10,
-                    position: "relative",
+                    boxShadow: "0 8px 22px rgba(0,0,0,0.10)",
                   }}
                 >
                   <div
                     style={{
-                      padding: "6px 10px",
-                      fontSize: 11,
+                      padding: "11px 14px",
+                      fontSize: 12,
                       color: subtext,
                       borderBottom: `1px solid ${border}`,
                     }}
                   >
-                    Sugestões encontradas ({customerSuggestions.length}) —
-                    Clique ou pressione Enter:
+                    {phoneQuery.trim()
+                      ? `Clientes encontrados (${customerSuggestions.length}) — selecione para iniciar o pedido`
+                      : `Clientes cadastrados (${customerSuggestions.length}) — selecione para iniciar o pedido`}
                   </div>
                   {customerSuggestions.map((cust) => (
-                    <div
+                    <button
+                      type="button"
                       key={cust.id}
                       onClick={() => startOrderWithFoundCustomer(cust)}
                       style={{
-                        padding: "10px 12px",
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "13px 15px",
                         cursor: "pointer",
-                        borderBottom: `1px solid ${border}40`,
+                        border: "none",
+                        borderBottom: `1px solid ${border}55`,
+                        background: "transparent",
                         display: "flex",
+                        gap: 12,
                         justifyContent: "space-between",
                         alignItems: "center",
-                        transition: "background 0.2s",
+                        textAlign: "left",
                       }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = `${accent}15`)
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "transparent")
-                      }
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = `${accent}12`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                      }}
                     >
-                      <div>
-                        <div
-                          style={{ fontWeight: 600, color: text, fontSize: 13 }}
-                        >
+                      <span>
+                        <span style={{ display: "block", fontWeight: 700, color: text, fontSize: 14 }}>
                           {cust.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: subtext }}>
-                          {cust.phone || "Sem telefone"}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: accent,
-                          fontWeight: "bold",
-                        }}
-                      >
+                        </span>
+                        <span style={{ display: "block", color: subtext, fontSize: 12, marginTop: 3 }}>
+                          {cust.phone || "Sem telefone cadastrado"}
+                        </span>
+                      </span>
+                      <span style={{ color: accent, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
                         {Number(cust.cashback || 0).toLocaleString("pt-BR", {
                           style: "currency",
                           currency: "BRL",
                         })}
-                      </div>
-                    </div>
+                      </span>
+                    </button>
                   ))}
-                </div>
-              )}
-
-              {foundCustomer && customerSuggestions.length <= 1 && (
-                <div
-                  style={{
-                    marginTop: 15,
-                    padding: 12,
-                    background: `${accent}15`,
-                    borderRadius: 8,
-                  }}
-                >
-                  <p style={{ color: text, margin: "0 0 8px 0" }}>
-                    Cliente selecionado: <strong>{foundCustomer.name}</strong> (
-                    {foundCustomer.phone}) — Saldo:{" "}
-                    <strong>
-                      {Number(foundCustomer.cashback || 0).toLocaleString(
-                        "pt-BR",
-                        { style: "currency", currency: "BRL" },
-                      )}
-                    </strong>
-                  </p>
-                  <button
-                    onClick={() => startOrderWithFoundCustomer(foundCustomer)}
-                    style={{
-                      ...inputStyle(border, text),
-                      cursor: "pointer",
-                      width: "100%",
-                      background: accent,
-                      color: "#fff",
-                      border: "none",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    Iniciar Pedido com Este Cliente (Enter)
-                  </button>
                 </div>
               )}
 
               {!foundCustomer &&
                 customerSuggestions.length === 0 &&
-                phoneQuery.length >= 2 && (
-                  <p style={{ color: subtext, marginTop: 15, fontSize: 13 }}>
-                    Nenhum cliente correspondente encontrado com essas
-                    letras/números.
+                phoneQuery.trim().length >= 2 && (
+                  <p style={{ color: subtext, margin: "14px 0 0", fontSize: 13 }}>
+                    Nenhum cliente encontrado. Confira o nome ou telefone, ou use “Cadastrar cliente”.
                   </p>
                 )}
 
-              <div
-                style={{
-                  marginTop: foundCustomer ? 12 : 20,
-                  borderTop: `1px solid ${border}`,
-                  paddingTop: 15,
-                }}
-              >
-                <button
-                  onClick={() => setStep("register")}
-                  style={{
-                    background: "transparent",
-                    color: accent,
-                    border: `1px solid ${accent}`,
-                    padding: 10,
-                    borderRadius: 8,
-                    width: "100%",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    fontWeight: "bold",
-                  }}
-                >
-                  <UserPlus size={18} /> Cadastrar Novo Cliente
-                </button>
-              </div>
-
-            </div>
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
-                <label style={lbl(subtext)}>
-                  MENSAGEM ENVIADA PELO WHATSAPP AO FINALIZAR A VENDA
-                </label>
-                <textarea
-                  value={saleWhatsappMessage}
-                  onChange={(e) =>
-                    handleSaleWhatsappMessageChange(e.target.value)
-                  }
-                  onBlur={handleSaleWhatsappMessageBlur}
-                  rows={3}
-                  placeholder="Digite a mensagem que será enviada ao cliente após finalizar a venda..."
-                  style={{
-                    ...inputStyle(border, text),
-                    width: "100%",
-                    minHeight: 76,
-                    marginTop: 8,
-                    resize: "vertical",
-                    boxSizing: "border-box",
-                  }}
-                />
+              {foundCustomer && customerSuggestions.length <= 1 && (
                 <div
                   style={{
-                    color: subtext,
-                    fontSize: 11,
-                    marginTop: 6,
-                    lineHeight: 1.4,
+                    marginTop: 14,
+                    padding: 14,
+                    background: `${accent}12`,
+                    border: `1px solid ${accent}35`,
+                    borderRadius: 12,
                   }}
                 >
-                  Variáveis disponíveis: <strong>{"{nome}"}</strong>,{" "}
-                  <strong>{"{cashback}"}</strong>, <strong>{"{saldo}"}</strong>,{" "}
-                  <strong>{"{vencimento}"}</strong> e{" "}
-                  <strong>{"{total}"}</strong>. A mensagem é salva
-                  automaticamente ao sair do campo.
-                </div>
-            </div>
-
-            <div
-              style={{
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 14,
-                padding: 16,
-              }}
-            >
-                            <button
-                onClick={startOrderWithoutCustomer}
-                style={{
-                  background: accent,
-                  color: "#fff",
-                  border: "none",
-                  padding: "12px",
-                  borderRadius: 8,
-                  width: "100%",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                  marginBottom: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                }}
-              >
-                <ShoppingCart size={18} /> Venda Rápida (Sem Cadastro)
-              </button>
-
-
-            </div>
-
-
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 16, minWidth: 0 }}>
-                <label style={lbl(subtext)}>
-                  SEU NÚMERO DE WHATSAPP PARA NOTIFICAÇÕES DE VENDAS
-                </label>
-                <input
-                  type="tel"
-                  value={saleWhatsappPhone}
-                  onChange={(e) =>
-                    handleSaleWhatsappPhoneChange(e.target.value)
-                  }
-                  onBlur={handleSaleWhatsappPhoneBlur}
-                  placeholder="Ex.: (83) 99999-9999 ou +55 83 99999-9999"
-                  autoComplete="tel"
-                  style={{
-                    ...inputStyle(border, text),
-                    width: "100%",
-                    marginTop: 8,
-                    marginBottom: 6,
-                    boxSizing: "border-box",
-                  }}
-                />
-                <div style={{ color: subtext, fontSize: 11, lineHeight: 1.4 }}>
-                  Informe o número do WhatsApp que receberá a mensagem quando
-                  uma venda for finalizada. O número fica salvo por login e pode
-                  ser alterado a qualquer momento.
-                </div>
-                {whatsappPhoneSaveStatus && (
-                  <div
-                    role="status"
+                  <p style={{ color: text, margin: "0 0 10px", fontSize: 14 }}>
+                    Cliente selecionado: <strong>{foundCustomer.name}</strong> · {foundCustomer.phone || "Sem telefone"} · Saldo de cashback: {" "}
+                    <strong>
+                      {Number(foundCustomer.cashback || 0).toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                      })}
+                    </strong>
+                  </p>
+                  <button
+                    onClick={() => startOrderWithFoundCustomer(foundCustomer)}
                     style={{
-                      color: whatsappPhoneSaveStatus.startsWith("Número salvo")
-                        ? "#16a34a"
-                        : "#dc2626",
-                      fontSize: 11,
-                      marginTop: 5,
+                      width: "100%",
+                      minHeight: 46,
+                      cursor: "pointer",
+                      background: accent,
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 9,
+                      fontWeight: 750,
                     }}
                   >
-                    {whatsappPhoneSaveStatus}
-                  </div>
-                )}
-                {savingWhatsappPhone && (
-                  <div style={{ color: subtext, fontSize: 11, marginTop: 5 }}>
-                    Salvando número...
-                  </div>
-                )}
+                    Iniciar pedido com este cliente
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
 
+          {/* Configurações secundárias ficam abaixo da área principal e exigem rolagem. */}
+          <section
+            aria-label="Configurações de mensagens e cashback"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: 14,
+              margin: "10px 0 24px",
+              alignItems: "start",
+            }}
+          >
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
+              <h3 style={{ color: text, margin: "0 0 12px", fontSize: 15 }}>Mensagem de WhatsApp após a venda</h3>
+              <textarea
+                value={saleWhatsappMessage}
+                onChange={(e) => handleSaleWhatsappMessageChange(e.target.value)}
+                onBlur={handleSaleWhatsappMessageBlur}
+                rows={4}
+                placeholder="Digite a mensagem que será enviada ao cliente após finalizar a venda..."
+                style={{
+                  ...inputStyle(border, text),
+                  width: "100%",
+                  minHeight: 100,
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+              />
+              <div style={{ color: subtext, fontSize: 11, marginTop: 7, lineHeight: 1.5 }}>
+                Variáveis: <strong>{"{nome}"}</strong>, <strong>{"{cashback}"}</strong>, <strong>{"{saldo}"}</strong>, <strong>{"{vencimento}"}</strong> e <strong>{"{total}"}</strong>. Salva ao sair do campo.
+              </div>
             </div>
 
-            <div
-              style={{
-                background: card,
-                border: `1px solid ${border}`,
-                borderRadius: 14,
-                padding: 12,
-                minWidth: 0,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
-            >
-              <div>
-                <h3
-                  style={{
-                    color: text,
-                    margin: "0 0 8px 0",
-                    fontSize: 16,
-                    borderBottom: `1px solid ${border}`,
-                    paddingBottom: 8,
-                  }}
-                >
-                  🔔 Automação de Lembretes de Cashback
-                </h3>
-                <p
-                  style={{
-                    color: subtext,
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    margin: 0,
-                  }}
-                >
-                  Ative este botão para que, durante os dias de vendas, o
-                  sistema envie lembretes automáticos via WhatsApp conforme os
-                  dias passarem para os clientes que possuem saldo ativo.
-                </p>
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
+              <h3 style={{ color: text, margin: "0 0 12px", fontSize: 15 }}>WhatsApp para notificações de vendas</h3>
+              <input
+                type="tel"
+                value={saleWhatsappPhone}
+                onChange={(e) => handleSaleWhatsappPhoneChange(e.target.value)}
+                onBlur={handleSaleWhatsappPhoneBlur}
+                placeholder="Ex.: (83) 99999-9999 ou +55 83 99999-9999"
+                autoComplete="tel"
+                style={{ ...inputStyle(border, text), width: "100%", boxSizing: "border-box" }}
+              />
+              <div style={{ color: subtext, fontSize: 11, lineHeight: 1.5, marginTop: 7 }}>
+                Número associado a este login. Informe o WhatsApp que receberá as notificações.
               </div>
+              {whatsappPhoneSaveStatus && (
+                <div role="status" style={{ color: whatsappPhoneSaveStatus.startsWith("Número salvo") ? "#16a34a" : "#dc2626", fontSize: 11, marginTop: 7 }}>
+                  {whatsappPhoneSaveStatus}
+                </div>
+              )}
+              {savingWhatsappPhone && <div style={{ color: subtext, fontSize: 11, marginTop: 7 }}>Salvando número...</div>}
+            </div>
 
-              <div
+            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
+              <h3 style={{ color: text, margin: "0 0 8px", fontSize: 15 }}>🔔 Lembretes de cashback</h3>
+              <p style={{ color: subtext, fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
+                Configure se os lembretes automáticos de cashback devem ficar ativos para esta loja.
+              </p>
+              <button
+                type="button"
                 onClick={() => {
                   const newState = !activeReminderButton;
                   setActiveReminderButton(newState);
                   saveUserSettings({ activeReminderButton: newState });
                 }}
                 style={{
-                  background: activeReminderButton
-                    ? `${accent}20`
-                    : `${border}20`,
-                  border: `2px solid ${activeReminderButton ? accent : border}`,
-                  borderRadius: 12,
-                  padding: 12,
+                  width: "100%",
+                  minHeight: 48,
+                  background: activeReminderButton ? `${accent}18` : "transparent",
+                  color: text,
+                  border: `1px solid ${activeReminderButton ? accent : border}`,
+                  borderRadius: 10,
+                  padding: "10px 12px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  transition: "all 0.2s ease",
+                  gap: 10,
+                  fontWeight: 700,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      background: activeReminderButton ? accent : subtext,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#fff",
-                      fontWeight: "bold",
-                      fontSize: 12,
-                    }}
-                  >
-                    {activeReminderButton ? "✓" : ""}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: text }}>
-                      {activeReminderButton
-                        ? "Lembretes Automáticos ATIVOS"
-                        : "Lembretes Automáticos DESATIVADOS"}
-                    </div>
-                    <div style={{ fontSize: 12, color: subtext }}>
-                      {activeReminderButton
-                        ? "Disparos diários em background ligados"
-                        : "Clique para ativar os disparos automáticos"}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    background: activeReminderButton ? accent : subtext,
-                    color: "#fff",
-                    padding: "5px 10px",
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  {activeReminderButton ? "Ligado" : "Desligado"}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  fontSize: 11,
-                  color: subtext,
-                  fontStyle: "italic",
-                  textAlign: "center",
-                }}
-              >
-                * Certifique-se de que a conexão do WhatsApp está ativa na aba
-                de integrações.
+                <span>{activeReminderButton ? "Lembretes ativos" : "Lembretes desativados"}</span>
+                <span style={{ color: activeReminderButton ? accent : subtext }}>{activeReminderButton ? "Ligado ✓" : "Desligado"}</span>
+              </button>
+              <div style={{ fontSize: 11, color: subtext, marginTop: 9, lineHeight: 1.5 }}>
+                A automação também depende das integrações e dos serviços configurados no sistema.
               </div>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
