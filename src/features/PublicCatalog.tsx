@@ -7,6 +7,7 @@ import {
   Lock,
   ShoppingBag,
   MessageCircle,
+  Phone,
   CheckCircle2,
   Tag,
   X,
@@ -31,6 +32,7 @@ export function PublicCatalog() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [query, setQuery] = useState('');
+  const [consultMessage, setConsultMessage] = useState('');
 
   // Controle da seleção de sabores.
   const [selectedFlavorProduct, setSelectedFlavorProduct] =
@@ -73,12 +75,24 @@ export function PublicCatalog() {
         return r.json();
       })
       .then(resData => {
-        if (resData && Array.isArray(resData.products)) {
-          fallbackProductsRef.current = resData.products;
+        const receivedProducts = Array.isArray(resData?.products)
+          ? resData.products
+          : [];
+
+        if (receivedProducts.length > 0) {
+          fallbackProductsRef.current = receivedProducts;
         }
 
-        setData(resData);
-        setVip(Boolean(resData.isVip || token));
+        const productsToKeep =
+          receivedProducts.length > 0
+            ? receivedProducts
+            : fallbackProductsRef.current;
+
+        setData({
+          ...resData,
+          products: productsToKeep
+        });
+        setVip(Boolean(resData?.isVip));
       })
       .catch(() => {
         setError('Catálogo não encontrado.');
@@ -179,41 +193,25 @@ export function PublicCatalog() {
       setPassword('');
       setVip(true);
 
-      const activeToken =
-        newToken || localStorage.getItem(`vip_token_${id}`);
+      // O VIP altera somente a condição de preço. Não precisamos buscar
+      // novamente o catálogo, pois uma resposta vazia da API poderia apagar
+      // os produtos que já estavam carregados na tela.
+      setData((previous: any) => {
+        const currentProducts =
+          Array.isArray(previous?.products) && previous.products.length > 0
+            ? previous.products
+            : fallbackProductsRef.current;
 
-      const headers: HeadersInit = activeToken
-        ? { Authorization: `Bearer ${activeToken}` }
-        : {};
-
-      const catalogRes = await fetch(
-        `${base}/api/public/catalogo/${id}`,
-        { headers }
-      );
-
-      if (catalogRes.ok) {
-        const freshData = await catalogRes.json();
-
-        if (
-          freshData &&
-          Array.isArray(freshData.products) &&
-          freshData.products.length > 0
-        ) {
-          fallbackProductsRef.current = freshData.products;
-          setData(freshData);
-        } else if (freshData) {
-          setData({
-            ...freshData,
-            products:
-              freshData.products ||
-              fallbackProductsRef.current
-          });
+        if (currentProducts.length > 0) {
+          fallbackProductsRef.current = currentProducts;
         }
 
-        if (freshData?.isVip !== undefined) {
-          setVip(Boolean(freshData.isVip));
-        }
-      }
+        return {
+          ...(previous || {}),
+          isVip: true,
+          products: currentProducts
+        };
+      });
 
       setShowIntro(true);
       window.setTimeout(() => setShowIntro(false), 4000);
@@ -225,55 +223,28 @@ export function PublicCatalog() {
   /*
    * SAÍDA DO VIP
    */
-  const handleLogoutVip = async () => {
+  const handleLogoutVip = () => {
+    // Sair do VIP muda somente a condição de preço. Mantemos os produtos
+    // já carregados para impedir que uma nova resposta vazia os remova.
     localStorage.removeItem(`vip_token_${id}`);
     setVip(false);
 
-    try {
-      const res = await fetch(
-        `${base}/api/public/catalogo/${id}`
-      );
+    setData((previous: any) => {
+      const currentProducts =
+        Array.isArray(previous?.products) && previous.products.length > 0
+          ? previous.products
+          : fallbackProductsRef.current;
 
-      if (res.ok) {
-        const freshData = await res.json();
-
-        if (
-          freshData &&
-          Array.isArray(freshData.products) &&
-          freshData.products.length > 0
-        ) {
-          fallbackProductsRef.current = freshData.products;
-          setData(freshData);
-        } else if (freshData) {
-          setData({
-            ...freshData,
-            products:
-              freshData.products ||
-              fallbackProductsRef.current
-          });
-        } else {
-          setData((prev: any) => ({
-            ...(prev || {}),
-            products: fallbackProductsRef.current
-          }));
-        }
-      } else {
-        setData((prev: any) => ({
-          ...(prev || {}),
-          products: fallbackProductsRef.current
-        }));
+      if (currentProducts.length > 0) {
+        fallbackProductsRef.current = currentProducts;
       }
-    } catch (e) {
-      console.error(
-        'Erro ao atualizar catálogo ao sair do VIP',
-        e
-      );
 
-      setData((prev: any) => ({
-        ...(prev || {}),
-        products: fallbackProductsRef.current
-      }));
-    }
+      return {
+        ...(previous || {}),
+        isVip: false,
+        products: currentProducts
+      };
+    });
   };
 
   /*
@@ -403,7 +374,9 @@ export function PublicCatalog() {
    */
   const calculateTotal = () => {
     const activeProducts =
-      data?.products || fallbackProductsRef.current;
+      Array.isArray(data?.products) && data.products.length > 0
+        ? data.products
+        : fallbackProductsRef.current;
 
     return cart.reduce((total, item) => {
       const currentProduct =
@@ -417,6 +390,35 @@ export function PublicCatalog() {
         getProductPrice(currentProduct) * item.quantity
       );
     }, 0);
+  };
+
+  /*
+   * CONSULTAR PELO WHATSAPP
+   * Usa exatamente o número configurado para finalizar o pedido no carrinho.
+   */
+  const handleConsultWhatsApp = () => {
+    if (!data?.whatsapp) {
+      alert('Esta loja ainda não configurou um número de WhatsApp para atendimento.');
+      return;
+    }
+
+    const digits = String(data.whatsapp).replace(/\\D/g, '');
+    const cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
+
+    if (cleanPhone.length < 12 || cleanPhone.length > 13) {
+      alert('O WhatsApp desta loja está inválido. Avise o lojista para corrigir o número no Catálogo.');
+      return;
+    }
+
+    const message = consultMessage.trim()
+      ? `Olá! Gostaria de consultar sobre os produtos deste catálogo.\n\nMinha dúvida: ${consultMessage.trim()}`
+      : 'Olá! Gostaria de consultar sobre os produtos disponíveis neste catálogo.';
+
+    window.open(
+      `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
   };
 
   /*
@@ -453,7 +455,9 @@ export function PublicCatalog() {
     }
 
     const activeProducts =
-      data?.products || fallbackProductsRef.current;
+      Array.isArray(data?.products) && data.products.length > 0
+        ? data.products
+        : fallbackProductsRef.current;
 
     let message =
       `*Pedido via Catálogo Online - ${
@@ -720,9 +724,32 @@ export function PublicCatalog() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <style>{`
+        .public-catalog-root { width: 100%; }
+        .catalog-products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+        @media (max-width: 600px) {
+          .public-catalog-root { padding: 12px 9px !important; }
+          .catalog-products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+          .catalog-product-card { border-radius: 9px !important; }
+          .catalog-product-image { aspect-ratio: 1 / 1 !important; }
+          .catalog-product-content { padding: 8px !important; }
+          .catalog-product-category { font-size: 8px !important; padding: 2px 5px !important; }
+          .catalog-product-name { font-size: 12px !important; line-height: 1.25 !important; margin: 6px 0 3px !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+          .catalog-product-description { font-size: 10px !important; line-height: 1.3 !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+          .catalog-product-footer { padding: 0 8px 8px !important; gap: 5px !important; align-items: flex-end !important; }
+          .catalog-product-price { font-size: 12px !important; }
+          .catalog-product-action { padding: 7px !important; font-size: 10px !important; border-radius: 7px !important; }
+          .catalog-header { padding: 13px !important; margin-bottom: 14px !important; }
+          .catalog-header-title { font-size: 18px !important; }
+          .catalog-search-section { gap: 8px !important; margin-bottom: 14px !important; }
+          .catalog-consult-box { gap: 8px !important; padding: 10px !important; margin-bottom: 14px !important; }
+          .catalog-consult-input { flex: 1 1 100% !important; }
+        }
+      `}</style>
+      <div className="public-catalog-root" style={{ maxWidth: 1000, margin: '0 auto' }}>
         {/* CABEÇALHO */}
         <div
+          className="catalog-header"
           style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -738,6 +765,7 @@ export function PublicCatalog() {
         >
           <div>
             <h1
+              className="catalog-header-title"
               style={{
                 margin: 0,
                 fontSize: 20,
@@ -830,6 +858,28 @@ export function PublicCatalog() {
             </div>
 
             <button
+              onClick={handleConsultWhatsApp}
+              title="Consultar pelo WhatsApp"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '9px 12px',
+                border: 0,
+                borderRadius: 10,
+                background: '#16a34a',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <MessageCircle size={15} />
+              Consultar
+            </button>
+
+            <button
               onClick={() => setIsCartOpen(true)}
               style={{
                 position: 'relative',
@@ -880,6 +930,7 @@ export function PublicCatalog() {
 
         {/* PESQUISA */}
         <div
+          className="catalog-search-section"
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -943,6 +994,69 @@ export function PublicCatalog() {
           </div>
         </div>
 
+        {/* CONSULTA RÁPIDA PELO WHATSAPP */}
+        <div
+          className="catalog-consult-box"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            margin: '0 0 20px',
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid rgba(34,197,94,0.35)',
+            background: 'rgba(22,163,74,0.08)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 190px', minWidth: 0 }}>
+            <span
+              style={{
+                width: 36,
+                height: 36,
+                flexShrink: 0,
+                borderRadius: 10,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#16a34a',
+                color: '#fff'
+              }}
+            >
+              <MessageCircle size={20} />
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ display: 'block', color: '#dcfce7', fontSize: 13 }}>
+                Consulta pelo WhatsApp
+              </strong>
+              <span style={{ display: 'block', color: '#86efac', fontSize: 11, marginTop: 2 }}>
+                Fale com a loja antes de fazer o pedido
+              </span>
+            </div>
+          </div>
+          <input
+            className="catalog-consult-input"
+            type="text"
+            value={consultMessage}
+            onChange={e => setConsultMessage(e.target.value)}
+            placeholder="O que deseja consultar? (opcional)"
+            aria-label="Digite sua dúvida para a loja"
+            style={{
+              flex: '1 1 160px',
+              minWidth: 0,
+              boxSizing: 'border-box',
+              border: '1px solid #276749',
+              borderRadius: 9,
+              padding: '10px 11px',
+              background: '#101a13',
+              color: '#F0EFE9',
+              fontSize: 13,
+              outline: 0
+            }}
+          />
+
+        </div>
+
         {/* PRODUTOS */}
         {filteredProducts.length === 0 ? (
           <div
@@ -961,13 +1075,7 @@ export function PublicCatalog() {
             </p>
           </div>
         ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-              gap: 16
-            }}
-          >
+          <div className="catalog-products-grid">
             {filteredProducts.map((p: any) => {
               const vipVal =
                 p.vip_price !== undefined
@@ -998,6 +1106,7 @@ export function PublicCatalog() {
 
               return (
                 <div
+                  className="catalog-product-card"
                   key={p.id}
                   onClick={() => {
                     if (flavors.length > 0) {
@@ -1020,6 +1129,7 @@ export function PublicCatalog() {
                       <img
                         src={imageUrl}
                         alt={p.name}
+                        className="catalog-product-image"
                         style={{
                           width: '100%',
                           aspectRatio: '4/5',
@@ -1043,8 +1153,9 @@ export function PublicCatalog() {
                       </div>
                     )}
 
-                    <div style={{ padding: 14 }}>
+                    <div className="catalog-product-content" style={{ padding: 14 }}>
                       <span
+                        className="catalog-product-category"
                         style={{
                           fontSize: 10,
                           fontWeight: 700,
@@ -1059,6 +1170,7 @@ export function PublicCatalog() {
                       </span>
 
                       <h3
+                        className="catalog-product-name"
                         style={{
                           fontSize: 14,
                           margin: '8px 0 4px 0',
@@ -1071,6 +1183,7 @@ export function PublicCatalog() {
 
                       {p.description && (
                         <p
+                          className="catalog-product-description"
                           style={{
                             fontSize: 12,
                             color: '#8A8A82',
@@ -1106,6 +1219,7 @@ export function PublicCatalog() {
                   </div>
 
                   <div
+                    className="catalog-product-footer"
                     style={{
                       padding: '0 14px 14px 14px',
                       display: 'flex',
@@ -1177,6 +1291,7 @@ export function PublicCatalog() {
                           </div>
                         ) : (
                           <div
+                            className="catalog-product-price"
                             style={{
                               fontSize: 15,
                               fontWeight: 700,
@@ -1203,6 +1318,7 @@ export function PublicCatalog() {
                     </div>
 
                     <button
+                      className="catalog-product-action"
                       onClick={e => {
                         e.stopPropagation();
                         handleProductClick(p);
@@ -1623,8 +1739,9 @@ export function PublicCatalog() {
                 ) : (
                   cart.map(item => {
                     const activeProducts =
-                      data?.products ||
-                      fallbackProductsRef.current;
+                      Array.isArray(data?.products) && data.products.length > 0
+                        ? data.products
+                        : fallbackProductsRef.current;
 
                     const currentProduct =
                       activeProducts?.find(

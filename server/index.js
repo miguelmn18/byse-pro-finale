@@ -1516,14 +1516,40 @@ app.post("/api/fiados", authMiddleware, async (req, res) => {
 });
 
 app.delete("/api/fiados/:id", authMiddleware, async (req, res) => {
-  await pool.query("DELETE FROM fiados WHERE id=$1 AND user_id=$2", [
-    req.params.id,
-    req.user.id,
-  ]);
+  try {
+    const id = String(req.params.id);
 
-  res.json({
-    success: true,
-  });
+    const result = await pool.query(
+      `DELETE FROM fiados
+       WHERE id = $1
+         AND user_id = $2
+       RETURNING id`,
+      [id, req.user.id],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Fiado não encontrado para este usuário.",
+      });
+    }
+
+    console.log(
+      `[FIADO DELETE] id=${id} usuario=${req.user.id} excluído do banco`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      id: result.rows[0].id,
+    });
+  } catch (error) {
+    console.error("[FIADO DELETE ERROR]", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Erro ao excluir fiado do banco de dados.",
+    });
+  }
 });
 
 // ==========================================

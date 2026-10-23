@@ -767,33 +767,60 @@ export function PDV({
   return (
     <div style={{ padding: device === "desktop" ? 20 : 10 }}>
       <style>{`
+        /*
+         * Impressão do comprovante:
+         * força página A4 em retrato e limita a largura à área imprimível.
+         * As regras ficam restritas à impressão para não alterar a tela do PDV.
+         */
         @media print {
           @page {
-            size: A4 portrait !important;
+            size: A4 portrait;
             margin: 10mm;
           }
+
+          html,
+          body {
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+          }
+
           body * {
             visibility: hidden !important;
           }
-          #printable-receipt, #printable-receipt * {
+
+          #printable-receipt,
+          #printable-receipt * {
             visibility: visible !important;
           }
+
           #printable-receipt {
             display: block !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 180mm !important;
-            max-width: 180mm !important;
+            position: fixed !important;
+            inset: 0 auto auto 0 !important;
+            width: 190mm !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
             min-height: 0 !important;
             height: auto !important;
+            margin: 0 !important;
             box-sizing: border-box !important;
+            overflow: visible !important;
             font-family: monospace !important;
             padding: 4px !important;
             color: #000 !important;
             background: #fff !important;
             font-size: 10px !important;
             line-height: 1.2 !important;
+            page-break-inside: avoid !important;
+          }
+
+          #printable-receipt * {
+            box-sizing: border-box !important;
+            max-width: 100% !important;
+            overflow-wrap: anywhere !important;
           }
         }
       `}</style>
@@ -1391,7 +1418,7 @@ export function PDV({
             </div>
 
             <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
-              <h3 style={{ color: text, margin: "0 0 12px", fontSize: 15 }}>WhatsApp para notificações de vendas</h3>
+              <h3 style={{ color: text, margin: "0 0 12px", fontSize: 15 }}>Número de Whatsapp</h3>
               <input
                 type="tel"
                 value={saleWhatsappPhone}
@@ -1402,7 +1429,7 @@ export function PDV({
                 style={{ ...inputStyle(border, text), width: "100%", boxSizing: "border-box" }}
               />
               <div style={{ color: subtext, fontSize: 11, lineHeight: 1.5, marginTop: 7 }}>
-                Número associado a este login. Informe o WhatsApp que receberá as notificações.
+                Número associado a este login. Informe o WhatsApp que enviará as notificações para whatsapp dos clientes.
               </div>
               {whatsappPhoneSaveStatus && (
                 <div role="status" style={{ color: whatsappPhoneSaveStatus.startsWith("Número salvo") ? "#16a34a" : "#dc2626", fontSize: 11, marginTop: 7 }}>

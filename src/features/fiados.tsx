@@ -235,21 +235,44 @@ function Fiados({
     }
   };
 
-  const deleteFiado = async (id) => {
-    if (confirm("Tem certeza que deseja excluir este fiado?")) {
-      const updated = fiados.filter((f) => f.id !== id);
-      setFiados(updated);
+  
+const deleteFiado = async (id) => {
+  if (!confirm("Tem certeza que deseja excluir este fiado?")) {
+    return;
+  }
 
-      try {
-        await fetch(`${API_URL}/fiados/${id}`, {
-          method: "DELETE",
-          headers: getAuthHeaders()
-        });
-      } catch (err) {
-        console.error("Erro ao excluir fiado:", err);
-      }
+  const previousFiados = [...fiados];
+
+  try {
+    const response = await fetch(`${API_URL}/fiados/${id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders()
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || `Falha ao excluir fiado (${response.status})`
+      );
     }
-  };
+
+    // Só remove da interface após confirmação do servidor.
+    setFiados((current) =>
+      current.filter((f) => String(f.id) !== String(id))
+    );
+  } catch (error) {
+    console.error("Erro ao excluir fiado:", error);
+
+    // Restaura os dados caso a exclusão não seja confirmada.
+    setFiados(previousFiados);
+
+    alert(
+      "Não foi possível confirmar a exclusão do fiado no servidor. " +
+      "Verifique a conexão e tente novamente."
+    );
+  }
+};
 
   const clearAllFiados = async () => {
     if (confirm("Tem certeza que deseja excluir TODOS os fiados? Esta ação não pode ser desfeita.")) {
