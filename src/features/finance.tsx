@@ -145,23 +145,48 @@ function DRE({ sales = [], card, border, subtext, accent, text }) {
     );
   };
 
+  // Cada valor digitado representa um NOVO lançamento, não a substituição
+  // do ajuste acumulado. Ex.: +5 e depois -5 resultam em ajuste zero.
   const startEditingRevenue = () => {
-    setRevenueAdjustmentDraft(
-      String(entries[selMonth]?.ajusteFaturamento ?? ""),
-    );
+    setRevenueAdjustmentDraft("");
     setEditingRevenue(true);
   };
 
   const saveRevenueAdjustment = () => {
     const trimmedValue = revenueAdjustmentDraft.trim();
-    const adjustment = trimmedValue === "" ? 0 : Number(trimmedValue);
 
-    if (!Number.isFinite(adjustment)) {
-      alert("Informe um valor válido para o ajuste do faturamento.");
+    if (trimmedValue === "") {
+      setEditingRevenue(false);
       return;
     }
 
-    updateEntry("ajusteFaturamento", String(adjustment));
+    // Aceita valores com vírgula decimal, além do ponto.
+    const normalizedValue = trimmedValue.replace(",", ".");
+    const newMovement = Number(normalizedValue);
+
+    if (!Number.isFinite(newMovement)) {
+      alert("Informe um valor válido. Exemplo: 5 ou -5.");
+      return;
+    }
+
+    const currentAdjustment =
+      Number(entries[selMonth]?.ajusteFaturamento) || 0;
+    const accumulatedAdjustment = currentAdjustment + newMovement;
+
+    updateEntry("ajusteFaturamento", String(accumulatedAdjustment));
+    setRevenueAdjustmentDraft("");
+    setEditingRevenue(false);
+  };
+
+  const resetRevenueAdjustment = () => {
+    const confirmed = window.confirm(
+      "Deseja zerar todos os ajustes acumulados deste mês? O faturamento original das vendas não será alterado.",
+    );
+
+    if (!confirmed) return;
+
+    updateEntry("ajusteFaturamento", "0");
+    setRevenueAdjustmentDraft("");
     setEditingRevenue(false);
   };
 
@@ -300,7 +325,7 @@ function DRE({ sales = [], card, border, subtext, accent, text }) {
                   step="0.01"
                   value={revenueAdjustmentDraft}
                   onChange={(event) => setRevenueAdjustmentDraft(event.target.value)}
-                  placeholder="+500 ou -200"
+                  placeholder="Novo lançamento: 5 ou -5"
                   aria-label="Ajuste do faturamento em reais"
                   style={{
                     ...inputStyle(border, text),
@@ -328,7 +353,27 @@ function DRE({ sales = [], card, border, subtext, accent, text }) {
 
                 <button
                   type="button"
-                  onClick={() => setEditingRevenue(false)}
+                  onClick={resetRevenueAdjustment}
+                  title="Zera os ajustes acumulados do mês, sem alterar as vendas do PDV"
+                  style={{
+                    background: "transparent",
+                    color: DANGER,
+                    border: `1px solid ${DANGER}`,
+                    borderRadius: 7,
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Zerar ajuste
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRevenueAdjustmentDraft("");
+                    setEditingRevenue(false);
+                  }}
                   style={{
                     background: "transparent",
                     color: text,
@@ -364,7 +409,7 @@ function DRE({ sales = [], card, border, subtext, accent, text }) {
               padding: "0 0 10px",
             }}
           >
-            Faturamento original: {money(faturamentoBase)} · Ajuste:{" "}
+            Ajustes acumulados:{" "}
             <span
               style={{
                 color: ajusteFaturamento > 0 ? SUCCESS : DANGER,

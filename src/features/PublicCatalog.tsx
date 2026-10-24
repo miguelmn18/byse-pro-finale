@@ -370,6 +370,35 @@ export function PublicCatalog() {
   };
 
   /*
+   * ECONOMIA POR PRODUTO
+   * Só calcula economia quando o acesso VIP estiver ativo e o produto
+   * tiver um preço VIP válido inferior ao preço normal.
+   */
+  const getProductSavings = (product: any) => {
+    if (!vip || !product) return 0;
+
+    const vipVal =
+      product.vip_price !== undefined
+        ? product.vip_price
+        : product.vipPrice;
+
+    const regularPrice = Number(product.price || 0);
+    const vipPrice = Number(vipVal);
+
+    if (
+      vipVal === null ||
+      vipVal === undefined ||
+      !Number.isFinite(vipPrice) ||
+      vipPrice <= 0 ||
+      !Number.isFinite(regularPrice)
+    ) {
+      return 0;
+    }
+
+    return Math.max(0, regularPrice - vipPrice);
+  };
+
+  /*
    * TOTAL DO CARRINHO
    */
   const calculateTotal = () => {
@@ -389,6 +418,29 @@ export function PublicCatalog() {
         total +
         getProductPrice(currentProduct) * item.quantity
       );
+    }, 0);
+  };
+
+  /*
+   * ECONOMIA TOTAL DO CARRINHO
+   * Multiplica a economia unitária pela quantidade de cada item.
+   */
+  const calculateCartSavings = () => {
+    if (!vip || !catalogVisible) return 0;
+
+    const activeProducts =
+      Array.isArray(data?.products) && data.products.length > 0
+        ? data.products
+        : fallbackProductsRef.current;
+
+    return cart.reduce((total, item) => {
+      const currentProduct =
+        activeProducts?.find(
+          (p: any) =>
+            String(p.id) === String(item.product.id)
+        ) || item.product;
+
+      return total + getProductSavings(currentProduct) * item.quantity;
     }, 0);
   };
 
@@ -1089,6 +1141,10 @@ export function PublicCatalog() {
                 vipVal !== null &&
                 Number(vipVal) > 0;
 
+              const productSavings = hasVipPrice
+                ? getProductSavings(p)
+                : 0;
+
               const vip3xVal =
                 p.vip_price_3x !== undefined
                   ? p.vip_price_3x
@@ -1272,13 +1328,39 @@ export function PublicCatalog() {
                               </span>
                             </div>
 
+                            {productSavings > 0 && (
+                              <div
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  marginTop: 6,
+                                  padding: '4px 7px',
+                                  borderRadius: 6,
+                                  background: 'rgba(16,185,129,0.12)',
+                                  border: '1px solid rgba(16,185,129,0.28)',
+                                  color: '#34d399',
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  lineHeight: 1.3
+                                }}
+                              >
+                                <Sparkles size={11} />
+                                Você economiza{' '}
+                                {productSavings.toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                })}
+                              </div>
+                            )}
+
                             {hasVip3xPrice && (
                               <div
                                 style={{
                                   fontSize: 11,
                                   fontWeight: 600,
                                   color: '#A3A39B',
-                                  marginTop: 2
+                                  marginTop: 4
                                 }}
                               >
                                 ou 3x de{' '}
@@ -1923,6 +2005,61 @@ export function PublicCatalog() {
                       </span>
                     )}
                   </div>
+
+                  {vip && catalogVisible && calculateCartSavings() > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        marginTop: 10,
+                        marginBottom: 14,
+                        padding: '11px 12px',
+                        borderRadius: 10,
+                        background: 'rgba(16,185,129,0.10)',
+                        border: '1px solid rgba(16,185,129,0.30)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Sparkles size={17} color="#34d399" />
+                        <div>
+                          <span
+                            style={{
+                              display: 'block',
+                              color: '#A7F3D0',
+                              fontSize: 12,
+                              fontWeight: 700
+                            }}
+                          >
+                            Sua economia VIP
+                          </span>
+                          <span
+                            style={{
+                              display: 'block',
+                              color: '#6ee7b7',
+                              fontSize: 10,
+                              marginTop: 2
+                            }}
+                          >
+                            Desconto total dos produtos no carrinho
+                          </span>
+                        </div>
+                      </div>
+                      <strong
+                        style={{
+                          color: '#34d399',
+                          fontSize: 15,
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {calculateCartSavings().toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL'
+                        })}
+                      </strong>
+                    </div>
+                  )}
 
                   <button
                     onClick={handleCheckoutWhatsApp}

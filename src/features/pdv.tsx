@@ -1396,8 +1396,8 @@ export function PDV({
               alignItems: "start",
             }}
           >
-            <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
-              <h3 style={{ color: text, margin: "0 0 12px", fontSize: 15 }}>Mensagem de WhatsApp após a venda</h3>
+            <div style={{ background: card, border:  `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
+              <h3 style={{ color: "red", margin: "0 0 12px", fontSize: 15 }}>Mensagem de WhatsApp após a venda</h3>
               <textarea
                 value={saleWhatsappMessage}
                 onChange={(e) => handleSaleWhatsappMessageChange(e.target.value)}
@@ -1418,7 +1418,7 @@ export function PDV({
             </div>
 
             <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
-              <h3 style={{ color: text, margin: "0 0 12px", fontSize: 15 }}>Número de Whatsapp</h3>
+              <h3 style={{ color: "red", margin: "0 0 12px", fontSize: 15 }}>Número de Whatsapp</h3>
               <input
                 type="tel"
                 value={saleWhatsappPhone}
@@ -1440,7 +1440,7 @@ export function PDV({
             </div>
 
             <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minWidth: 0 }}>
-              <h3 style={{ color: text, margin: "0 0 8px", fontSize: 15 }}>🔔 Lembretes de cashback</h3>
+              <h3 style={{ color: "red", margin: "0 0 8px", fontSize: 15 }}>🔔 Lembretes de cashback</h3>
               <p style={{ color: subtext, fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
                 Configure se os lembretes automáticos de cashback devem ficar ativos para esta loja.
               </p>

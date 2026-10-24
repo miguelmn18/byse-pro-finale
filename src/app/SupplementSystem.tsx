@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Users,
   Package,
@@ -111,12 +111,13 @@ function SupplementSystem() {
   const [isPublicCatalog, setIsPublicCatalog] = useState(false);
 
   const [products, setProducts] = useState([]);
-
   const [customers, setCustomers] = useState([]);
   const [sellers, setSellers] = useState([]);
   const [sales, setSales] = useState([]);
 
   const [fiados, setFiados] = useState([]);
+  // Impede que uma consulta antiga sobrescreva alterações recentes nos fiados.
+  const fiadosRevision = useRef(0);
   const [adEntries, setAdEntries] = useState([]);
   const [stockLocations, setStockLocations] = useState([
     { id: "loja", name: "Loja física" },
@@ -223,10 +224,12 @@ function SupplementSystem() {
         }
       }
 
+      const fiadosRevisionAtRequest = fiadosRevision.current;
       const resFiados = await fetch(`${API_URL}/fiados`, { headers });
       if (resFiados.ok) {
         const data = await resFiados.json();
-        if (Array.isArray(data)) {
+        // Só aplica o resultado se nenhum fiado tiver sido alterado desde o início da consulta.
+        if (Array.isArray(data) && fiadosRevision.current === fiadosRevisionAtRequest) {
           setFiados([...data]);
           localStorage.setItem(
             getStorageKey("fiados", targetUser),
@@ -290,38 +293,21 @@ function SupplementSystem() {
   }, [user]);
 
   useEffect(() => {
-    const path = window.location.pathname.replace(/\/+$/, "");
+    const path = window.location.pathname;
+    const match = path.match(/^\/catalogo\/([^/]+)$/);
 
-    // Aceita o link público atual e mantém compatibilidade com links antigos.
-    const publicCatalogMatch =
-      path.match(/^\/publicCatalog\/([^/]+)$/i) ||
-      path.match(/^\/catalogo\/([^/]+)$/i);
-
-    if (publicCatalogMatch) {
-      const storeUserId = decodeURIComponent(publicCatalogMatch[1]);
+    if (match) {
+      const storeUserId = match[1];
       setIsPublicCatalog(true);
-      setPublicStoreData(null);
-      setLoading(true);
 
-      fetch(`${API_URL}/public/catalogo/${encodeURIComponent(storeUserId)}`)
-        .then(async (res) => {
-          if (!res.ok) {
-            let message = "Não foi possível carregar o catálogo.";
-            try {
-              const errorData = await res.json();
-              message = errorData?.error || message;
-            } catch (_) {}
-            throw new Error(message);
-          }
-          return res.json();
-        })
+      fetch(`${API_URL}/public/catalogo/${storeUserId}`)
+        .then((res) => res.json())
         .then((data) => {
           setPublicStoreData(data);
           setLoading(false);
         })
         .catch((err) => {
           console.error("Erro ao carregar catálogo público:", err);
-          setPublicStoreData(null);
           setLoading(false);
         });
       return;
@@ -467,353 +453,189 @@ function SupplementSystem() {
     }
   };
 
-  const handleUpdateProducts = async (product) => {
-  try {
-    const token = localStorage.getItem("byse_token");
-
-    if (!token) {
-      throw new Error(
-        "Sessão não encontrada. Faça login novamente."
+  const handleUpdateProducts = async (productData) => {
+    try {
+      const isEditing = Boolean(
+        productData.id && products.some((p) => p.id === productData.id),
       );
-    }
+      const endpoint = isEditing
+        ? `${API_URL}/products/${productData.id}`
+        : `${API_URL}/products`;
+      const method = isEditing ? "PUT" : "POST";
 
-    const API_URL = (
-      import.meta.env.VITE_API_URL ||
-      "http://localhost:3333"
-    ).replace(/\/$/, "");
+      const controlStockVal =
+        productData.controlStock ?? productData.control_stock ?? true;
+      const vipPriceVal =
+        productData.vipPrice !== undefined && productData.vipPrice !== ""
+          ? Number(productData.vipPrice)
+          : productData.vip_price !== undefined && productData.vip_price !== ""
+          ? Number(productData.vip_price)
+          : null;
+      const vipPrice3xVal =
+        productData.vipPrice3x !== undefined && productData.vipPrice3x !== ""
+          ? Number(productData.vipPrice3x)
+          : productData.vip_price_3x !== undefined && productData.vip_price_3x !== ""
+          ? Number(productData.vip_price_3x)
+          : null;
+      const imageUrlVal = productData.imageUrl || productData.image_url || null;
+      const costPriceVal =
+        productData.costPrice !== undefined && productData.costPrice !== ""
+          ? Number(productData.costPrice)
+          : productData.cost_price !== undefined && productData.cost_price !== ""
+          ? Number(productData.cost_price)
+          : null;
 
-    /*
-     * Aceita tanto:
-     * product.name
-     * quanto:
-     * product.nome
-     */
-    const productName = String(
-      product?.name ??
-      product?.nome ??
-      ""
-    ).trim();
+      const payload = {
+        ...productData,
+        controlStock: controlStockVal,
+        control_stock: controlStockVal,
+        vipPrice: vipPriceVal,
+        vip_price: vipPriceVal,
+        vipPrice3x: vipPrice3xVal,
+        vip_price_3x: vipPrice3xVal,
+        imageUrl: imageUrlVal,
+        image_url: imageUrlVal,
+        costPrice: costPriceVal,
+        cost_price: costPriceVal,
+      };
 
-    /*
-     * Aceita também preço em diferentes formatos.
-     */
-    const productPrice = Number(
-      product?.price ??
-      product?.preco ??
-      0
-    );
-
-    if (!productName) {
-      console.error(
-        "[HANDLE UPDATE PRODUCT] Produto recebido:",
-        product
-      );
-
-      throw new Error(
-        "Informe o nome do produto."
-      );
-    }
-
-    if (
-      !Number.isFinite(productPrice) ||
-      productPrice <= 0
-    ) {
-      throw new Error(
-        "Informe um preço de venda válido."
-      );
-    }
-
-    const isEditing = Boolean(
-      product?.id
-    );
-
-    const url = isEditing
-      ? `${API_URL}/api/products/${encodeURIComponent(
-          product.id
-        )}`
-      : `${API_URL}/api/products`;
-
-    /*
-     * Monta o objeto exatamente no formato
-     * esperado pelo backend.
-     */
-    const payload = {
-      ...(isEditing && product.id
-        ? { id: product.id }
-        : {}),
-
-      name: productName,
-
-      category: String(
-        product?.category ??
-        product?.categoria ??
-        "Sem categoria"
-      ).trim(),
-
-      barcode:
-        product?.barcode ??
-        product?.codigoBarras ??
-        null,
-
-      code:
-        product?.code ??
-        product?.codigo ??
-        null,
-
-      cost: Number(
-        product?.cost ??
-        product?.custo ??
-        0
-      ),
-
-      price: productPrice,
-
-      imposto: Number(
-        product?.imposto ?? 0
-      ),
-
-      frete: Number(
-        product?.frete ?? 0
-      ),
-
-      vipPrice:
-        product?.vipPrice !== undefined &&
-        product?.vipPrice !== null &&
-        product?.vipPrice !== ""
-          ? Number(product.vipPrice)
-          : product?.vip_price !== undefined &&
-            product?.vip_price !== null &&
-            product?.vip_price !== ""
-          ? Number(product.vip_price)
-          : null,
-
-      vipPrice3x:
-        product?.vipPrice3x !== undefined &&
-        product?.vipPrice3x !== null &&
-        product?.vipPrice3x !== ""
-          ? Number(product.vipPrice3x)
-          : product?.vip_price_3x !== undefined &&
-            product?.vip_price_3x !== null &&
-            product?.vip_price_3x !== ""
-          ? Number(product.vip_price_3x)
-          : null,
-
-      description:
-        product?.description ??
-        product?.descricao ??
-        "",
-
-      controlStock:
-        product?.controlStock !== undefined
-          ? Boolean(product.controlStock)
-          : product?.control_stock !== undefined
-          ? Boolean(product.control_stock)
-          : true,
-
-      imageUrl:
-        product?.imageUrl ??
-        product?.image_url ??
-        null,
-
-      stocks:
-        product?.stocks &&
-        typeof product.stocks === "object"
-          ? product.stocks
-          : {},
-
-      variations:
-        Array.isArray(product?.variations)
-          ? product.variations
-          : [],
-    };
-
-    console.log(
-      "[HANDLE UPDATE PRODUCT] Enviando produto:",
-      payload
-    );
-
-    const response = await fetch(
-      url,
-      {
-        method: isEditing
-          ? "PUT"
-          : "POST",
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          Authorization:
-            `Bearer ${token}`,
-        },
-
+      const response = await fetch(endpoint, {
+        method,
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error("Falha ao persistir o produto na API.");
       }
-    );
 
-    const data =
-      await response
-        .json()
-        .catch(() => ({}));
+      const savedProduct = await response.json();
 
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-        data?.message ||
-        `Erro ao salvar produto (${response.status}).`
-      );
-    }
+      const normalizedSavedProduct = {
+        ...savedProduct,
+        controlStock:
+          savedProduct.controlStock ?? savedProduct.control_stock ?? true,
+        control_stock:
+          savedProduct.control_stock ?? savedProduct.controlStock ?? true,
+        vipPrice: savedProduct.vipPrice ?? savedProduct.vip_price ?? null,
+        vip_price: savedProduct.vip_price ?? savedProduct.vipPrice ?? null,
+        vipPrice3x: savedProduct.vipPrice3x ?? savedProduct.vip_price_3x ?? null,
+        vip_price_3x: savedProduct.vip_price_3x ?? savedProduct.vipPrice3x ?? null,
+        imageUrl: savedProduct.imageUrl ?? savedProduct.image_url ?? null,
+        image_url: savedProduct.image_url ?? savedProduct.imageUrl ?? null,
+      };
 
-    /*
-     * O backend retorna o produto
-     * efetivamente salvo.
-     */
-    const savedProduct = data;
-
-    if (!savedProduct?.id) {
-      throw new Error(
-        "O servidor não retornou corretamente o produto salvo."
-      );
-    }
-
-    /*
-     * Atualiza o estado React.
-     */
-    setProducts(
-      (previousProducts) => {
-        const current =
-          Array.isArray(
-            previousProducts
-          )
-            ? previousProducts
-            : [];
-
-        const index =
-          current.findIndex(
-            (p) =>
-              String(p.id) ===
-              String(savedProduct.id)
+      setProducts((prevProducts) => {
+        if (isEditing) {
+          return prevProducts.map((p) =>
+            p.id === normalizedSavedProduct.id ? normalizedSavedProduct : p,
           );
-
-        if (index >= 0) {
-          const updated = [
-            ...current,
-          ];
-
-          updated[index] =
-            savedProduct;
-
-          return updated;
         }
+        return [normalizedSavedProduct, ...prevProducts];
+      });
 
-        return [
-          savedProduct,
-          ...current,
-        ];
-      }
-    );
-
-    return savedProduct;
-
-  } catch (error) {
-    console.error(
-      "[HANDLE UPDATE PRODUCT]",
-      error
-    );
-
-    alert(
-      error?.message ||
-      "Não foi possível salvar o produto."
-    );
-
-    throw error;
-  }
-};
-
-
-const handleDeleteProduct = async (productId) => {
-  try {
-    if (!productId) {
-      throw new Error("Produto inválido.");
+      return { success: true, product: normalizedSavedProduct };
+    } catch (error) {
+      console.error("Erro em handleUpdateProducts:", error);
+      return { success: false, error: error.message };
     }
+  };
 
-    const token =
-      localStorage.getItem("byse_token");
-
-    if (!token) {
-      throw new Error(
-        "Sessão não encontrada. Faça login novamente."
-      );
-    }
-
-    const API_URL = (
-      import.meta.env.VITE_API_URL ||
-      "http://localhost:3333"
-    ).replace(/\/$/, "");
-
-    const response = await fetch(
-      `${API_URL}/api/products/${encodeURIComponent(productId)}`,
-      {
+  const handleDeleteProduct = async (productId) => {
+    try {
+      const response = await fetch(`${API_URL}/products/${productId}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
+      });
 
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      if (response.ok) {
+        const updatedProducts = products.filter((p) => p.id !== productId);
+        setProducts(updatedProducts);
+        localStorage.setItem(
+          getStorageKey("products"),
+          JSON.stringify(updatedProducts),
+        );
       }
-    );
+    } catch (err) {
+      console.error("Erro de conexão ao excluir produto:", err);
+    }
+  };
 
-    const data =
-      await response.json().catch(() => ({}));
+  const handleEditProduct = async (updatedProduct) => {
+    try {
+      const response = await fetch(`${API_URL}/products/${updatedProduct.id}`, {
+        method: "PUT",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(updatedProduct),
+      });
 
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-        data?.message ||
-        `Erro ao excluir produto (${response.status}).`
-      );
+      if (response.ok) {
+        const savedData = await response.json();
+        const finalProduct = savedData.id ? savedData : updatedProduct;
+        const updatedProducts = products.map((p) =>
+          p.id === finalProduct.id ? finalProduct : p,
+        );
+        setProducts(updatedProducts);
+        localStorage.setItem(
+          getStorageKey("products"),
+          JSON.stringify(updatedProducts),
+        );
+      } else {
+        await handleUpdateProducts(updatedProduct);
+      }
+    } catch (err) {
+      console.error("Erro ao atualizar produto:", err);
+    }
+  };
+
+  const handleUpdateSellers = async (newSellers) => {
+    const latestSeller =
+      Array.isArray(newSellers) && newSellers.length > 0
+        ? newSellers[newSellers.length - 1]
+        : null;
+
+    setSellers([...newSellers]);
+    localStorage.setItem(getStorageKey("sellers"), JSON.stringify(newSellers));
+
+    if (latestSeller) {
+      try {
+        await fetch(`${API_URL}/sellers`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            id: latestSeller.id || `sel_${Date.now()}`,
+            name: latestSeller.name,
+          }),
+        });
+      } catch (err) {
+        console.error("Erro ao salvar vendedor no banco:", err);
+      }
+    }
+  };
+
+  const handleFiadosStateUpdate = (valueOrUpdater) => {
+    // Esse setter é exclusivo da tela Fiados: atualiza estado e cache local,
+    // sem disparar um POST indevido ao excluir ou marcar uma parcela.
+    fiadosRevision.current += 1;
+
+    if (typeof valueOrUpdater === "function") {
+      setFiados((current) => {
+        const updated = valueOrUpdater(current);
+        const safeUpdated = Array.isArray(updated) ? updated : current;
+        localStorage.setItem(getStorageKey("fiados"), JSON.stringify(safeUpdated));
+        return safeUpdated;
+      });
+      return;
     }
 
-    setProducts((previousProducts) => {
-      const current = Array.isArray(previousProducts)
-        ? previousProducts
-        : [];
-
-      return current.filter(
-        (p) =>
-          String(p.id) !== String(productId)
-      );
-    });
-
-  } catch (error) {
-    console.error(
-      "[HANDLE DELETE PRODUCT]",
-      error
-    );
-
-    alert(
-      error?.message ||
-      "Não foi possível excluir o produto."
-    );
-
-    throw error;
-  }
-};
-
-
-const handleEditProduct = async (updatedProduct) => {
-  /*
-   * Não precisamos fazer outro fetch aqui.
-   *
-   * handleUpdateProducts já sabe diferenciar:
-   * POST = novo produto
-   * PUT  = produto existente
-   */
-  return await handleUpdateProducts(
-    updatedProduct
-  );
-};
+    const safeFiados = Array.isArray(valueOrUpdater) ? valueOrUpdater : [];
+    setFiados([...safeFiados]);
+    localStorage.setItem(getStorageKey("fiados"), JSON.stringify(safeFiados));
+  };
 
   const handleUpdateFiados = async (newFiados) => {
+    if (!Array.isArray(newFiados)) return;
+    fiadosRevision.current += 1;
     const latestFiado =
       Array.isArray(newFiados) && newFiados.length > 0
         ? newFiados[newFiados.length - 1]
@@ -1060,7 +882,7 @@ const handleEditProduct = async (updatedProduct) => {
           setCustomers={handleUpdateCustomers}
           sellers={sellers}
           sales={sales}
-          setSales={setSales}
+          setSales={handleUpdateSales}
           onSaleCompleted={fetchUserData}
           fiados={fiados}
           setFiados={handleUpdateFiados}
@@ -1071,7 +893,7 @@ const handleEditProduct = async (updatedProduct) => {
       return (
         <Vendedores
           sellers={sellers}
-          setSellers={setSellers}
+          setSellers={handleUpdateSellers}
           {...{ sales, card, border, subtext, accent, text }}
         />
       );
@@ -1106,7 +928,8 @@ const handleEditProduct = async (updatedProduct) => {
       return (
         <Fiados
           fiados={fiados}
-          setFiados={handleUpdateFiados}
+          setFiados={handleFiadosStateUpdate}
+          apiUrl={API_URL}
           {...{ customers, card, border, subtext, accent, text }}
         />
       );
