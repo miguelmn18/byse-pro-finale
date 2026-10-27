@@ -1343,7 +1343,7 @@ export function PublicCatalog() {
                                 }}
                               >
                                 ou 3x de{' '}
-                                {(Number(vip3xVal) / 3).toLocaleString(
+                                {(Number(vip3xVal)).toLocaleString(
                                   'pt-BR',
                                   { style: 'currency', currency: 'BRL' }
                                 )}
