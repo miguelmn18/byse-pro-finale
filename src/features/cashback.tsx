@@ -172,14 +172,13 @@ function Cashback({
   const [validityFilterDays, setValidityFilterDays] = useState("30");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
-  const API_URL = (import.meta.env.VITE_API_URL || 
-    "http://localhost:3333").replace(/\/+$/, "").replace(/\/api$/, "");
+  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
   useEffect(() => {
     if (!cashbackValidityDays) {
       setCashbackValidityDays(30);
     }
 
-    fetch(`${API_URL}/api/pdv/config`, {
+    fetch('/api/pdv/config', {
       headers: { 'Authorization': 'Bearer ' + localStorage.getItem('byse_token') }
     })
       .then(res => res.json())
@@ -201,7 +200,7 @@ function Cashback({
   const saveConfigToBackend = async () => {
     setIsSavingConfig(true);
     try {
-      await fetch(`${API_URL}/api/pdv/config`, {
+      await fetch('/api/pdv/config', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -285,18 +284,57 @@ function Cashback({
       .replace(/{vencimento}/g, vencimentoFormatado);
   };
 
-  const handleSendWhatsAppMessage = (c) => {
-    if (!c.phone) {
+  const [sendingWhatsAppId, setSendingWhatsAppId] = useState(null);
+
+  const handleSendWhatsAppMessage = async (c) => {
+    if (!c?.phone) {
       alert("Este cliente não possui telefone cadastrado.");
       return;
     }
-    const telefoneLimpo = c.phone.replace(/\D/g, '');
-    if (telefoneLimpo.length < 10) {
+
+    const telefoneLimpo = String(c.phone).replace(/\D/g, "");
+    if (telefoneLimpo.length < 10 || telefoneLimpo.length > 13) {
       alert("Número de telefone inválido.");
       return;
     }
-    const mensagemPronta = getRenderedMessage(c);
-    window.open(`https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagemPronta)}`, '_blank');
+
+    const token = localStorage.getItem("byse_token");
+    if (!token) {
+      alert("Sua sessão expirou. Entre novamente no sistema.");
+      return;
+    }
+
+    setSendingWhatsAppId(c.id);
+    try {
+      const apiBase = API_URL.replace(/\/api\/?$/, "");
+      const response = await fetch(`${apiBase}/api/whatsapp/send-single`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "x-user-id": (() => {
+            try {
+              const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
+              return user.id || localStorage.getItem("userId") || "user_1";
+            } catch {
+              return localStorage.getItem("userId") || "user_1";
+            }
+          })(),
+        },
+        body: JSON.stringify({ phone: telefoneLimpo, text: getRenderedMessage(c) }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Não foi possível enviar a mensagem pelo WhatsApp.");
+      }
+      alert(data.message || `Mensagem enviada para ${c.name || "o cliente"} pelo WhatsApp.`);
+    } catch (error) {
+      console.error("Erro ao enviar mensagem de cashback pelo WhatsApp:", error);
+      alert(error.message || "Falha ao enviar a mensagem. Verifique se o WhatsApp está conectado no módulo WhatsApp.");
+    } finally {
+      setSendingWhatsAppId(null);
+    }
   };
 
   return (
@@ -580,6 +618,7 @@ function Cashback({
                 <div style={{ textAlign: "right" }}>
                   <button
                     onClick={() => handleSendWhatsAppMessage(c)}
+                    disabled={sendingWhatsAppId === c.id}
                     style={{
                       background: "#25D366",
                       color: "#fff",
@@ -588,14 +627,15 @@ function Cashback({
                       padding: "8px 12px",
                       fontSize: 12,
                       fontWeight: 600,
-                      cursor: "pointer",
+                      cursor: sendingWhatsAppId === c.id ? "wait" : "pointer",
+                      opacity: sendingWhatsAppId === c.id ? 0.7 : 1,
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6
                     }}
                     title="Disparar mensagem no WhatsApp"
                   >
-                    <MessageCircle size={14} /> Enviar
+                    <MessageCircle size={14} /> {sendingWhatsAppId === c.id ? "Enviando..." : "Enviar"}
                   </button>
                 </div>
               </div>

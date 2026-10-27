@@ -928,7 +928,7 @@ function SupplementSystem() {
       return (
         <Fiados
           fiados={fiados}
-          setFiados={handleFiadosStateUpdate}
+          setFiados={setFiados}
           apiUrl={API_URL}
           {...{ customers, card, border, subtext, accent, text }}
         />

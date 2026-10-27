@@ -2327,6 +2327,65 @@ app.post("/api/whatsapp", authMiddleware, async (req, res) => {
   });
 });
 
+
+app.post("/api/whatsapp/send-single", authMiddleware, async (req, res) => {
+  try {
+    const session = await createWhatsAppSession(req.user.id);
+
+    if (session.status !== "connected") {
+      return res.status(409).json({
+        success: false,
+        error: "Conecte o WhatsApp deste usuário no módulo WhatsApp antes de enviar mensagens.",
+      });
+    }
+
+    const rawPhone = String(req.body?.phone || "").trim();
+    const digits = rawPhone.replace(/\D/g, "");
+    const text = String(req.body?.text || "").trim();
+
+    if (digits.length < 10 || digits.length > 13) {
+      return res.status(400).json({
+        success: false,
+        error: "Número de telefone inválido.",
+      });
+    }
+
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        error: "A mensagem não pode estar vazia.",
+      });
+    }
+
+    let phone = digits;
+
+    if (phone.startsWith("00")) phone = phone.slice(2);
+
+    if (phone.length <= 11) {
+      phone = `55${phone}`;
+    } else if (!phone.startsWith("55")) {
+      return res.status(400).json({
+        success: false,
+        error: "Use um número brasileiro com DDD e código do país válido.",
+      });
+    }
+
+    await session.sock.sendMessage(`${phone}@s.whatsapp.net`, { text });
+
+    return res.json({
+      success: true,
+      message: "Mensagem enviada pelo WhatsApp.",
+    });
+  } catch (error) {
+    console.error("[WA SEND SINGLE]", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Não foi possível enviar a mensagem. Verifique a conexão do WhatsApp e tente novamente.",
+    });
+  }
+});
+
 app.post("/api/whatsapp/send-batch", authMiddleware, async (req, res) => {
   const s = await createWhatsAppSession(req.user.id);
 

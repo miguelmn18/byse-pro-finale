@@ -58,6 +58,11 @@ export function PublicCatalog() {
           ? Boolean(data.visibility)
           : true;
 
+  // A senha VIP libera a visualização dos preços mesmo quando o lojista
+  // configurou o catálogo público como restrito no Catalogo.tsx.
+  // catalogVisible continua preservado como configuração original da loja.
+  const pricesVisible = catalogVisible || vip;
+
   /*
    * CARREGAMENTO DO CATÁLOGO
    */
@@ -426,7 +431,7 @@ export function PublicCatalog() {
    * Multiplica a economia unitária pela quantidade de cada item.
    */
   const calculateCartSavings = () => {
-    if (!vip || !catalogVisible) return 0;
+    if (!vip) return 0;
 
     const activeProducts =
       Array.isArray(data?.products) && data.products.length > 0
@@ -533,12 +538,12 @@ export function PublicCatalog() {
         ? `${currentProduct.name} — Sabor: ${item.flavor}`
         : currentProduct.name;
 
-      message += catalogVisible
+      message += pricesVisible
         ? `• ${item.quantity}x ${productName} - R$ ${(price * item.quantity).toFixed(2)}\n`
         : `• ${item.quantity}x ${productName}\n`;
     });
 
-    if (catalogVisible) {
+    if (pricesVisible) {
       message += `\n*Total:* R$ ${calculateTotal().toFixed(2)}`;
     } else {
       message += '\n*Valores:* sob consulta';
@@ -835,7 +840,7 @@ export function PublicCatalog() {
                 fontSize: 13
               }}
             >
-              {catalogVisible
+              {pricesVisible
                 ? 'Confira nossos produtos disponíveis em estoque'
                 : 'Confira nossos produtos — valores sob consulta'}
             </p>
@@ -1135,7 +1140,7 @@ export function PublicCatalog() {
                   : p.vipPrice;
 
               const hasVipPrice =
-                catalogVisible &&
+                pricesVisible &&
                 vip &&
                 vipVal !== undefined &&
                 vipVal !== null &&
@@ -1151,7 +1156,7 @@ export function PublicCatalog() {
                   : p.vipPrice3x;
 
               const hasVip3xPrice =
-                catalogVisible &&
+                pricesVisible &&
                 vip &&
                 vip3xVal !== undefined &&
                 vip3xVal !== null &&
@@ -1285,7 +1290,7 @@ export function PublicCatalog() {
                     }}
                   >
                     <div>
-                      {catalogVisible ? (
+                      {pricesVisible ? (
                         hasVipPrice ? (
                           <div>
                             <span
@@ -1328,32 +1333,6 @@ export function PublicCatalog() {
                               </span>
                             </div>
 
-                            {productSavings > 0 && (
-                              <div
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  marginTop: 6,
-                                  padding: '4px 7px',
-                                  borderRadius: 6,
-                                  background: 'rgba(16,185,129,0.12)',
-                                  border: '1px solid rgba(16,185,129,0.28)',
-                                  color: '#34d399',
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  lineHeight: 1.3
-                                }}
-                              >
-                                <Sparkles size={11} />
-                                Você economiza{' '}
-                                {productSavings.toLocaleString('pt-BR', {
-                                  style: 'currency',
-                                  currency: 'BRL'
-                                })}
-                              </div>
-                            )}
-
                             {hasVip3xPrice && (
                               <div
                                 style={{
@@ -1370,7 +1349,35 @@ export function PublicCatalog() {
                                 )}
                               </div>
                             )}
+
+                            {productSavings > 0 && (
+                              <div
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  marginTop: 6,
+                                  padding: '4px 7px',
+                                  borderRadius: 6,
+                                  background: 'rgba(16,185,129,0.12)',
+                                  border: '1px solid rgba(16,185,129,0.28)',
+                                  color: '#34d399',
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  lineHeight: 1.3
+                                }}
+                              >
+                                <Sparkles size={11} />
+                                Parabéns! Você economizou{' '}
+                                {productSavings.toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                })}
+                              </div>
+                            )}
                           </div>
+
+                          
                         ) : (
                           <div
                             className="catalog-product-price"
@@ -1380,6 +1387,7 @@ export function PublicCatalog() {
                               color: '#F0EFE9'
                             }}
                           >
+                            
                             {Number(p.price || 0).toLocaleString(
                               'pt-BR',
                               { style: 'currency', currency: 'BRL' }
@@ -1398,6 +1406,8 @@ export function PublicCatalog() {
                         </span>
                       )}
                     </div>
+
+                    
 
                     <button
                       className="catalog-product-action"
@@ -1427,6 +1437,8 @@ export function PublicCatalog() {
             })}
           </div>
         )}
+
+        
 
         {/* MODAL DE SELEÇÃO DE SABORES */}
         {selectedFlavorProduct && (
@@ -1980,7 +1992,7 @@ export function PublicCatalog() {
                       Total:
                     </span>
 
-                    {catalogVisible ? (
+                    {pricesVisible ? (
                       <span
                         style={{
                           fontSize: 17,
@@ -2006,7 +2018,7 @@ export function PublicCatalog() {
                     )}
                   </div>
 
-                  {vip && catalogVisible && calculateCartSavings() > 0 && (
+                  {vip && pricesVisible && calculateCartSavings() > 0 && (
                     <div
                       style={{
                         display: 'flex',
