@@ -381,38 +381,28 @@ function Clientes({
       {showForm && (
         <div
           style={{
-            width:"100%",
+            width: "100%",
+            boxSizing: "border-box",
             background: card,
             border: `1px solid ${border}`,
             borderRadius: 12,
             padding: 16,
             marginBottom: 16,
             display: "flex",
-            gap: 10,
-            flexWrap: "wrap",
+            flexDirection: "column",
+            gap: 14,
+            
           }}
         >
-          <input
-            placeholder="Nome"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            style={{
-              ...inputStyle(border, text),
-              flex: "0 0 180px",
-              height: "100%",
-              minWidth: "0",
-              boxSizing: "border-box",
-              marginTop:"23px"
-            }}
-          />
-          {/* Telefone dividido em +55, DDD e número */}
+          {/* Nome do cliente */}
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 5,
-              flex: "1 1 300px",
-              minWidth: 250,
+              
+              gap: 6,  
+            
+              height:"100%",
+              width: "100%",
+              
             }}
           >
             <label
@@ -420,7 +410,38 @@ function Clientes({
                 fontSize: 13,
                 color: subtext,
                 fontWeight: 600,
-                margin: " 0 auto",
+              }}
+            >
+              Nome do cliente
+            </label>
+
+            <input
+              type="text"
+              placeholder="Digite o nome do cliente"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              style={{
+                ...inputStyle(border, text),
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {/* WhatsApp do cliente */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              width: "100%",
+            }}
+          >
+            <label
+              style={{
+                fontSize: 13,
+                color: subtext,
+                fontWeight: 600,
               }}
             >
               WhatsApp do cliente
@@ -430,7 +451,8 @@ function Clientes({
               style={{
                 display: "flex",
                 alignItems: "stretch",
-                gap: 6,
+                gap: 8,
+                width: "100%",
               }}
             >
               {/* Código do país fixo */}
@@ -451,7 +473,7 @@ function Clientes({
                 +55
               </div>
 
-              {/* DDD: exatamente 2 dígitos */}
+              {/* DDD */}
               <input
                 type="text"
                 inputMode="numeric"
@@ -466,18 +488,18 @@ function Clientes({
                 }}
                 style={{
                   ...inputStyle(border, text),
-                  width: 70,
-                  minWidth: 70,
+                  width: 75,
+                  minWidth: 65,
                   boxSizing: "border-box",
                   textAlign: "center",
                 }}
               />
 
-              {/* Número: aceita apenas 8 dígitos */}
+              {/* Número do WhatsApp */}
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="8 números"
+                placeholder="Número com 8 dígitos"
                 aria-label="Número do WhatsApp do cliente"
                 value={form.phoneNumber}
                 maxLength={8}
@@ -500,7 +522,7 @@ function Clientes({
                 style={{
                   ...inputStyle(phoneError ? "#DC2626" : border, text),
                   flex: 1,
-                  minWidth: 100,
+                  minWidth: 0,
                   boxSizing: "border-box",
                   border: `1px solid ${phoneError ? "#DC2626" : border}`,
                   outline: "none",
@@ -530,22 +552,42 @@ function Clientes({
                 fontSize: 11,
               }}
             >
-              Exemplo: +55 · 83 · 8170-9857
+              Exemplo: +55 · 83 · 81709857
             </span>
           </div>
 
-          <input
-            placeholder="CPF"
-            value={form.cpf}
-            onChange={(e) => setForm({ ...form, cpf: e.target.value })}
+          {/* CPF */}
+          <div
             style={{
-              ...inputStyle(border, text),
-              height:"100%",
-              flex: "1 1 50px",
-              marginTop:"23px"
+              
+              gap: 6,
+              width: "100%",
             }}
-          />
+          >
+            <label
+              style={{
+                fontSize: 13,
+                color: subtext,
+                fontWeight: 600,
+              }}
+            >
+              CPF
+            </label>
 
+            <input
+              type="text"
+              placeholder="Digite o CPF (opcional)"
+              value={form.cpf}
+              onChange={(e) => setForm({ ...form, cpf: e.target.value })}
+              style={{
+                ...inputStyle(border, text),
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {/* Botão salvar */}
           <button
             onClick={addCustomer}
             disabled={
@@ -558,7 +600,9 @@ function Clientes({
               color: "#fff",
               border: "none",
               borderRadius: 8,
-              padding: "8px 16px",
+              padding: "11px 16px",
+              width: "100%",
+              boxSizing: "border-box",
               fontSize: 13,
               fontWeight: 600,
               cursor: "pointer",
@@ -570,7 +614,7 @@ function Clientes({
                   : 1,
             }}
           >
-            Salvar
+            Salvar cliente
           </button>
         </div>
       )}
