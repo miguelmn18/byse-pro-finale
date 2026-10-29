@@ -111,10 +111,17 @@ import {
   VipWelcome
 } from "../components/common";
 
-const API_URL = (
+// Normaliza a URL para funcionar tanto com VITE_API_URL terminando em /api
+// quanto com a URL-base do backend sem /api. Evita gerar /fiados sem o prefixo /api.
+const API_BASE_URL = (
   import.meta.env.VITE_API_URL ||
   "http://localhost:3333/api"
-).replace(/\/+$/, "");
+)
+  .trim()
+  .replace(/\/+$/, "")
+  .replace(/\/api$/i, "");
+
+const FIADOS_API_URL = `${API_BASE_URL}/api/fiados`;
 
 function Fiados({
   fiados,
@@ -192,7 +199,7 @@ function Fiados({
     setSaving(true);
 
     try {
-      const response = await fetch(`${API_URL}/fiados`, {
+      const response = await fetch(FIADOS_API_URL, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify(item)
@@ -227,11 +234,16 @@ function Fiados({
     const target = updated.find(f => f.id === id);
     if (target) {
       try {
-        await fetch(`${API_URL}/fiados`, {
+        const response = await fetch(FIADOS_API_URL, {
           method: "POST",
           headers: getAuthHeaders(),
           body: JSON.stringify(target)
         });
+
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          throw new Error(detail || `Falha ao atualizar fiado (${response.status})`);
+        }
       } catch (err) {
         console.error("Erro ao atualizar status do fiado:", err);
       }
@@ -247,7 +259,7 @@ const deleteFiado = async (id) => {
   const previousFiados = [...fiados];
 
   try {
-    const response = await fetch(`${API_URL}/fiados/${id}`, {
+    const response = await fetch(`${FIADOS_API_URL}/${encodeURIComponent(String(id))}`, {
       method: "DELETE",
       headers: getAuthHeaders()
     });
@@ -278,19 +290,40 @@ const deleteFiado = async (id) => {
 };
 
   const clearAllFiados = async () => {
-    if (confirm("Tem certeza que deseja excluir TODOS os fiados? Esta ação não pode ser desfeita.")) {
-      const itemsToDelete = [...fiados];
-      setFiados([]);
-      for (const f of itemsToDelete) {
-        try {
-          await fetch(`${API_URL}/fiados/${f.id}`, {
+    if (!confirm("Tem certeza que deseja excluir TODOS os fiados? Esta ação não pode ser desfeita.")) {
+      return;
+    }
+
+    const itemsToDelete = [...fiados];
+    const failedItems = [];
+    setFiados([]);
+
+    for (const f of itemsToDelete) {
+      try {
+        const response = await fetch(
+          `${FIADOS_API_URL}/${encodeURIComponent(String(f.id))}`,
+          {
             method: "DELETE",
             headers: getAuthHeaders()
-          });
-        } catch (err) {
-          console.error(`Erro ao excluir fiado ${f.id}:`, err);
+          }
+        );
+
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          throw new Error(detail || `Falha ao excluir fiado (${response.status})`);
         }
+      } catch (err) {
+        console.error(`Erro ao excluir fiado ${f.id}:`, err);
+        failedItems.push(f);
       }
+    }
+
+    if (failedItems.length > 0) {
+      setFiados(failedItems);
+      alert(
+        `${failedItems.length} fiado(s) não puderam ser excluídos do servidor. ` +
+        "Eles foram mantidos na tela para você tentar novamente."
+      );
     }
   };
 
