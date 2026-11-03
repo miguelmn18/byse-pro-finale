@@ -2,7 +2,7 @@
  // @ts-nocheck
 
 import React, { useEffect, useState, useRef } from 'react';
-import vipAnimation from '../Animation_for_VIP.MP4';
+import vipAnimation from '../Animation_for_VIP.mp4';
 
 import {
   Lock,
