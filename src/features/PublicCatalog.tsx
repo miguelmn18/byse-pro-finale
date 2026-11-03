@@ -2,6 +2,7 @@
  // @ts-nocheck
 
 import React, { useEffect, useState, useRef } from 'react';
+import vipAnimation from '../Animation_for_VIP.MP4';
 
 import {
   Lock,
@@ -219,7 +220,6 @@ export function PublicCatalog() {
       });
 
       setShowIntro(true);
-      window.setTimeout(() => setShowIntro(false), 4000);
     } catch (e) {
       alert('Erro ao validar senha VIP.');
     }
@@ -653,131 +653,35 @@ export function PublicCatalog() {
         position: 'relative'
       }}
     >
-      {/* INTRODUÇÃO VIP */}
+      {/* INTRODUÇÃO VIP COM VÍDEO */}
       {showIntro && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            background: '#0c0c0c',
-            zIndex: 9999,
+            width: '100%',
+            height: '100dvh',
+            background: '#000',
+            zIndex: 99999,
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            animation: 'fadeOutContainer 0.8s ease 3.2s forwards'
+            overflow: 'hidden'
           }}
         >
-          <style>{`
-            @keyframes fadeOutContainer {
-              to { opacity: 0; visibility: hidden; }
-            }
-
-            @keyframes seqStep {
-              0% { opacity: 0; transform: translateY(15px); }
-              20% { opacity: 1; transform: translateY(0); }
-              80% { opacity: 1; transform: translateY(0); }
-              100% { opacity: 0; transform: translateY(-15px); }
-            }
-
-            .intro-step-1 {
-              animation: seqStep 1.2s ease forwards;
-            }
-
-            .intro-step-2 {
-              opacity: 0;
-              animation: seqStep 1.2s ease 1.1s forwards;
-            }
-
-            .intro-step-3 {
-              opacity: 0;
-              animation: seqStep 1.2s ease 2.2s forwards;
-            }
-          `}</style>
-
-          <div
+          <video
+            src={vipAnimation}
+            autoPlay
+            muted
+            playsInline
+            onEnded={() => setShowIntro(false)}
+            onError={() => setShowIntro(false)}
             style={{
-              textAlign: 'center',
-              padding: 20,
-              minHeight: 150,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center'
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain'
             }}
-          >
-            <div
-              className="intro-step-1"
-              style={{ position: 'absolute' }}
-            >
-              <div
-                style={{
-                  width: 50,
-                  height: 50,
-                  background: 'rgba(220, 38, 38, 0.1)',
-                  borderRadius: 14,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 12px auto',
-                  border: '1px solid rgba(220, 38, 38, 0.3)'
-                }}
-              >
-                <Sparkles size={24} color="#DC2626" />
-              </div>
-
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 800,
-                  letterSpacing: '3px',
-                  textTransform: 'uppercase',
-                  color: '#DC2626',
-                  background: 'rgba(220, 38, 38, 0.1)',
-                  padding: '6px 14px',
-                  borderRadius: 20,
-                  border: '1px solid rgba(220, 38, 38, 0.2)'
-                }}
-              >
-                Área VIP
-              </span>
-            </div>
-
-            <div
-              className="intro-step-2"
-              style={{ position: 'absolute' }}
-            >
-              <h1
-                style={{
-                  fontSize: 32,
-                  fontWeight: 800,
-                  color: '#F0EFE9',
-                  margin: 0,
-                  letterSpacing: '-0.5px'
-                }}
-              >
-                Sejam Bem-Vindos
-              </h1>
-            </div>
-
-            <div
-              className="intro-step-3"
-              style={{ position: 'absolute' }}
-            >
-              <h2
-                style={{
-                  fontSize: 28,
-                  fontWeight: 800,
-                  color: '#DC2626',
-                  margin: 0,
-                  letterSpacing: '2px',
-                  textTransform: 'uppercase'
-                }}
-              >
-                BYSE PRO
-              </h2>
-            </div>
-          </div>
+          />
         </div>
       )}
 
@@ -1333,23 +1237,6 @@ export function PublicCatalog() {
                               </span>
                             </div>
 
-                            {hasVip3xPrice && (
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  color: '#A3A39B',
-                                  marginTop: 4
-                                }}
-                              >
-                                ou 3x de{' '}
-                                {(Number(vip3xVal)).toLocaleString(
-                                  'pt-BR',
-                                  { style: 'currency', currency: 'BRL' }
-                                )}
-                              </div>
-                            )}
-
                             {productSavings > 0 && (
                               <div
                                 style={{
@@ -1362,22 +1249,37 @@ export function PublicCatalog() {
                                   background: 'rgba(16,185,129,0.12)',
                                   border: '1px solid rgba(16,185,129,0.28)',
                                   color: '#34d399',
-                                  fontSize: 9,
+                                  fontSize: 10,
                                   fontWeight: 700,
                                   lineHeight: 1.3
                                 }}
                               >
                                 <Sparkles size={11} />
-                                Parabéns! Você economizou{' '}
+                                Você economiza{' '}
                                 {productSavings.toLocaleString('pt-BR', {
                                   style: 'currency',
                                   currency: 'BRL'
                                 })}
                               </div>
                             )}
-                          </div>
 
-                          
+                            {hasVip3xPrice && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: '#A3A39B',
+                                  marginTop: 4
+                                }}
+                              >
+                                ou 3x de{' '}
+                                {(Number(vip3xVal) / 3).toLocaleString(
+                                  'pt-BR',
+                                  { style: 'currency', currency: 'BRL' }
+                                )}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div
                             className="catalog-product-price"
@@ -1387,7 +1289,6 @@ export function PublicCatalog() {
                               color: '#F0EFE9'
                             }}
                           >
-                            
                             {Number(p.price || 0).toLocaleString(
                               'pt-BR',
                               { style: 'currency', currency: 'BRL' }
@@ -1406,8 +1307,6 @@ export function PublicCatalog() {
                         </span>
                       )}
                     </div>
-
-                    
 
                     <button
                       className="catalog-product-action"
@@ -1437,8 +1336,6 @@ export function PublicCatalog() {
             })}
           </div>
         )}
-
-        
 
         {/* MODAL DE SELEÇÃO DE SABORES */}
         {selectedFlavorProduct && (

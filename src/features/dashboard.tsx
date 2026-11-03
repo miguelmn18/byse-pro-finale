@@ -138,6 +138,10 @@ export function Dashboard({
   // Estado local sincronizado diretamente com o banco de dados via props
   const [localSales, setLocalSales] = useState(sales);
 
+  // Controla a expansão dos rankings de produtos e clientes
+  const [showAllTopItems, setShowAllTopItems] = useState(false);
+  const [showAllTopCustomers, setShowAllTopCustomers] = useState(false);
+
   useEffect(() => {
     // Atualiza o estado refletindo exatamente o que veio do banco/API
     const currentSales = Array.isArray(sales) ? sales : [];
@@ -170,6 +174,8 @@ export function Dashboard({
   const setPeriod = (s, e) => {
     setPeriodStart(s);
     setPeriodEnd(e);
+    setShowAllTopItems(false);
+    setShowAllTopCustomers(false);
   };
 
   // Funções de atalho para os filtros de período solicitado
@@ -187,7 +193,7 @@ export function Dashboard({
     const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Início na segunda-feira
     start.setDate(diff);
     start.setHours(0, 0, 0, 0);
-    
+
     const end = new Date();
     end.setHours(23, 59, 59, 999);
     setPeriod(start, end);
@@ -211,22 +217,22 @@ export function Dashboard({
 
     const startCopy = new Date(periodStart);
     startCopy.setHours(0, 0, 0, 0);
-    
+
     const endCopy = new Date(periodEnd);
     endCopy.setHours(23, 59, 59, 999);
 
     return saleDate >= startCopy && saleDate <= endCopy;
   });
-  
+
   // Venda Total = Soma exata das vendas filtradas no período
   const totalVendido = periodSales.reduce((s, v) => s + Number(v.total || 0), 0);
-  
+
   const custoTotal = periodSales.reduce(
     (s, v) =>
       s + (v.items && Array.isArray(v.items) ? v.items.reduce((a, it) => a + (Number(it.cost || 0) * Number(it.qty || it.quantity || 1)), 0) : 0),
     0
   );
-  
+
   const lucroBruto = totalVendido - custoTotal;
   const numVendas = periodSales.length;
 
@@ -244,13 +250,13 @@ export function Dashboard({
         : s,
     0
   );
-  
+
   const stockCost = products.reduce((s, p) => {
     if (p.controlStock === false) return s;
     const q = Object.values(p.stocks || {}).reduce((a, b) => a + Number(b || 0), 0);
     return s + q * Number(p.cost || 0);
   }, 0);
-  
+
   const stockValue = products.reduce((s, p) => {
     if (p.controlStock === false) return s;
     const q = Object.values(p.stocks || {}).reduce((a, b) => a + Number(b || 0), 0);
@@ -267,16 +273,25 @@ export function Dashboard({
       });
     }
   });
-  
+
+  // Ranking de produtos: até 30, ordenados do mais vendido para o menos vendido
   const topItems = Object.entries(itemCount)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+    .slice(0, 30);
 
   const periodCustomers = {};
   periodSales.forEach((s) => {
     const label = s.customer_name || s.customerName || (customers.find((c) => c.id === s.customerId || c.id === s.customer_id)?.name) || "Venda Balcão";
     periodCustomers[label] = (periodCustomers[label] || 0) + Number(s.total || 0);
   });
+
+  // Ranking de clientes: até 30, ordenados pelo maior valor comprado no período
+  const topCustomers = Object.entries(periodCustomers)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30);
+
+  const visibleTopItems = showAllTopItems ? topItems : topItems.slice(0, 5);
+  const visibleTopCustomers = showAllTopCustomers ? topCustomers : topCustomers.slice(0, 5);
 
   const byHour = Array(HOUR_SLOTS.length).fill(0);
   const byDow = Array(7).fill(0);
@@ -574,28 +589,88 @@ export function Dashboard({
           }}
         >
           <SLabel subtext={subtext}>Itens mais vendidos no período</SLabel>
+
           {topItems.length === 0 && (
             <div style={{ fontSize: 12.5, color: subtext }}>
               Nenhuma venda nesse período.
             </div>
           )}
-          {topItems.map(([name, qty], i) => (
+
+          {visibleTopItems.map(([name, qty], i) => (
             <div
               key={name}
               style={{
                 display: "flex",
+                alignItems: "center",
                 justifyContent: "space-between",
+                gap: 10,
                 padding: "7px 0",
                 borderBottom:
-                  i < topItems.length - 1 ? `1px solid ${border}` : "none"
+                  i < visibleTopItems.length - 1
+                    ? `1px solid ${border}`
+                    : "none"
               }}
             >
-              <span style={{ fontSize: 13 }}>{name}</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: accent }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                <span
+                  style={{
+                    minWidth: 25,
+                    height: 25,
+                    borderRadius: 7,
+                    background: i < 3 ? `${accent}20` : "transparent",
+                    border: `1px solid ${i < 3 ? accent : border}`,
+                    color: i < 3 ? accent : subtext,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11,
+                    fontWeight: 800
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  style={{
+                    fontSize: 13,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}
+                  title={name}
+                >
+                  {name}
+                </span>
+              </div>
+
+              <span style={{ fontSize: 13, fontWeight: 700, color: accent, whiteSpace: "nowrap" }}>
                 {qty} un.
               </span>
             </div>
           ))}
+
+          {topItems.length > 5 && (
+            <button
+              type="button"
+              onClick={() => setShowAllTopItems((prev) => !prev)}
+              style={{
+                width: "100%",
+                marginTop: 12,
+                padding: "10px",
+                borderRadius: 8,
+                border: `1px solid ${border}`,
+                background: "transparent",
+                color: accent,
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer"
+              }}
+            >
+              {showAllTopItems
+                ? "Ver menos"
+                : `Ver mais (${topItems.length - 5} produtos)`}
+            </button>
+          )}
         </div>
 
         <div
@@ -609,29 +684,88 @@ export function Dashboard({
           }}
         >
           <SLabel subtext={subtext}>Clientes que compraram no período</SLabel>
-          {Object.keys(periodCustomers).length === 0 && (
+
+          {topCustomers.length === 0 && (
             <div style={{ fontSize: 12.5, color: subtext }}>
               Só vendas de balcão sem cadastro nesse período.
             </div>
           )}
-          {Object.entries(periodCustomers)
-            .sort((a, b) => b[1] - a[1])
-            .map(([name, val]) => (
-              <div
-                key={name}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "7px 0",
-                  borderBottom: `1px solid ${border}`
-                }}
-              >
-                <span style={{ fontSize: 13 }}>{name}</span>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>
-                  {money(val)}
+
+          {visibleTopCustomers.map(([name, val], i) => (
+            <div
+              key={name}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                padding: "7px 0",
+                borderBottom:
+                  i < visibleTopCustomers.length - 1
+                    ? `1px solid ${border}`
+                    : "none"
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                <span
+                  style={{
+                    minWidth: 25,
+                    height: 25,
+                    borderRadius: 7,
+                    background: i < 3 ? `${accent}20` : "transparent",
+                    border: `1px solid ${i < 3 ? accent : border}`,
+                    color: i < 3 ? accent : subtext,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11,
+                    fontWeight: 800
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  style={{
+                    fontSize: 13,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}
+                  title={name}
+                >
+                  {name}
                 </span>
               </div>
-            ))}
+
+              <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>
+                {money(val)}
+              </span>
+            </div>
+          ))}
+
+          {topCustomers.length > 5 && (
+            <button
+              type="button"
+              onClick={() => setShowAllTopCustomers((prev) => !prev)}
+              style={{
+                width: "100%",
+                marginTop: 12,
+                padding: "10px",
+                borderRadius: 8,
+                border: `1px solid ${border}`,
+                background: "transparent",
+                color: accent,
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer"
+              }}
+            >
+              {showAllTopCustomers
+                ? "Ver menos"
+                : `Ver mais (${topCustomers.length - 5} clientes)`}
+            </button>
+          )}
         </div>
       </div>
     </div>

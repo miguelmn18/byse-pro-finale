@@ -172,50 +172,79 @@ function Cashback({
   const [validityFilterDays, setValidityFilterDays] = useState("30");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
-  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333").replace(/\/+$/, "");
+  // Usa a URL real do backend (Railway em produção), nunca uma rota relativa da Vercel.
+  const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3333")
+    .replace(/\/+$/, "")
+    .replace(/\/api$/i, "");
+
   useEffect(() => {
-    if (!cashbackValidityDays) {
-      setCashbackValidityDays(30);
-    }
+    if (!cashbackValidityDays) setCashbackValidityDays(30);
 
-    fetch('/api/pdv/config', {
-      headers: { 'Authorization': 'Bearer ' + localStorage.getItem('byse_token') }
-    })
-      .then(res => res.json())
-      .then(data => {
-        // Tratamento adequado caso o valor retorne nulo ou indefinido, garantindo o fallback correto
-        const fetchedPct = data.cashbackPercentage !== undefined && data.cashbackPercentage !== null ? Number(data.cashbackPercentage) : 0;
-        setCashbackPct(fetchedPct);
+    const loadCashbackConfig = async () => {
+      try {
+        const token = localStorage.getItem("byse_token");
+        if (!token) throw new Error("Sessão não encontrada. Faça login novamente.");
 
-        const fetchedValidity = data.cashbackValidityDays !== undefined && data.cashbackValidityDays !== null ? Number(data.cashbackValidityDays) : 30;
-        setCashbackValidityDays(fetchedValidity);
-
-        if (data.cashbackMessage) {
-          setCashbackMessage(data.cashbackMessage);
+        const response = await fetch(`${API_URL}/api/pdv/config`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar configurações (${response.status}).`);
         }
-      })
-      .catch(err => console.error("Erro ao carregar config de cashback", err));
+
+        const data = await response.json();
+        setCashbackPct(Number(data.cashbackPercentage ?? 0));
+        setCashbackValidityDays(Number(data.cashbackValidityDays ?? 30));
+        if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
+      } catch (err) {
+        console.error("Erro ao carregar config de cashback:", err);
+      }
+    };
+
+    loadCashbackConfig();
   }, []);
 
   const saveConfigToBackend = async () => {
     setIsSavingConfig(true);
     try {
-      await fetch('/api/pdv/config', {
-        method: 'PUT',
+      const token = localStorage.getItem("byse_token");
+      if (!token) throw new Error("Sua sessão expirou. Entre novamente no sistema.");
+
+      const config = {
+        cashbackPercentage: Number(cashbackPct) || 0,
+        cashbackValidityDays: Number(cashbackValidityDays) || 30,
+        cashbackMessage,
+      };
+
+      const response = await fetch(`${API_URL}/api/pdv/config`, {
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + localStorage.getItem('byse_token')
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          cashbackPercentage: Number(cashbackPct) || 0,
-          cashbackValidityDays: cashbackValidityDays || 30,
-          cashbackMessage
-        })
+        body: JSON.stringify(config),
       });
-      alert('Configurações de cashback, percentual e mensagem salvas com sucesso!');
+
+      const responseData = await response.json().catch(() => ({}));
+
+      if (!response.ok || responseData.success === false) {
+        throw new Error(
+          responseData.error ||
+          responseData.message ||
+          `Falha ao salvar configurações (${response.status}).`
+        );
+      }
+
+      // Atualiza o PDV imediatamente caso ele continue montado na mesma aba.
+      window.dispatchEvent(new CustomEvent("byse:cashback-config-updated", {
+        detail: config,
+      }));
+
+      alert("Configurações de cashback, percentual e mensagem salvas com sucesso!");
     } catch (err) {
-      console.error('Erro ao salvar configurações', err);
-      alert('Erro ao salvar configurações.');
+      console.error("Erro ao salvar configurações:", err);
+      alert(err.message || "Erro ao salvar configurações.");
     } finally {
       setIsSavingConfig(false);
     }
