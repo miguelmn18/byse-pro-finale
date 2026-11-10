@@ -10,12 +10,12 @@ const nextMonth = () => { const d=new Date(); d.setMonth(d.getMonth()+1); return
 const calculateDaysCounter = (createdAt: any) => {
   const start = createdAt ? new Date(createdAt) : new Date();
   if (isNaN(start.getTime())) return 0;
-  
+
   // Define o vencimento para o dia 01 do mês seguinte ao registro ou data atual
   const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
   const now = new Date();
   now.setHours(0,0,0,0);
-  
+
   const diffTime = end.getTime() - now.getTime();
   return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 };
@@ -207,7 +207,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
      alert('Não foi possível salvar o produto.');
    }
  };
- 
+
  const registerConsumption=async(e:any)=>{
    e.preventDefault();
    if(!consumo.productId)return alert('Selecione um produto.');
@@ -215,9 +215,9 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
    if(selectedProduct&&Number(selectedProduct.stock||0)<=0)return alert('Produto sem estoque.');
    const foundCustomer = customers.find((c:any)=>c.id===consumo.customerId);
    const type=foundCustomer?.tipo==='mensal'&&foundCustomer?.statusMensalidade==='Pago'?'mensal':consumo.type;
-   
+
    const resolvedValue = type === 'mensal' ? 0 : Number(consumo.value || selectedProduct?.price || 0);
-   
+
    const nowTime = new Date();
    const timeString = nowTime.toTimeString().slice(0, 5);
 
@@ -264,7 +264,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
      alert('Não foi possível registrar o consumo.');
    }
  };
- 
+
  const deleteRecord=async(id:string)=>{
    if(!confirm('Excluir este consumo?'))return;
    try {
@@ -284,7 +284,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
      console.error('[DELETE PRODUCT ERROR]', e);
    }
  };
- 
+
  const deleteCustomer=async(id:string)=>{
    if(!confirm('Excluir este cliente?'))return;
    try {
@@ -358,14 +358,14 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
              <b>Clientes mensais ativos</b>
              <div style={{fontSize:28,fontWeight:900,color:accent}}>{activeMonthly}</div>
            </div>
-           
+
            {(() => {
              const avulsoRecords = registros.filter((r: any) => (r.type || r.tipo_consumo) === 'avulso');
              const avulsoTotalConsumption = avulsoRecords.reduce((s: number, r: any) => {
                const pMatch = products.find((p:any)=>p.id === r.productId || p.id === r.produto_id);
                return s + Number(r.value || r.valor || pMatch?.price || 0);
              }, 0);
-             
+
              return (
                <div style={{background:card,border:`1px solid ${border}`,borderRadius:14,padding:18}}>
                  <b>Consumo registrado (Avulso)</b>
@@ -425,7 +425,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                    {displayedList.map((c:any)=>{
                      const isExpanded = expandedCustomerId === c.id;
                      const clientRecords = registros.filter((r:any) => r.customerId === c.id || r.customerName === c.name);
-                     
+
                      const recordsByDate = clientRecords.reduce((acc:any, r:any) => {
                        const d = r.date || today();
                        if (!acc[d]) acc[d] = [];
@@ -434,7 +434,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                      }, {});
 
                      const sortedDates = Object.keys(recordsByDate).sort((a,b) => new Date(b).getTime() - new Date(a).getTime());
-                     
+
                      const clientTotalSpent = clientRecords.reduce((sum:number, r:any) => {
                        const pMatch = products.find((p:any)=>p.id === r.productId || p.id === r.produto_id);
                        const val = Number(r.value || r.valor || pMatch?.cost || 0);
@@ -474,7 +474,7 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
                                sortedDates.map((dateStr)=>{
                                  const dayItems = recordsByDate[dateStr];
                                  const formattedDate = dateStr.split('-').reverse().join('/');
-                                 
+
                                  const dayTotal = dayItems.reduce((accDay:number, item:any) => {
                                    const pMatch = products.find((p:any)=>p.id === item.productId || p.id === item.produto_id);
                                    return accDay + Number(item.cost || item.valor || pMatch?.price || 0);
@@ -550,12 +550,26 @@ export function PreTreino({card,border,subtext,accent,text,clientesPreTreino,set
            {[['name','Nome'],['cost','Custo'],['price','Preço de consumo'],['stock','Estoque']].map(([k,l])=><input key={k} type={k==='name'?'text':'number'} step="0.01" placeholder={l} value={(productForm as any)[k]} onChange={e=>setProductForm({...productForm,[k]:e.target.value})} style={{width:'100%',padding:10,margin:'6px 0'}}/>)}
            <button style={{width:'100%',padding:11,marginTop:8,border:0,borderRadius:9,background:accent,color:'#fff',fontWeight:800}}>Salvar produto</button>
          </form>
+
          <div style={{background:card,border:`1px solid ${border}`,borderRadius:14,padding:18}}>
-           <h3>Estoque de pré-treino</h3>
+           <h3>Produtos cadastrados</h3>
            {products.map((p:any)=>(
-             <div key={p.id} style={{display:'flex',justifyContent:`space-between`,padding:'10px 0',borderBottom:`1px solid ${border}`}}>
-               <span><b>{p.name}</b><small style={{display:'block',color:subtext}}>Custo {money(p.cost)} · Venda {money(p.price)}</small></span>
-               <span><b>{p.stock??0}</b><button onClick={()=>deleteProduct(p.id)} style={{border:0,background:'transparent',color:'#ef4444',marginLeft:12}}><Trash2 size={15}/></button></span>
+             <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${border}`}}>
+               <span>
+                 <b>{p.name}</b>
+                 <small style={{display:'block',color:subtext}}>
+                   Custo {money(p.cost)} · Venda {money(p.price)}
+                 </small>
+               </span>
+
+               <button
+                 type="button"
+                 onClick={()=>deleteProduct(p.id)}
+                 style={{border:0,background:'transparent',color:'#ef4444',marginLeft:12,cursor:'pointer'}}
+                 title="Excluir produto"
+               >
+                 <Trash2 size={15}/>
+               </button>
              </div>
            ))}
          </div>
