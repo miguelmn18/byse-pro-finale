@@ -2142,13 +2142,14 @@ app.put(
 // PRÉ-TREINO
 // ==========================================
 
+
 app.get("/api/pre-treino/products", authMiddleware, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id,name,cost,price,stock
-         FROM pre_treino_produtos
-         WHERE user_id=$1
-         ORDER BY created_at DESC`,
+      `SELECT id, name, cost, price
+       FROM pre_treino_produtos
+       WHERE user_id=$1
+       ORDER BY created_at DESC`,
       [req.user.id],
     );
 
@@ -2160,7 +2161,7 @@ app.get("/api/pre-treino/products", authMiddleware, async (req, res) => {
         cost: Number(p.cost || 0),
         custo: Number(p.cost || 0),
         price: Number(p.price || 0),
-        stock: Number(p.stock || 0),
+        preco: Number(p.price || 0),
       })),
     );
   } catch (e) {
@@ -2177,49 +2178,69 @@ app.post("/api/pre-treino/products", authMiddleware, async (req, res) => {
     const p = req.body || {};
 
     const id = p.id || `ptp_${crypto.randomUUID()}`;
-
     const name = String(p.name || p.nome || "").trim();
 
-    if (!name)
+    const cost = Number(p.cost ?? p.custo ?? 0);
+    const price = Number(p.price ?? p.preco ?? 0);
+
+    if (!name) {
       return res.status(400).json({
         error: "Nome do produto é obrigatório.",
       });
+    }
 
+    if (!Number.isFinite(cost) || cost < 0 ||
+        !Number.isFinite(price) || price < 0) {
+      return res.status(400).json({
+        error: "Os valores de custo e preço devem ser números válidos e não negativos.",
+      });
+    }
+
+    // O campo stock recebe zero apenas para compatibilidade
+    // com bancos antigos que ainda exigem essa coluna.
+    // O sistema não consulta, atualiza ou controla esse estoque.
     await pool.query(
       `INSERT INTO pre_treino_produtos(
-          id,user_id,name,cost,price,stock
-        )
-        VALUES(
-          $1,$2,$3,$4,$5,$6
-        )
-        ON CONFLICT(id,user_id)
-        DO UPDATE SET
-          name=$3,
-          cost=$4,
-          price=$5,
-          stock=$6`,
+         id, user_id, name, cost, price, stock
+       )
+       VALUES($1, $2, $3, $4, $5, 0)
+       ON CONFLICT(id, user_id)
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         cost = EXCLUDED.cost,
+         price = EXCLUDED.price`,
       [
         id,
         req.user.id,
         name,
-        Number(p.cost ?? p.custo ?? 0),
-        Number(p.price ?? p.preco ?? 0),
-        Number(p.stock ?? p.estoque ?? 0),
+        cost,
+        price,
       ],
     );
 
     const r = await pool.query(
-      `SELECT id,name,cost,price,stock
-         FROM pre_treino_produtos
-         WHERE id=$1 AND user_id=$2`,
+      `SELECT id, name, cost, price
+       FROM pre_treino_produtos
+       WHERE id=$1 AND user_id=$2`,
       [id, req.user.id],
     );
 
+    if (!r.rows.length) {
+      return res.status(404).json({
+        error: "Produto não encontrado após salvar.",
+      });
+    }
+
+    const saved = r.rows[0];
+
     res.status(201).json({
-      ...r.rows[0],
-      cost: Number(r.rows[0].cost || 0),
-      price: Number(r.rows[0].price || 0),
-      stock: Number(r.rows[0].stock || 0),
+      id: saved.id,
+      name: saved.name,
+      nome: saved.name,
+      cost: Number(saved.cost || 0),
+      custo: Number(saved.cost || 0),
+      price: Number(saved.price || 0),
+      preco: Number(saved.price || 0),
     });
   } catch (e) {
     console.error("[PRE-TREINO PRODUCTS POST]", e);
@@ -2234,7 +2255,7 @@ app.delete("/api/pre-treino/products/:id", authMiddleware, async (req, res) => {
   try {
     await pool.query(
       `DELETE FROM pre_treino_produtos
-         WHERE id=$1 AND user_id=$2`,
+       WHERE id=$1 AND user_id=$2`,
       [req.params.id, req.user.id],
     );
 
@@ -2421,46 +2442,211 @@ app.delete(
   },
 );
 
+
 app.get("/api/pre-treino/records", authMiddleware, async (req, res) => {
-  const r = await pool.query(
-    `SELECT *
+  try {
+    const r = await pool.query(
+      `SELECT *
        FROM pre_treino_registros
        WHERE user_id=$1
        ORDER BY created_at DESC`,
-    [req.user.id],
-  );
+      [req.user.id],
+    );
 
-  res.json(
-    r.rows.map((x) => ({
-      id: x.id,
-      customerId: x.customer_id,
-      customer_id: x.customer_id,
-      customerName: x.nome_cliente,
-      customer_name: x.nome_cliente,
-      nome_cliente: x.nome_cliente,
-      customerPhone: x.telefone_cliente,
-      customer_phone: x.telefone_cliente,
-      telefone_cliente: x.telefone_cliente,
-      productId: x.produto_id,
-      produto_id: x.produto_id,
-      productName: x.nome_produto,
-      product_name: x.nome_produto,
-      nome_produto: x.nome_produto,
-      cost: Number(x.custo || 0),
-      custo: Number(x.custo || 0),
-      value: Number(x.valor || 0),
-      valor: Number(x.valor || 0),
-      type: x.tipo_consumo || "avulso",
-      tipo_consumo: x.tipo_consumo || "avulso",
-      date: x.data,
-      data: x.data,
-      time: x.horario,
-      horario: x.horario,
-      createdAt: x.created_at,
-      created_at: x.created_at,
-    })),
-  );
+    res.json(
+      r.rows.map((x) => ({
+        id: x.id,
+        customerId: x.customer_id,
+        customer_id: x.customer_id,
+        customerName: x.nome_cliente,
+        customer_name: x.nome_cliente,
+        nome_cliente: x.nome_cliente,
+        customerPhone: x.telefone_cliente,
+        customer_phone: x.telefone_cliente,
+        telefone_cliente: x.telefone_cliente,
+        productId: x.produto_id,
+        produto_id: x.produto_id,
+        productName: x.nome_produto,
+        product_name: x.nome_produto,
+        nome_produto: x.nome_produto,
+        cost: Number(x.custo || 0),
+        custo: Number(x.custo || 0),
+        value: Number(x.valor || 0),
+        valor: Number(x.valor || 0),
+        type: x.tipo_consumo || "avulso",
+        tipo_consumo: x.tipo_consumo || "avulso",
+        date: x.data,
+        data: x.data,
+        time: x.horario,
+        horario: x.horario,
+        createdAt: x.created_at,
+        created_at: x.created_at,
+      })),
+    );
+  } catch (e) {
+    console.error("[PRE-TREINO RECORDS GET]", e);
+
+    res.status(500).json({
+      error: "Erro ao buscar registros de pré-treino.",
+    });
+  }
 });
+
+app.post("/api/pre-treino/records", authMiddleware, async (req, res) => {
+  try {
+    const r = req.body || {};
+
+    const id = r.id || `ptr_${crypto.randomUUID()}`;
+
+    let customerName =
+      r.customerName ||
+      r.nomeCliente ||
+      r.nome_cliente ||
+      "Cliente avulso";
+
+    let phone =
+      r.customerPhone ||
+      r.telefoneCliente ||
+      r.telefone_cliente ||
+      null;
+
+    const cid = r.customerId || r.customer_id || null;
+
+    if (cid) {
+      const c = await pool.query(
+        `SELECT name, phone
+         FROM pre_treino_clientes
+         WHERE id=$1 AND user_id=$2`,
+        [cid, req.user.id],
+      );
+
+      if (c.rows[0]) {
+        customerName = c.rows[0].name;
+        phone = c.rows[0].phone;
+      }
+    }
+
+    const productId = r.productId || r.produto_id || null;
+
+    const productName =
+      r.productName ||
+      r.nomeProduto ||
+      r.nome_produto ||
+      "";
+
+    const cost = Number(r.cost ?? r.custo ?? 0);
+    const value = Number(r.value ?? r.valor ?? 0);
+
+    const type = r.type || r.tipo_consumo || "avulso";
+
+    const date =
+      r.date ||
+      r.data ||
+      new Date().toISOString().slice(0, 10);
+
+    const time =
+      r.time ||
+      r.horario ||
+      new Date().toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+    // Se um produto foi selecionado, valida se ele pertence
+    // à loja do usuário autenticado.
+    if (productId) {
+      const product = await pool.query(
+        `SELECT id
+         FROM pre_treino_produtos
+         WHERE id=$1 AND user_id=$2`,
+        [productId, req.user.id],
+      );
+
+      if (!product.rows.length) {
+        return res.status(404).json({
+          error: "Produto não encontrado.",
+        });
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO pre_treino_registros(
+         id, user_id, customer_id,
+         nome_cliente, telefone_cliente,
+         produto_id, nome_produto,
+         custo, valor, tipo_consumo,
+         data, horario
+       )
+       VALUES(
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+       )
+       ON CONFLICT(id, user_id)
+       DO UPDATE SET
+         customer_id=$3,
+         nome_cliente=$4,
+         telefone_cliente=$5,
+         produto_id=$6,
+         nome_produto=$7,
+         custo=$8,
+         valor=$9,
+         tipo_consumo=$10,
+         data=$11,
+         horario=$12`,
+      [
+        id,
+        req.user.id,
+        cid,
+        customerName,
+        phone,
+        productId,
+        productName,
+        cost,
+        value,
+        type,
+        date,
+        time,
+      ],
+    );
+
+    // Não existe mais decremento de estoque.
+    // O consumo é apenas registrado no histórico.
+
+    res.status(201).json({
+      success: true,
+      id,
+    });
+  } catch (e) {
+    console.error("[PRE-TREINO RECORDS POST]", e);
+
+    res.status(500).json({
+      error: "Erro ao registrar consumo de pré-treino.",
+    });
+  }
+});
+
+app.delete(
+  "/api/pre-treino/records/:id",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      await pool.query(
+        `DELETE FROM pre_treino_registros
+         WHERE id=$1 AND user_id=$2`,
+        [req.params.id, req.user.id],
+      );
+
+      res.json({
+        success: true,
+      });
+    } catch (e) {
+      console.error("[PRE-TREINO RECORDS DELETE]", e);
+
+      res.status(500).json({
+        error: "Erro ao excluir registro de pré-treino.",
+      });
+    }
+  },
+);
 
 app.post("/api/pre-treino/records", authMiddleware, async (req, res) => {
   const r = req.body || {};
