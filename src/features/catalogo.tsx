@@ -124,11 +124,99 @@ export default function Catalogo({
     };
   }, [base]);
 
-  const publicUrl =
-    cfg.publicUrl ||
-    `${window.location.origin}/publicCatalog/${userId || ''}`;
+  const publicUrl = userId
+  ? `${window.location.origin}/publicCatalog/${encodeURIComponent(String(userId))}`
+  : '';
+
+  // Mantém preço promocional e desconto sincronizados.
+  const updateWeeklyOfferDetail = (product: any, field: 'offerPrice' | 'discountPercent', rawValue: string) => {
+    const productId = String(product.id);
+    const originalPrice = Number(product.price || 0);
+    const parsedValue = rawValue === '' ? 0 : Number(String(rawValue).replace(',', '.'));
+
+    setCfg((previous: any) => {
+      const allDetails = { ...(previous.weeklyOfferDetails || {}) };
+      const current = allDetails[productId] || {
+        originalPrice,
+        offerPrice: 0,
+        discountAmount: 0,
+        discountPercent: 0
+      };
+
+      let offerPrice = Number(current.offerPrice || 0);
+      let discountPercent = Number(current.discountPercent || 0);
+
+      if (field === 'offerPrice') {
+        offerPrice = Math.max(0, parsedValue);
+        discountPercent = originalPrice > 0 && offerPrice > 0
+          ? Math.max(0, Math.min(100, ((originalPrice - offerPrice) / originalPrice) * 100))
+          : 0;
+      } else {
+        discountPercent = Math.max(0, Math.min(100, parsedValue));
+        offerPrice = originalPrice > 0
+          ? Math.max(0, originalPrice * (1 - discountPercent / 100))
+          : 0;
+      }
+
+      const discountAmount = Math.max(0, originalPrice - offerPrice);
+      allDetails[productId] = {
+        originalPrice,
+        offerPrice: Number(offerPrice.toFixed(2)),
+        discountAmount: Number(discountAmount.toFixed(2)),
+        discountPercent: Number(discountPercent.toFixed(2))
+      };
+
+      return { ...previous, weeklyOfferDetails: allDetails };
+    });
+  };
+
+  const toggleFeaturedProduct = (sectionKey: string, product: any) => {
+    const productId = String(product.id);
+    setCfg((previous: any) => {
+      const current = Array.isArray(previous[sectionKey])
+        ? previous[sectionKey].map(String)
+        : [];
+      const isSelected = current.includes(productId);
+      const next = isSelected
+        ? current.filter((id: string) => id !== productId)
+        : current.length < 8 ? [...current, productId] : current;
+      const nextCfg: any = { ...previous, [sectionKey]: next };
+
+      if (sectionKey === 'weeklyOfferProductIds') {
+        const details = { ...(previous.weeklyOfferDetails || {}) };
+        if (isSelected) {
+          delete details[productId];
+        } else if (next.includes(productId) && !details[productId]) {
+          details[productId] = {
+            originalPrice: Number(product.price || 0),
+            offerPrice: 0,
+            discountAmount: 0,
+            discountPercent: 0
+          };
+        }
+        nextCfg.weeklyOfferDetails = details;
+      }
+
+      return nextCfg;
+    });
+  };
 
   const save = async () => {
+    const selectedOfferIds = Array.isArray(cfg.weeklyOfferProductIds)
+      ? cfg.weeklyOfferProductIds.map(String)
+      : [];
+    const invalidOffer = selectedOfferIds.find((id: string) => {
+      const product = products.find((item: any) => String(item.id) === id);
+      const originalPrice = Number(product?.price || 0);
+      const offerPrice = Number(cfg.weeklyOfferDetails?.[id]?.offerPrice || 0);
+      return !Number.isFinite(originalPrice) || !Number.isFinite(offerPrice) || originalPrice <= 0 || offerPrice <= 0 || offerPrice >= originalPrice;
+    });
+
+    if (invalidOffer) {
+      alert('Informe um novo preço válido e menor que o preço original para todos os produtos selecionados em Ofertas da semana.');
+      return;
+    }
+
     setSaving(true);
     setSaved(false);
 
@@ -159,6 +247,7 @@ export default function Catalogo({
       setCfg((prev: any) => ({
         ...prev,
         ...data,
+        weeklyOfferDetails: data.weeklyOfferDetails || payload.weeklyOfferDetails || {},
         whatsapp: payload.whatsapp,
         catalogVisible: isCatalogVisible,
         vipConfigured:
@@ -780,6 +869,79 @@ export default function Catalogo({
             </p>
           )}
         </div>
+      </div>
+
+      {/* DESTAQUES DA VITRINE PÚBLICA */}
+      <div style={{ ...cardStyle, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+          <Sparkles size={18} color={accent} />
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Destaques da vitrine pública</h3>
+        </div>
+        <p style={{ color: subtext, fontSize: 12, lineHeight: 1.5, margin: '0 0 16px' }}>
+          Escolha os produtos que aparecerão nas seções “Ofertas da semana” e “Novidades da semana”.
+          Os produtos mais vendidos serão identificados automaticamente pelas vendas registradas no sistema.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+          {[{ key: 'weeklyOfferProductIds', title: 'Ofertas da semana', description: 'Selecione até 8 produtos e defina o preço promocional e o desconto.' },
+            { key: 'weeklyNewProductIds', title: 'Novidades da semana', description: 'Selecione até 8 produtos recém-chegados.' }].map((section: any) => {
+              const selectedIds = Array.isArray(cfg[section.key]) ? cfg[section.key].map(String) : [];
+              return (
+                <div key={section.key} style={{ border: `1px solid ${border}`, borderRadius: 12, padding: 13, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 13 }}>{section.title}</div>
+                  <div style={{ color: subtext, fontSize: 11, margin: '4px 0 10px' }}>{section.description} ({selectedIds.length}/8)</div>
+                  <div style={{ maxHeight: 390, overflowY: 'auto', display: 'grid', gap: 8 }}>
+                    {products.length === 0 ? (
+                      <span style={{ color: subtext, fontSize: 12 }}>Nenhum produto cadastrado.</span>
+                    ) : products.map((product: any) => {
+                      const productId = String(product.id);
+                      const checked = selectedIds.includes(productId);
+                      const disabled = !checked && selectedIds.length >= 8;
+                      const originalPrice = Number(product.price || 0);
+                      const offer = cfg.weeklyOfferDetails?.[productId] || {};
+                      const isOfferSection = section.key === 'weeklyOfferProductIds';
+                      return (
+                        <div key={product.id} style={{ border: `1px solid ${checked ? accent : border}`, borderRadius: 9, padding: 8, background: checked ? `${accent}08` : 'transparent', opacity: disabled ? 0.5 : 1 }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+                            <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleFeaturedProduct(section.key, product)} />
+                            <span style={{ fontSize: 12, fontWeight: 650, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</span>
+                            <span style={{ fontSize: 10, color: subtext, whiteSpace: 'nowrap' }}>{product.category || 'Geral'}</span>
+                          </label>
+                          {isOfferSection && checked && (
+                            <div style={{ marginTop: 9, padding: 9, borderRadius: 8, background: `${accent}0A`, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                              <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
+                                <span style={{ color: subtext }}>Preço original</span>
+                                <strong>R$ {originalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                              </div>
+                              <label style={{ display: 'grid', gap: 4, fontSize: 10, color: subtext }}>
+                                Novo preço da oferta (R$)
+                                <input type="number" min="0.01" max={originalPrice || undefined} step="0.01" value={offer.offerPrice || ''} onChange={e => updateWeeklyOfferDetail(product, 'offerPrice', e.target.value)} placeholder="Ex.: 79,90" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${border}`, borderRadius: 7, padding: '8px 7px', background: card, color: text, fontSize: 12 }} />
+                              </label>
+                              <label style={{ display: 'grid', gap: 4, fontSize: 10, color: subtext }}>
+                                Desconto (%)
+                                <input type="number" min="0" max="100" step="0.1" value={offer.discountPercent || ''} onChange={e => updateWeeklyOfferDetail(product, 'discountPercent', e.target.value)} placeholder="Ex.: 20" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${border}`, borderRadius: 7, padding: '8px 7px', background: card, color: text, fontSize: 12 }} />
+                              </label>
+                              <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: '#16a34a' }}>
+                                <span>Economia do cliente</span>
+                                <strong>R$ {Math.max(0, originalPrice - Number(offer.offerPrice || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={save} disabled={saving} style={{ ...buttonStyle, background: accent, color: '#fff', border: 0, padding: '11px 18px', opacity: saving ? 0.7 : 1 }}>
+            <Save size={14} /> {saving ? 'Salvando...' : 'Salvar destaques da vitrine'}
+          </button>
+        </div>
+        {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '8px 0 0', textAlign: 'right' }}>Configurações salvas com sucesso.</p>}
       </div>
 
       {/* SIMULADOR DA VITRINE */}

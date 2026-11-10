@@ -169,7 +169,7 @@ function Cashback({
   const [cashbackMessage, setCashbackMessage] = useState(
     'Oi {nome}, você tem {saldo} em cashback te esperando na nossa loja! Aproveite antes de vencer em {vencimento}. 🎁'
   );
-  const [validityFilterDays, setValidityFilterDays] = useState("30");
+  const [validityFilterDays, setValidityFilterDays] = useState("all");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   // Usa a URL real do backend (Railway em produção), nunca uma rota relativa da Vercel.
@@ -178,8 +178,6 @@ function Cashback({
     .replace(/\/api$/i, "");
 
   useEffect(() => {
-    if (!cashbackValidityDays) setCashbackValidityDays(30);
-
     const loadCashbackConfig = async () => {
       try {
         const token = localStorage.getItem("byse_token");
@@ -195,7 +193,9 @@ function Cashback({
 
         const data = await response.json();
         setCashbackPct(Number(data.cashbackPercentage ?? 0));
-        setCashbackValidityDays(Number(data.cashbackValidityDays ?? 30));
+        const loadedDays = Math.max(1, Math.min(3650, Math.floor(Number(data.cashbackValidityDays ?? 30) || 30)));
+        setCashbackValidityDays(loadedDays);
+        setValidityFilterDays("all");
         if (data.cashbackMessage) setCashbackMessage(data.cashbackMessage);
       } catch (err) {
         console.error("Erro ao carregar config de cashback:", err);
@@ -211,9 +211,14 @@ function Cashback({
       const token = localStorage.getItem("byse_token");
       if (!token) throw new Error("Sua sessão expirou. Entre novamente no sistema.");
 
+      const configuredDays = Math.max(
+        1,
+        Math.min(3650, Math.floor(Number(cashbackValidityDays) || 30))
+      );
+
       const config = {
         cashbackPercentage: Number(cashbackPct) || 0,
-        cashbackValidityDays: Number(cashbackValidityDays) || 30,
+        cashbackValidityDays: configuredDays,
         cashbackMessage,
       };
 
@@ -222,6 +227,14 @@ function Cashback({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "x-user-id": (() => {
+            try {
+              const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
+              return String(user.id || localStorage.getItem("userId") || "");
+            } catch {
+              return String(localStorage.getItem("userId") || "");
+            }
+          })(),
         },
         body: JSON.stringify(config),
       });
@@ -241,7 +254,9 @@ function Cashback({
         detail: config,
       }));
 
-      alert("Configurações de cashback, percentual e mensagem salvas com sucesso!");
+      setCashbackValidityDays(configuredDays);
+      setValidityFilterDays("all");
+      alert(`Configurações salvas! O PDV utilizará ${configuredDays} dia(s) de validade nas próximas vendas.`);
     } catch (err) {
       console.error("Erro ao salvar configurações:", err);
       alert(err.message || "Erro ao salvar configurações.");
@@ -270,35 +285,46 @@ function Cashback({
   };
 
   const getRemainingDays = (c) => {
-    const expDateRaw = c.cashbackExpirationDate || c.cashback_expiration_date || c.cashbackExpiry || c.cashback_expiry;
+    const expDateRaw =
+      c.cashbackExpirationDate ||
+      c.cashback_expiration_date ||
+      c.cashbackExpiry ||
+      c.cashback_expiry;
     if (!expDateRaw) return null;
+
+    // Datas SQL (YYYY-MM-DD) devem ser interpretadas como data local, sem deslocamento UTC.
+    const raw = String(expDateRaw).slice(0, 10);
+    const parts = raw.split("-").map(Number);
+    const expDate = parts.length === 3
+      ? new Date(parts[0], parts[1] - 1, parts[2])
+      : new Date(expDateRaw);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const expDate = new Date(expDateRaw);
     expDate.setHours(0, 0, 0, 0);
-    const diffTime = expDate.getTime() - today.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.round((expDate.getTime() - today.getTime()) / 86400000);
   };
 
+  const configuredDays = Math.max(
+    1,
+    Math.min(3650, Math.floor(Number(cashbackValidityDays) || 30))
+  );
+
+  const validityFilterOptions = Array.from(
+    new Set([15, configuredDays, configuredDays * 2, configuredDays * 3])
+  ).sort((a, b) => a - b);
+
   const filteredCustomers = useMemo(() => {
-    const filterDaysNum = parseInt(validityFilterDays);
-    if (isNaN(filterDaysNum) || filterDaysNum <= 0) {
-      return customers.filter(c => Number(c.cashback) > 0);
-    }
+    const activeCustomers = customers.filter((c) => Number(c.cashback) > 0);
+    if (validityFilterDays === "all") return activeCustomers;
 
-    return customers.filter(c => {
-      const cashbackVal = Number(c.cashback) || 0;
-      if (cashbackVal <= 0) return false;
+    const filterDaysNum = Number(validityFilterDays);
+    if (!Number.isFinite(filterDaysNum) || filterDaysNum <= 0) return activeCustomers;
 
-      if (filterDaysNum >= 365) {
-        return true;
-      }
-
-      const diffDays = getRemainingDays(c);
-      if (diffDays === null) return false;
-      return diffDays >= 0 && diffDays <= filterDaysNum;
+    return activeCustomers.filter((c) => {
+      const remaining = getRemainingDays(c);
+      return remaining !== null && remaining >= 0 && remaining <= filterDaysNum;
     });
-  }, [customers, validityFilterDays]);
+  }, [customers, validityFilterDays, cashbackValidityDays]);
 
   const getRenderedMessage = (c) => {
     const saldoValor = c.cashback !== undefined ? c.cashback : (c.cashback_balance || c.saldoCashback || c.saldo || 0);
@@ -367,22 +393,41 @@ function Cashback({
   };
 
   return (
-    <div>
+    <div className="cashback-shell">
+      <style>{`
+        .cashback-shell { width: 100%; min-width: 0; }
+        .cashback-config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-bottom: 24px; }
+        .cashback-panel { min-width: 0; box-shadow: 0 8px 24px rgba(0,0,0,.045); transition: transform .18s ease, box-shadow .18s ease; }
+        .cashback-panel:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,.08); }
+        .cashback-filter-bar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+        .cashback-table { width:100%; overflow:hidden; }
+        .cashback-table-head, .cashback-customer-row { display:grid; grid-template-columns:1.8fr 1fr 1.2fr 2fr 1fr; gap:12px; }
+        .cashback-customer-row > div { min-width:0; overflow-wrap:anywhere; }
+        @media (max-width: 760px) {
+          .cashback-table-head { display:none !important; }
+          .cashback-customer-row { display:grid !important; grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important; gap:12px !important; padding:14px !important; }
+          .cashback-customer-row > div:nth-child(1) { grid-column:1/-1; }
+          .cashback-customer-row > div:nth-child(4) { grid-column:1/-1; }
+          .cashback-customer-row > div:nth-child(5) { grid-column:1/-1; text-align:left !important; }
+          .cashback-customer-row > div:nth-child(5) button { width:100%; justify-content:center; }
+          .cashback-filter-bar { align-items:stretch; }
+          .cashback-filter-controls { width:100%; display:grid !important; grid-template-columns:1fr; }
+          .cashback-filter-controls select { width:100%; }
+        }
+        @media (max-width: 420px) {
+          .cashback-customer-row { grid-template-columns:1fr !important; }
+          .cashback-customer-row > div:nth-child(1), .cashback-customer-row > div:nth-child(4), .cashback-customer-row > div:nth-child(5) { grid-column:1; }
+        }
+      `}</style>
       <SectionTitle
         title="Gestão de Cashback e Fidelidade"
-        sub="Controle percentual customizado, validade de 30 dias pós-venda e mensagens personalizadas"
+        sub={`Configure o percentual e a validade de ${configuredDays} dia(s); o PDV aplicará essa regra automaticamente nas próximas vendas.`}
         subtext={subtext}
       />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 16,
-          marginBottom: 24
-        }}
-      >
+      <div className="cashback-config-grid">
         <div
+          className="cashback-panel"
           style={{
             background: card,
             border: `1px solid ${border}`,
@@ -422,13 +467,19 @@ function Cashback({
           <label style={{ fontSize: 12, color: subtext }}>Validade Padrão Pós-Venda (Dias)</label>
           <input
             type="number"
-            value={cashbackValidityDays || 30}
-            onChange={(e) => setCashbackValidityDays(parseInt(e.target.value) || 30)}
+            min="1"
+            max="3650"
+            value={cashbackValidityDays ?? ""}
+            onChange={(e) => setCashbackValidityDays(e.target.value === "" ? "" : Math.max(1, Math.min(3650, parseInt(e.target.value, 10) || 1)))}
             style={{ ...inputStyle(border, text), width: "100%", marginTop: 6 }}
           />
+          <div style={{ fontSize: 11, color: subtext, marginTop: 7 }}>
+            Exemplo: {configuredDays} dias cadastrados aqui serão usados automaticamente em cada venda feita no PDV.
+          </div>
         </div>
 
         <div
+          className="cashback-panel"
           style={{
             background: card,
             border: `1px solid ${border}`,
@@ -482,6 +533,7 @@ function Cashback({
       </div>
 
       <div
+        className="cashback-filter-bar"
         style={{
           background: card,
           border: `1px solid ${border}`,
@@ -503,7 +555,7 @@ function Cashback({
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="cashback-filter-controls" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <select
             value={validityFilterDays}
             onChange={(e) => setValidityFilterDays(e.target.value)}
@@ -516,11 +568,12 @@ function Cashback({
               cursor: "pointer"
             }}
           >
-            <option value="15" style={{ backgroundColor: card, color: text }}>A 15 dias de vencer</option>
-            <option value="30" style={{ backgroundColor: card, color: text }}>A 30 dias de vencer</option>
-            <option value="60" style={{ backgroundColor: card, color: text }}>A 60 dias de vencer</option>
-            <option value="90" style={{ backgroundColor: card, color: text }}>A 90 dias de vencer</option>
-            <option value="365" style={{ backgroundColor: card, color: text }}>Todos com saldo ativo</option>
+            <option value="all" style={{ backgroundColor: card, color: text }}>Todos com saldo ativo</option>
+            {validityFilterOptions.map((days) => (
+              <option key={days} value={String(days)} style={{ backgroundColor: card, color: text }}>
+                Vencem em até {days} dias
+              </option>
+            ))}
           </select>
           <div style={{ fontSize: 12, fontWeight: 600, color: accent, background: hexAlpha(accent, 0.1), padding: "6px 12px", borderRadius: 8 }}>
             {filteredCustomers.length} cliente(s) no radar
@@ -529,6 +582,7 @@ function Cashback({
       </div>
 
       <div
+        className="cashback-table"
         style={{
           background: card,
           border: `1px solid ${border}`,
@@ -537,6 +591,7 @@ function Cashback({
         }}
       >
         <div
+          className="cashback-table-head"
           style={{
             display: "grid",
             gridTemplateColumns: "1.8fr 1fr 1.2fr 2fr 1fr",
@@ -571,6 +626,7 @@ function Cashback({
             return (
               <div
                 key={c.id}
+                className="cashback-customer-row"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "1.8fr 1fr 1.2fr 2fr 1fr",

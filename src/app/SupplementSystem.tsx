@@ -229,7 +229,10 @@ function SupplementSystem() {
       if (resFiados.ok) {
         const data = await resFiados.json();
         // Só aplica o resultado se nenhum fiado tiver sido alterado desde o início da consulta.
-        if (Array.isArray(data) && fiadosRevision.current === fiadosRevisionAtRequest) {
+        if (
+          Array.isArray(data) &&
+          fiadosRevision.current === fiadosRevisionAtRequest
+        ) {
           setFiados([...data]);
           localStorage.setItem(
             getStorageKey("fiados", targetUser),
@@ -294,22 +297,36 @@ function SupplementSystem() {
 
   useEffect(() => {
     const path = window.location.pathname;
-    const match = path.match(/^\/catalogo\/([^/]+)$/);
+
+    // Aceita os dois formatos de endereço da vitrine pública.
+    const match = path.match(/^\/(?:publicCatalog|catalogo)\/([^/]+)\/?$/i);
 
     if (match) {
-      const storeUserId = match[1];
-      setIsPublicCatalog(true);
+      const storeUserId = decodeURIComponent(match[1]);
 
-      fetch(`${API_URL}/public/catalogo/${storeUserId}`)
-        .then((res) => res.json())
+      setIsPublicCatalog(true);
+      setLoading(true);
+
+      fetch(`${API_URL}/public/catalogo/${encodeURIComponent(storeUserId)}`)
+        .then(async (res) => {
+          if (!res.ok) {
+            throw new Error(
+              `Erro HTTP ${res.status} ao carregar catálogo público.`,
+            );
+          }
+
+          return res.json();
+        })
         .then((data) => {
           setPublicStoreData(data);
           setLoading(false);
         })
         .catch((err) => {
           console.error("Erro ao carregar catálogo público:", err);
+          setPublicStoreData(null);
           setLoading(false);
         });
+
       return;
     }
 
@@ -322,6 +339,7 @@ function SupplementSystem() {
         setUser(parsedUser);
 
         const uKey = parsedUser?.id || parsedUser?.email || "guest";
+
         const localCust = localStorage.getItem(`byse_customers_${uKey}`);
         const localProd = localStorage.getItem(`byse_products_${uKey}`);
         const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
@@ -353,6 +371,7 @@ function SupplementSystem() {
         localStorage.removeItem("byse_user");
       }
     }
+
     setLoading(false);
   }, []);
 
@@ -469,21 +488,23 @@ function SupplementSystem() {
         productData.vipPrice !== undefined && productData.vipPrice !== ""
           ? Number(productData.vipPrice)
           : productData.vip_price !== undefined && productData.vip_price !== ""
-          ? Number(productData.vip_price)
-          : null;
+            ? Number(productData.vip_price)
+            : null;
       const vipPrice3xVal =
         productData.vipPrice3x !== undefined && productData.vipPrice3x !== ""
           ? Number(productData.vipPrice3x)
-          : productData.vip_price_3x !== undefined && productData.vip_price_3x !== ""
-          ? Number(productData.vip_price_3x)
-          : null;
+          : productData.vip_price_3x !== undefined &&
+              productData.vip_price_3x !== ""
+            ? Number(productData.vip_price_3x)
+            : null;
       const imageUrlVal = productData.imageUrl || productData.image_url || null;
       const costPriceVal =
         productData.costPrice !== undefined && productData.costPrice !== ""
           ? Number(productData.costPrice)
-          : productData.cost_price !== undefined && productData.cost_price !== ""
-          ? Number(productData.cost_price)
-          : null;
+          : productData.cost_price !== undefined &&
+              productData.cost_price !== ""
+            ? Number(productData.cost_price)
+            : null;
 
       const payload = {
         ...productData,
@@ -519,8 +540,10 @@ function SupplementSystem() {
           savedProduct.control_stock ?? savedProduct.controlStock ?? true,
         vipPrice: savedProduct.vipPrice ?? savedProduct.vip_price ?? null,
         vip_price: savedProduct.vip_price ?? savedProduct.vipPrice ?? null,
-        vipPrice3x: savedProduct.vipPrice3x ?? savedProduct.vip_price_3x ?? null,
-        vip_price_3x: savedProduct.vip_price_3x ?? savedProduct.vipPrice3x ?? null,
+        vipPrice3x:
+          savedProduct.vipPrice3x ?? savedProduct.vip_price_3x ?? null,
+        vip_price_3x:
+          savedProduct.vip_price_3x ?? savedProduct.vipPrice3x ?? null,
         imageUrl: savedProduct.imageUrl ?? savedProduct.image_url ?? null,
         image_url: savedProduct.image_url ?? savedProduct.imageUrl ?? null,
       };
@@ -622,7 +645,10 @@ function SupplementSystem() {
       setFiados((current) => {
         const updated = valueOrUpdater(current);
         const safeUpdated = Array.isArray(updated) ? updated : current;
-        localStorage.setItem(getStorageKey("fiados"), JSON.stringify(safeUpdated));
+        localStorage.setItem(
+          getStorageKey("fiados"),
+          JSON.stringify(safeUpdated),
+        );
         return safeUpdated;
       });
       return;

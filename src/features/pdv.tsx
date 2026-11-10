@@ -29,9 +29,12 @@ export function PDV({
   accent,
   text,
 }) {
+  // Aceita VITE_API_URL com ou sem o sufixo /api, evitando /api/api nas rotas.
   const API_URL = (
     import.meta.env.VITE_API_URL || "http://localhost:3333"
-  ).replace(/\/+$/, "");
+  )
+    .replace(/\/+$/, "")
+    .replace(/\/api$/i, "");
 
   // ==========================================
   // CONTROLO DE TEMPO E PERSISTÊNCIA CONTÍNUA (localStorage)
@@ -154,6 +157,19 @@ export function PDV({
 
   useEffect(() => {
     fetchUserSettings();
+
+    const handleCashbackConfigUpdated = (event) => {
+      const config = event?.detail || {};
+      if (config.cashbackPercentage !== undefined)
+        setCashbackPercent(Number(config.cashbackPercentage) || 0);
+      if (config.cashbackValidityDays !== undefined)
+        setCashbackValidityDays(Math.max(1, Number(config.cashbackValidityDays) || 30));
+      if (config.cashbackMessage)
+        setCashbackMessage(config.cashbackMessage);
+    };
+
+    window.addEventListener("byse:cashback-config-updated", handleCashbackConfigUpdated);
+    return () => window.removeEventListener("byse:cashback-config-updated", handleCashbackConfigUpdated);
   }, []);
 
   const fetchUserSettings = async () => {
@@ -252,7 +268,7 @@ export function PDV({
       };
 
       const response = await fetch(`${API_URL}/api/pdv/config`, {
-        method: "POST",
+        method: "PUT",
         headers,
         body: JSON.stringify(currentConfig),
       });
@@ -624,39 +640,36 @@ export function PDV({
         body: JSON.stringify(newSale),
       });
 
-      if (!response.ok) {
-        let errorMessage = "Falha ao salvar a venda no servidor.";
+      const saleResponseData = await response.json().catch(() => ({}));
 
-        try {
-          const errorData = await response.json();
-
-          if (errorData?.error) {
-            errorMessage = errorData.error;
-          }
-        } catch {}
-
-        throw new Error(errorMessage);
+      if (!response.ok || saleResponseData.success === false) {
+        throw new Error(
+          saleResponseData.error ||
+          saleResponseData.message ||
+          "Falha ao salvar a venda no servidor.",
+        );
       }
 
       localStorage.removeItem(STORAGE_KEY);
 
-      if (selectedCustomer && typeof setCustomers === "function") {
-        const expirationDate = new Date();
-
-        expirationDate.setDate(
-          expirationDate.getDate() + Number(cashbackValidityDays || 30),
-        );
+      if (selectedCustomer && typeof setCustomers === "function" && cashbackEarnedVal > 0) {
+        // A data retornada pela API é a mesma gravada no banco de dados.
+        const expirationDate =
+          saleResponseData.cashbackExpirationDate ||
+          (() => {
+            const d = new Date();
+            d.setUTCDate(d.getUTCDate() + Number(saleResponseData.cashbackValidityDays || cashbackValidityDays || 30));
+            return d.toISOString().slice(0, 10);
+          })();
 
         const updatedCustomersList = customers.map((c) =>
-          c.id === selectedCustomer.id
+          String(c.id) === String(selectedCustomer.id)
             ? {
                 ...c,
-
                 cashback: Number(c.cashback || 0) + cashbackEarnedVal,
-
-                cashback_expiration_date: expirationDate
-                  .toISOString()
-                  .split("T")[0],
+                cashbackExpirationDate: expirationDate,
+                cashback_expiration_date: expirationDate,
+                cashback_expiry: expirationDate,
               }
             : c,
         );
