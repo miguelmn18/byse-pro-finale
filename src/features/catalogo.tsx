@@ -70,6 +70,93 @@ export default function Catalogo({
   // true: preços visíveis
   // false: somente os preços ficam ocultos.
   const [isCatalogVisible, setIsCatalogVisible] = useState(true);
+  const [uploadingCategory, setUploadingCategory] = useState<string>('');
+
+  // Imagens personalizadas por categoria, persistidas em catalogo/config.
+  const categoryImages: Record<string, string> =
+    cfg.categoryImages && typeof cfg.categoryImages === 'object'
+      ? cfg.categoryImages
+      : {};
+
+  // Redimensiona e comprime as imagens antes de enviá-las ao backend.
+  // Isso reduz o tamanho do JSON e evita uploads excessivamente pesados.
+  const processCategoryImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        reject(new Error('Selecione um arquivo de imagem válido.'));
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        reject(new Error('A imagem deve ter no máximo 10 MB.'));
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = () => {
+          const maxWidth = 1200;
+          const maxHeight = 900;
+          const ratio = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * ratio));
+          canvas.height = Math.max(1, Math.round(image.height * ratio));
+          const context = canvas.getContext('2d');
+
+          if (!context) {
+            reject(new Error('Não foi possível processar a imagem.'));
+            return;
+          }
+
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.72);
+
+          if (compressed.length > 1_500_000) {
+            reject(new Error('A imagem ainda ficou muito grande após a compressão. Escolha outra imagem.'));
+            return;
+          }
+
+          resolve(compressed);
+        };
+        image.onerror = () => reject(new Error('Não foi possível abrir a imagem.'));
+        image.src = String(reader.result);
+      };
+      reader.onerror = () => reject(new Error('Erro ao ler o arquivo.'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleCategoryImage = async (category: string, file?: File) => {
+    if (!file) return;
+    setUploadingCategory(category);
+    setSaved(false);
+
+    try {
+      const image = await processCategoryImage(file);
+      setCfg((previous: any) => ({
+        ...previous,
+        categoryImages: {
+          ...(previous.categoryImages || {}),
+          [category]: image
+        }
+      }));
+    } catch (error: any) {
+      console.error('Erro ao processar imagem da categoria:', error);
+      alert(error?.message || 'Não foi possível carregar a imagem da categoria.');
+    } finally {
+      setUploadingCategory('');
+    }
+  };
+
+  const removeCategoryImage = (category: string) => {
+    setCfg((previous: any) => {
+      const images = { ...(previous.categoryImages || {}) };
+      delete images[category];
+      return { ...previous, categoryImages: images };
+    });
+    setSaved(false);
+  };
 
   const cleanApiUrl = (
     apiUrl || 'http://localhost:3333'
@@ -214,6 +301,11 @@ export default function Catalogo({
 
     if (invalidOffer) {
       alert('Informe um novo preço válido e menor que o preço original para todos os produtos selecionados em Ofertas da semana.');
+      return;
+    }
+
+    if (uploadingCategory) {
+      alert('Aguarde o processamento da imagem da categoria terminar.');
       return;
     }
 
@@ -942,6 +1034,86 @@ export default function Catalogo({
           </button>
         </div>
         {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '8px 0 0', textAlign: 'right' }}>Configurações salvas com sucesso.</p>}
+      </div>
+
+      {/* IMAGENS PERSONALIZADAS DAS CATEGORIAS */}
+      <div style={{ ...cardStyle, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+          <Store size={18} color={accent} />
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Imagens das categorias</h3>
+        </div>
+        <p style={{ color: subtext, fontSize: 12, lineHeight: 1.5, margin: '0 0 16px' }}>
+          Escolha uma imagem para cada categoria dos seus produtos. As imagens serão exibidas na vitrine pública.
+        </p>
+
+        {categories.filter((category: string) => category !== 'Todos').length === 0 ? (
+          <div style={{ padding: 20, border: `1px dashed ${border}`, borderRadius: 12, textAlign: 'center', color: subtext, fontSize: 12 }}>
+            Cadastre produtos com categorias para personalizar as imagens.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 14 }}>
+            {categories.filter((category: string) => category !== 'Todos').map((category: string) => {
+              const image = categoryImages[category];
+              const isUploading = uploadingCategory === category;
+
+              return (
+                <div key={category} style={{ border: `1px solid ${border}`, borderRadius: 12, overflow: 'hidden', minWidth: 0 }}>
+                  <div style={{ height: 145, background: `${accent}0A`, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {image ? (
+                      <img src={image} alt={`Imagem da categoria ${category}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: subtext }}>
+                        <Tag size={30} />
+                        <span style={{ fontSize: 11 }}>Sem imagem</span>
+                      </div>
+                    )}
+                    {image && (
+                      <span style={{ position: 'absolute', top: 8, right: 8, background: '#16a34a', color: '#fff', borderRadius: 20, padding: '4px 8px', fontSize: 9, fontWeight: 800 }}>
+                        Imagem adicionada
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ padding: 12 }}>
+                    <strong style={{ display: 'block', fontSize: 13, marginBottom: 4, overflowWrap: 'anywhere' }}>{category}</strong>
+                    <span style={{ display: 'block', fontSize: 10, color: subtext, marginBottom: 12 }}>
+                      {products.filter((product: any) => (product.category || 'Geral') === category).length} produto(s)
+                    </span>
+
+                    <label style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box', padding: 10, borderRadius: 9, background: accent, color: '#fff', cursor: isUploading ? 'wait' : 'pointer', fontSize: 11, fontWeight: 800, opacity: isUploading ? 0.65 : 1 }}>
+                      <Plus size={14} />
+                      {isUploading ? 'Processando imagem...' : image ? 'Trocar imagem' : 'Selecionar imagem'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={isUploading || Boolean(uploadingCategory)}
+                        style={{ display: 'none' }}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) handleCategoryImage(category, file);
+                          event.target.value = '';
+                        }}
+                      />
+                    </label>
+
+                    {image && (
+                      <button type="button" onClick={() => removeCategoryImage(category)} style={{ ...buttonStyle, width: '100%', marginTop: 8, color: '#ef4444', borderColor: '#ef444455' }}>
+                        <X size={13} /> Remover imagem
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <button onClick={save} disabled={saving || Boolean(uploadingCategory)} style={{ ...buttonStyle, background: accent, color: '#fff', border: 0, padding: '11px 18px', opacity: saving || uploadingCategory ? 0.7 : 1 }}>
+            <Save size={14} /> {saving ? 'Salvando...' : 'Salvar imagens das categorias'}
+          </button>
+        </div>
+        {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '10px 0 0', textAlign: 'right' }}>Configurações salvas com sucesso.</p>}
       </div>
 
       {/* SIMULADOR DA VITRINE */}

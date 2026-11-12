@@ -462,6 +462,31 @@ export function PDV({
     setDiscount(0);
   };
 
+  // Cancela somente a compra que ainda não foi finalizada.
+  // Como finalizeSale() ainda não foi executada, não há venda para estornar
+  // nem alterações de estoque, cashback ou mensagens de WhatsApp para reverter.
+  const handleCancelPurchase = () => {
+    const confirmed = window.confirm(
+      "Deseja realmente cancelar esta compra? Todos os produtos adicionados ao carrinho e os dados deste atendimento serão descartados."
+    );
+
+    if (!confirmed) return;
+
+    localStorage.removeItem(STORAGE_KEY);
+    setStep("gate");
+    setPhoneQuery("");
+    setFoundCustomer(null);
+    setCustomerSuggestions([]);
+    setSelectedCustomer(null);
+    setCart([]);
+    setDiscount(0);
+    setProductQuery("");
+    setSelectedCategory("Todos produtos");
+    setActiveProductForVariation(null);
+    setSelectedVariationOption("");
+    setLastCompletedSale(null);
+  };
+
   const handleProductClick = (prod) => {
     const variationsList =
       prod.variations || prod.options || prod.variationList || [];
@@ -2308,9 +2333,41 @@ export function PDV({
                 cursor: "pointer",
                 textAlign: "center",
                 marginTop: 6,
+                width: "100%",
               }}
             >
               Finalizar Venda & Gerar Cashback Imediato
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCancelPurchase}
+              style={{
+                background: "transparent",
+                color: "#ef4444",
+                border: "1px solid #ef4444",
+                borderRadius: 8,
+                padding: 12,
+                fontWeight: "bold",
+                cursor: "pointer",
+                textAlign: "center",
+                marginTop: 4,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#ef444415";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <X size={17} />
+              Cancelar Compra
             </button>
 
             {lastCompletedSale && (

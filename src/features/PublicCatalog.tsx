@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import vipAnimation from '../Animation_for_VIP.mp4';
+import logoByse from '../logobyse.jpeg';
 
 import {
   Lock,
@@ -17,7 +18,11 @@ import {
   Sparkles
 } from 'lucide-react';
 
-export function PublicCatalog() {
+export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) {
+  // A vitrine pública reaproveita a identidade visual definida no BYSE PRO.
+  const accent = accentProp || (typeof window !== 'undefined' && localStorage.getItem('byse_accent')) || '#DC2626';
+  const dark = typeof darkProp === 'boolean' ? darkProp : (typeof window !== 'undefined' && localStorage.getItem('byse_dark') !== null ? localStorage.getItem('byse_dark') === 'true' : false);
+  const shopTheme = dark ? { bg: '#111214', surface: '#191a1d', surfaceAlt: '#222429', text: '#f5f5f5', muted: '#a1a1aa', border: '#34363b', accent } : { bg: '#f7f7f7', surface: '#ffffff', surfaceAlt: '#f1f1f1', text: '#171717', muted: '#737373', border: '#e5e5e5', accent };
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
@@ -88,6 +93,44 @@ export function PublicCatalog() {
   };
 
   const catalogSettings = data?.catalogConfig || data?.config || data?.settings || data || {};
+
+  // Imagens cadastradas em Catalogo.tsx. A API pode entregar o campo na raiz
+  // da resposta ou dentro de catalogConfig/config/settings.
+  const categoryImages =
+    catalogSettings?.categoryImages ||
+    catalogSettings?.category_images ||
+    data?.categoryImages ||
+    data?.category_images ||
+    {};
+
+  const getCategoryImage = (category: string) => {
+    if (!categoryImages) return '';
+
+    let image = categoryImages?.[category];
+
+    // Compatibilidade com categorias que diferem apenas em maiúsculas,
+    // espaços ou acentuação entre o cadastro e o produto.
+    if (!image && typeof categoryImages === 'object' && !Array.isArray(categoryImages)) {
+      const normalize = (value: any) => String(value || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      const matchedKey = Object.keys(categoryImages).find(
+        key => normalize(key) === normalize(category)
+      );
+      if (matchedKey) image = categoryImages[matchedKey];
+    }
+
+    if (typeof image === 'string') return image.trim();
+    if (image && typeof image === 'object') {
+      return String(
+        image.url || image.imageUrl || image.image_url ||
+        image.src || image.data || image.base64 || ''
+      ).trim();
+    }
+    return '';
+  };
 
   const getOfferDetails = (product: any) => {
     const details = catalogSettings?.weeklyOfferDetails || catalogSettings?.weekly_offer_details || {};
@@ -773,9 +816,17 @@ export function PublicCatalog() {
       className={vip ? 'vip-theme' : ''}
       style={{
         minHeight: '100vh',
-        background: vip ? '#0c0000' : '#020202e0',
-        color: vip ? '#F5EBD3' : '#F0EFE9',
-        padding: '24px 16px',
+        background: vip ? (dark ? '#17130b' : '#fbf7ec') : shopTheme.bg,
+        color: vip ? (dark ? '#F5EBD3' : '#342a18') : shopTheme.text,
+        padding: '0 0 48px',
+        '--shop-accent': accent,
+        '--shop-bg': shopTheme.bg,
+        '--shop-surface': shopTheme.surface,
+        '--shop-surface-alt': shopTheme.surfaceAlt,
+        '--shop-text': shopTheme.text,
+        '--shop-muted': shopTheme.muted,
+        '--shop-border': shopTheme.border,
+        '--shop-accent-soft': `${accent}18`,
         fontFamily: 'sans-serif',
         position: 'relative'
       }}
@@ -845,7 +896,7 @@ export function PublicCatalog() {
         .catalog-consult-btn { background: linear-gradient(135deg, #20B86A, #12864C) !important; box-shadow: 0 6px 16px rgba(0,0,0,.18); }
         .catalog-cart-btn { background: rgba(255,255,255,.09) !important; border: 1px solid rgba(255,255,255,.2) !important; box-shadow: 0 6px 16px rgba(0,0,0,.16); }
         .catalog-brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; }
-        .catalog-brand-emblem { width: 48px; height: 48px; flex: 0 0 48px; display: grid; place-items: center; border-radius: 14px; color: #FFF7F5; font-size: 15px; font-weight: 950; letter-spacing: -1.1px; background: linear-gradient(145deg, #F04458, #8D1830); border: 1px solid rgba(255,255,255,.28); box-shadow: 0 7px 18px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.2); transform: skew(-5deg); }
+        .catalog-brand-emblem { width: 48px; height: 48px; flex: 0 0 48px; display: block; object-fit: contain; object-position: center; border-radius: 10px; background: transparent; border: 0; box-shadow: none; transform: none; }
         .catalog-brand-copy { min-width: 0; }
         .catalog-brand-name { margin: 0; color: #FFF7F5 !important; font-size: 27px !important; line-height: .98; font-weight: 950 !important; letter-spacing: 1.8px; text-shadow: 0 2px 14px rgba(0,0,0,.24); }
         .catalog-brand-tagline { margin-top: 5px; color: #F3C7CE; font-size: 9px; font-weight: 850; letter-spacing: 1.45px; }
@@ -901,7 +952,9 @@ export function PublicCatalog() {
         .catalog-categories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 12px; }
         .catalog-category-card { min-width: 0; padding: 0; overflow: hidden; border-radius: 13px; border: 1px solid #303030; background: #1C1C1C; color: #F0EFE9; text-align: left; cursor: pointer; transition: transform .18s ease, border-color .18s ease; }
         .catalog-category-card:active { transform: scale(.98); }
-        .catalog-category-image-placeholder { width: 100%; aspect-ratio: 5 / 4; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #242424, #151515); color: #77776F; }
+        .catalog-category-image-placeholder { width: 100%; aspect-ratio: 1 / 1; position: relative; display: block; overflow: hidden; background: var(--shop-surface-alt); color: var(--shop-accent); }
+        .catalog-category-image { display: block; width: 100%; height: 100%; aspect-ratio: 1 / 1; object-fit: cover; object-position: center; }
+        .catalog-category-image-fallback { position: absolute; inset: 0; align-items: center; justify-content: center; background: var(--shop-surface-alt); color: var(--shop-accent); }
         .catalog-category-name { display: block; padding: 10px 10px 2px; font-size: 13px; font-weight: 800; }
         .catalog-category-count { display: block; padding: 0 10px 11px; color: #8A8A82; font-size: 10px; }
         .vip-theme .catalog-category-card { background: #19160F; border-color: #806B3D; color: #F5EBD3; }
@@ -943,7 +996,7 @@ export function PublicCatalog() {
           .catalog-consult-input { flex: 1 1 100% !important; }
           .catalog-header { align-items: stretch !important; gap: 14px !important; background: linear-gradient(145deg, rgba(39,20,26,.98), rgba(52,20,32,.97)) !important; }
           .catalog-brand-lockup { gap: 10px; align-items: center; }
-          .catalog-brand-emblem { width: 42px; height: 42px; flex-basis: 42px; border-radius: 12px; font-size: 13px; }
+          .catalog-brand-emblem { width: 42px; height: 42px; flex-basis: 42px; border-radius: 9px; object-fit: contain; }
           .catalog-brand-name { font-size: 24px !important; letter-spacing: 1.5px; }
           .catalog-brand-tagline { font-size: 8px; letter-spacing: 1.05px; }
           .catalog-brand-description { font-size: 10px !important; }
@@ -954,6 +1007,79 @@ export function PublicCatalog() {
           .catalog-vip-logout { min-width: 58px; }
           .catalog-consult-btn, .catalog-cart-btn { width: 100%; }
         }
+
+        /* LAYOUT E-COMMERCE — referência visual: Moda Surf */
+        .public-catalog-root { max-width: 1240px !important; padding: 0 24px 42px !important; color: var(--shop-text); }
+        .shop-announcement { width: 100%; min-height: 34px; display:flex; align-items:center; justify-content:center; padding:7px 12px; box-sizing:border-box; background:var(--shop-accent); color:#fff; font-size:11px; font-weight:800; letter-spacing:.75px; text-align:center; text-transform:uppercase; }
+        .catalog-header { background:var(--shop-surface) !important; color:var(--shop-text) !important; border:0 !important; border-bottom:1px solid var(--shop-border) !important; border-radius:0 !important; margin:0 -24px 0 !important; padding:22px 24px !important; min-height:100px; }
+        .catalog-brand-emblem { background:transparent !important; border:0 !important; border-radius:10px !important; transform:none !important; box-shadow:none !important; object-fit:contain !important; }
+        .catalog-brand-name { color:var(--shop-text) !important; text-shadow:none !important; letter-spacing:1px !important; }
+        .catalog-brand-tagline,.catalog-store-name,.catalog-brand-description { color:var(--shop-muted) !important; }
+        .catalog-brand-tagline span { color:var(--shop-accent) !important; }
+        .catalog-action-btn { border-radius:5px !important; box-shadow:none !important; }
+        .catalog-vip-btn,.catalog-products-grid .catalog-product-action,.catalog-featured-card button { background:var(--shop-accent) !important; color:#fff !important; border:1px solid var(--shop-accent) !important; }
+        .catalog-consult-btn { background:#16834a !important; }
+        .catalog-cart-btn { background:var(--shop-surface) !important; color:var(--shop-text) !important; border:1px solid var(--shop-border) !important; }
+        .shop-category-nav { display:flex; align-items:center; gap:25px; overflow-x:auto; white-space:nowrap; padding:14px 2px; margin:0 0 18px; border-bottom:1px solid var(--shop-border); scrollbar-width:none; }
+        .shop-category-nav::-webkit-scrollbar { display:none; }
+        .shop-category-nav button { flex:0 0 auto; border:0; background:transparent; color:var(--shop-text); padding:5px 0; font-size:12px; font-weight:750; cursor:pointer; text-transform:uppercase; letter-spacing:.25px; border-bottom:2px solid transparent; }
+        .shop-category-nav button.active,.shop-category-nav button:hover { color:var(--shop-accent); border-bottom-color:var(--shop-accent); }
+        .catalog-search-section { margin:0 auto 26px !important; max-width:560px; }
+        .catalog-search-section input { border:1px solid var(--shop-border) !important; border-radius:4px !important; background:var(--shop-surface) !important; color:var(--shop-text) !important; padding:13px 16px !important; }
+        .catalog-featured-section { margin:0 0 34px !important; }
+        .catalog-featured-section h2,.catalog-categories-section h2,.public-catalog-root h2 { color:var(--shop-text) !important; font-size:22px !important; font-weight:800 !important; letter-spacing:-.4px; }
+        .catalog-featured-section p,.catalog-categories-section p { color:var(--shop-muted) !important; }
+        .catalog-featured-card,.catalog-category-card,.catalog-product-card { background:var(--shop-surface) !important; color:var(--shop-text) !important; border:1px solid var(--shop-border) !important; border-radius:5px !important; box-shadow:none !important; }
+        .catalog-featured-card img { background:var(--shop-surface-alt); object-fit:contain !important; }
+        .catalog-featured-card-content { padding:10px !important; }
+        .catalog-featured-card .featured-name,.catalog-product-name { color:var(--shop-text) !important; }
+        .catalog-featured-card .featured-price,.catalog-product-price-regular { color:var(--shop-text) !important; }
+        .catalog-product-category { background:var(--shop-accent-soft) !important; color:var(--shop-accent) !important; }
+        .catalog-categories-grid { grid-template-columns:repeat(auto-fill,minmax(155px,1fr)) !important; }
+        .catalog-category-image-placeholder { background:var(--shop-surface-alt) !important; color:var(--shop-accent) !important; aspect-ratio: 1 / 1 !important; }
+        .catalog-category-name { color:var(--shop-text) !important; }
+        .catalog-category-count { color:var(--shop-muted) !important; }
+        .catalog-products-grid { grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:18px !important; }
+        .catalog-product-card { overflow:hidden; transition:transform .2s ease,border-color .2s ease !important; }
+        .catalog-product-card:hover { transform:translateY(-3px); border-color:var(--shop-accent) !important; }
+        .catalog-product-image { height:auto !important; max-height:none !important; aspect-ratio:1/1 !important; object-fit:contain !important; background:var(--shop-surface-alt) !important; padding:8px; box-sizing:border-box; }
+        .catalog-product-card > div:first-child > div:not(.catalog-product-content) { max-height:none !important; }
+        .catalog-product-content { padding:12px 13px 8px !important; }
+        .catalog-product-name { font-size:14px !important; line-height:1.35 !important; font-weight:650 !important; min-height:38px; }
+        .catalog-product-description { color:var(--shop-muted) !important; }
+        .catalog-product-footer { padding:8px 13px 14px !important; align-items:center !important; }
+        .catalog-product-price { font-size:19px !important; color:var(--shop-text) !important; }
+        .catalog-product-price-offer { color:var(--shop-accent) !important; }
+        .catalog-product-action { padding:10px 13px !important; border-radius:4px !important; font-weight:800 !important; }
+        .catalog-falling-background { display:none !important; }
+        .catalog-new-arrivals-glow { background:var(--shop-surface) !important; border:1px solid var(--shop-border) !important; box-shadow:none !important; }
+        .vip-theme .catalog-header,.vip-theme .catalog-product-card,.vip-theme .catalog-featured-card { background:var(--shop-surface) !important; border-color:var(--shop-border) !important; }
+        .vip-theme .catalog-header-title,.vip-theme .catalog-product-name { color:var(--shop-text) !important; }
+        .vip-theme .catalog-brand-name { color:var(--shop-text) !important; }
+        .vip-theme .catalog-vip-btn,.vip-theme .catalog-products-grid button,.vip-theme .catalog-featured-card button { background:var(--shop-accent) !important; color:#fff !important; border-color:var(--shop-accent) !important; }
+        .vip-theme .catalog-header p,.vip-theme .catalog-category-count { color:var(--shop-muted) !important; }
+        .vip-theme .catalog-category-card { background:var(--shop-surface) !important; border-color:var(--shop-border) !important; color:var(--shop-text) !important; }
+        @media (max-width:900px) { .catalog-products-grid { grid-template-columns:repeat(3,minmax(0,1fr)) !important; } }
+        @media (max-width:600px) {
+          .public-catalog-root { padding:0 12px 32px !important; }
+          .catalog-header { margin:0 -12px 0 !important; padding:16px 12px !important; }
+          .catalog-brand-name { font-size:22px !important; }
+          .catalog-header-actions { grid-template-columns:1fr 1fr !important; }
+          .shop-category-nav { gap:18px; padding:12px 0; margin-bottom:14px; }
+          .shop-category-nav button { font-size:10px; }
+          .catalog-search-section { margin-bottom:20px !important; }
+          .catalog-products-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:10px !important; }
+          .catalog-product-card { border-radius:4px !important; }
+          .catalog-product-content { padding:8px 9px 5px !important; }
+          .catalog-product-name { font-size:12px !important; min-height:34px; }
+          .catalog-product-footer { padding:6px 9px 10px !important; gap:5px !important; flex-wrap:wrap; }
+          .catalog-product-price { font-size:16px !important; }
+          .catalog-product-action { width:100%; padding:9px 6px !important; font-size:10px !important; }
+          .catalog-featured-section h2,.catalog-categories-section h2,.public-catalog-root h2 { font-size:19px !important; }
+          .catalog-categories-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+        }
+        @media (prefers-reduced-motion:reduce) { .catalog-product-card { transition:none !important; } }
+
       `}</style>
       <div className="catalog-falling-background" aria-hidden="true">
         {productsList
@@ -974,7 +1100,8 @@ export function PublicCatalog() {
             />
           ))}
       </div>
-      <div className="public-catalog-root" style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <div className="shop-announcement">Confira nossas novidades e ofertas especiais</div>
+      <div className="public-catalog-root" style={{ maxWidth: 1240, margin: '0 auto' }}>
         {/* CABEÇALHO */}
         <div
           className="catalog-header"
@@ -992,7 +1119,7 @@ export function PublicCatalog() {
           }}
         >
           <div className="catalog-brand-lockup">
-            <div className="catalog-brand-emblem" aria-hidden="true">MB</div>
+            <img src={logoByse} alt="Logo M-BYSE" className="catalog-brand-emblem" />
             <div className="catalog-brand-copy">
               <h1 className="catalog-header-title catalog-brand-name">M-BYSE</h1>
               <div className="catalog-brand-tagline">NUTRIÇÃO ESPORTIVA <span>•</span> PERFORMANCE</div>
@@ -1137,6 +1264,14 @@ export function PublicCatalog() {
           </div>
         </div>
 
+        <nav className="shop-category-nav" aria-label="Categorias do catálogo">
+          <button type="button" className={selectedCategory === 'Todos' ? 'active' : ''} onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(false); }}>Início</button>
+          {categories.map((cat: string) => (
+            <button type="button" key={`nav-${cat}`} className={selectedCategory === cat ? 'active' : ''} onClick={() => { setSelectedCategory(cat); setQuery(''); setShowAllProducts(true); }}>{cat}</button>
+          ))}
+          <button type="button" onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(true); }}>Todos os produtos</button>
+        </nav>
+
         {/* PESQUISA */}
         <div
           className="catalog-search-section"
@@ -1203,10 +1338,32 @@ export function PublicCatalog() {
                     }}
                     aria-label={`Ver produtos da categoria ${cat}`}
                   >
-                    {/* Espaço reservado para a imagem personalizada da categoria. */}
-                    <div className="catalog-category-image-placeholder">
-                      <Tag size={30} />
-                    </div>
+                    {(() => {
+                      const categoryImage = getCategoryImage(cat);
+                      return (
+                        <div className="catalog-category-image-placeholder">
+                          {categoryImage ? (
+                            <img
+                              src={categoryImage}
+                              alt={`Categoria ${cat}`}
+                              className="catalog-category-image"
+                              loading="lazy"
+                              onError={(event) => {
+                                event.currentTarget.style.display = 'none';
+                                const fallback = event.currentTarget.parentElement?.querySelector('.catalog-category-image-fallback');
+                                if (fallback) fallback.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className="catalog-category-image-fallback"
+                            style={{ display: categoryImage ? 'none' : 'flex' }}
+                          >
+                            <Tag size={30} />
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <span className="catalog-category-name">{cat}</span>
                     <span className="catalog-category-count">
                       {productsList.filter((p: any) => (p.category || 'Geral') === cat).length} produtos
@@ -1226,7 +1383,7 @@ export function PublicCatalog() {
                 cat,
                 `Produtos da categoria ${cat}`,
                 categoryProducts,
-                'CATEGORIA'
+                ''
               );
             })}
           </section>

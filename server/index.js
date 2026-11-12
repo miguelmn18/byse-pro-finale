@@ -330,6 +330,7 @@ app.put("/api/app-state/:key", authMiddleware, async (req, res) => {
 // CATÁLOGO PÚBLICO
 // ==========================================
 
+
 app.get("/api/public/catalogo/:userId", async (req, res) => {
   try {
     const userId = String(req.params.userId || "");
@@ -409,6 +410,24 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
     );
 
     const cfg = json(stateResult.rows[0]?.state, {});
+
+    // =====================================================
+    // IMAGENS DAS CATEGORIAS
+    // Recupera as imagens cadastradas em Catalogo.tsx.
+    // Aceita os formatos camelCase e snake_case.
+    // =====================================================
+
+    const rawCategoryImages =
+      cfg.categoryImages ||
+      cfg.category_images ||
+      {};
+
+    const categoryImages =
+      rawCategoryImages &&
+      typeof rawCategoryImages === "object" &&
+      !Array.isArray(rawCategoryImages)
+        ? rawCategoryImages
+        : {};
 
     // MAIS VENDIDOS
     const salesResult = await pool.query(
@@ -520,6 +539,9 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
       instagram: cfg.instagram || "",
       bannerUrl: cfg.bannerUrl || "",
 
+      // IMAGENS PERSONALIZADAS DAS CATEGORIAS
+      categoryImages,
+
       catalogVisible,
 
       bestSellingProductIds,
@@ -547,6 +569,7 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
     });
   }
 });
+
 
 app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
   try {

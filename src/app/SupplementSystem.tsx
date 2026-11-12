@@ -102,10 +102,16 @@ const API_URL = getApiUrl();
 function SupplementSystem() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [dark, setDark] = useState(true);
-  const [accent, setAccent] = useState("#DC2626");
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("byse_dark");
+    return saved === null ? true : saved === "true";
+  });
+  const [accent, setAccent] = useState(() => localStorage.getItem("byse_accent") || "#DC2626");
   const [device, setDevice] = useState("mobile");
   const [tab, setTab] = useState("dashboard");
+
+  useEffect(() => { localStorage.setItem("byse_dark", String(dark)); }, [dark]);
+  useEffect(() => { localStorage.setItem("byse_accent", accent); }, [accent]);
 
   const [publicStoreData, setPublicStoreData] = useState<any>(null);
   const [isPublicCatalog, setIsPublicCatalog] = useState(false);
@@ -823,7 +829,7 @@ function SupplementSystem() {
   }
 
   if (isPublicCatalog) {
-    return <PublicCatalog />;
+    return <PublicCatalog accent={accent} dark={dark} />;
   }
 
   if (!user) {
