@@ -109,6 +109,14 @@ function SupplementSystem() {
   const [accent, setAccent] = useState(() => localStorage.getItem("byse_accent") || "#DC2626");
   const [device, setDevice] = useState("mobile");
   const [tab, setTab] = useState("dashboard");
+  // Mantém montadas as abas já visitadas para preservar estado e evitar remontagens.
+  const [visitedTabs, setVisitedTabs] = useState(["dashboard"]);
+  const navigateToTab = (nextTab) => {
+    setVisitedTabs((current) =>
+      current.includes(nextTab) ? current : [...current, nextTab],
+    );
+    setTab(nextTab);
+  };
 
   useEffect(() => { localStorage.setItem("byse_dark", String(dark)); }, [dark]);
   useEffect(() => { localStorage.setItem("byse_accent", accent); }, [accent]);
@@ -124,6 +132,8 @@ function SupplementSystem() {
   const [fiados, setFiados] = useState([]);
   // Impede que uma consulta antiga sobrescreva alterações recentes nos fiados.
   const fiadosRevision = useRef(0);
+  // Invalida respostas de sincronizações iniciadas antes de trocar de usuário/sair.
+  const syncVersionRef = useRef(0);
   const [adEntries, setAdEntries] = useState([]);
   const [stockLocations, setStockLocations] = useState([
     { id: "loja", name: "Loja física" },
@@ -174,121 +184,86 @@ function SupplementSystem() {
     return `byse_${key}_${userId}`;
   };
 
+  // Sincroniza as áreas independentes em paralelo. A tela não precisa esperar
+  // uma consulta terminar para iniciar a próxima.
   const fetchUserData = async (targetUser = user) => {
+    if (!targetUser) return;
+
     const headers = getAuthHeaders();
+    const requestVersion = syncVersionRef.current;
+    const userKey = targetUser?.id || targetUser?.email || "guest";
+    const requests = [
+      { key: "customers", url: `${API_URL}/customers` },
+      { key: "sales", url: `${API_URL}/sales` },
+      { key: "products", url: `${API_URL}/products` },
+      { key: "sellers", url: `${API_URL}/sellers` },
+      { key: "fiados", url: `${API_URL}/fiados` },
+      { key: "pre_treino_records", url: `${API_URL}/pre-treino/records` },
+      { key: "pre_treino_products", url: `${API_URL}/pre-treino/products` },
+      { key: "pre_treino_customers", url: `${API_URL}/pre-treino/customers` },
+    ];
+
+    const fiadosRevisionAtRequest = fiadosRevision.current;
 
     try {
-      const resCustomers = await fetch(`${API_URL}/customers`, { headers });
-      if (resCustomers.ok) {
-        const data = await resCustomers.json();
-        if (Array.isArray(data)) {
-          setCustomers([...data]);
-          localStorage.setItem(
-            getStorageKey("customers", targetUser),
-            JSON.stringify(data),
-          );
-        }
-      }
+      const results = await Promise.allSettled(
+        requests.map(async (request) => {
+          const response = await fetch(request.url, { headers });
+          if (!response.ok) {
+            throw new Error(`${request.key}: HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          if (!Array.isArray(data)) {
+            throw new Error(`${request.key}: resposta inválida`);
+          }
+          return { key: request.key, data };
+        }),
+      );
 
-      const resSales = await fetch(`${API_URL}/sales`, { headers });
-      if (resSales.ok) {
-        const data = await resSales.json();
-        if (Array.isArray(data)) {
-          const normalizedSales = data.map((s) => ({
-            ...s,
-            customerId: s.customerId || s.customer_id || s.customer || null,
-            customer_id: s.customer_id || s.customerId || s.customer || null,
-            customerName: s.customerName || s.customer_name || "Cliente Geral",
-            customer_name: s.customer_name || s.customerName || "Cliente Geral",
-            gender: s.gender || s.genders || "Prefiro não informar",
+      // Descarta respostas antigas caso outro usuário tenha entrado ou a sessão tenha sido encerrada.
+      if (requestVersion !== syncVersionRef.current) return;
+
+      results.forEach((result) => {
+        if (result.status !== "fulfilled") {
+          console.warn("Falha parcial na sincronização:", result.reason);
+          return;
+        }
+
+        const { key, data } = result.value;
+        const storageKey = `byse_${key}_${userKey}`;
+
+        if (key === "sales") {
+          const normalizedSales = data.map((sale) => ({
+            ...sale,
+            customerId: sale.customerId || sale.customer_id || sale.customer || null,
+            customer_id: sale.customer_id || sale.customerId || sale.customer || null,
+            customerName: sale.customerName || sale.customer_name || "Cliente Geral",
+            customer_name: sale.customer_name || sale.customerName || "Cliente Geral",
+            gender: sale.gender || sale.genders || "Prefiro não informar",
           }));
           setSales([...normalizedSales]);
+          localStorage.setItem(storageKey, JSON.stringify(normalizedSales));
+          return;
         }
-      }
 
-      const resProducts = await fetch(`${API_URL}/products`, { headers });
-      if (resProducts.ok) {
-        const data = await resProducts.json();
-        if (Array.isArray(data)) {
-          setProducts([...data]);
-          localStorage.setItem(
-            getStorageKey("products", targetUser),
-            JSON.stringify(data),
-          );
-        }
-      }
-
-      const resSellers = await fetch(`${API_URL}/sellers`, { headers });
-      if (resSellers.ok) {
-        const data = await resSellers.json();
-        if (Array.isArray(data)) {
-          setSellers([...data]);
-          localStorage.setItem(
-            getStorageKey("sellers", targetUser),
-            JSON.stringify(data),
-          );
-        }
-      }
-
-      const fiadosRevisionAtRequest = fiadosRevision.current;
-      const resFiados = await fetch(`${API_URL}/fiados`, { headers });
-      if (resFiados.ok) {
-        const data = await resFiados.json();
-        // Só aplica o resultado se nenhum fiado tiver sido alterado desde o início da consulta.
-        if (
-          Array.isArray(data) &&
-          fiadosRevision.current === fiadosRevisionAtRequest
-        ) {
+        if (key === "fiados") {
+          // Não deixa uma resposta antiga desfazer uma alteração feita na tela Fiados.
+          if (fiadosRevision.current !== fiadosRevisionAtRequest) return;
           setFiados([...data]);
-          localStorage.setItem(
-            getStorageKey("fiados", targetUser),
-            JSON.stringify(data),
-          );
+          localStorage.setItem(storageKey, JSON.stringify(data));
+          return;
         }
-      }
 
-      const resPtRecs = await fetch(`${API_URL}/pre-treino/records`, {
-        headers,
+        if (key === "customers") setCustomers([...data]);
+        if (key === "products") setProducts([...data]);
+        if (key === "sellers") setSellers([...data]);
+        if (key === "pre_treino_records") setPreTreinoRecords([...data]);
+        if (key === "pre_treino_products") setProdutosPreTreino([...data]);
+        if (key === "pre_treino_customers") setPreTreinoCustomers([...data]);
+        localStorage.setItem(storageKey, JSON.stringify(data));
       });
-      if (resPtRecs.ok) {
-        const data = await resPtRecs.json();
-        if (Array.isArray(data)) {
-          setPreTreinoRecords([...data]);
-          localStorage.setItem(
-            getStorageKey("pre_treino_records", targetUser),
-            JSON.stringify(data),
-          );
-        }
-      }
-
-      const resPtProds = await fetch(`${API_URL}/pre-treino/products`, {
-        headers,
-      });
-      if (resPtProds.ok) {
-        const data = await resPtProds.json();
-        if (Array.isArray(data)) {
-          setProdutosPreTreino([...data]);
-          localStorage.setItem(
-            getStorageKey("pre_treino_products", targetUser),
-            JSON.stringify(data),
-          );
-        }
-      }
-
-      const resPtCusts = await fetch(`${API_URL}/pre-treino/customers`, {
-        headers,
-      });
-      if (resPtCusts.ok) {
-        const data = await resPtCusts.json();
-        if (Array.isArray(data)) {
-          setPreTreinoCustomers([...data]);
-          localStorage.setItem(
-            getStorageKey("pre_treino_customers", targetUser),
-            JSON.stringify(data),
-          );
-        }
-      }
     } catch (err) {
+      // Promise.allSettled evita que uma rota indisponível bloqueie as demais.
       console.error("Erro ao sincronizar dados com o servidor:", err);
     }
   };
@@ -347,6 +322,7 @@ function SupplementSystem() {
         const uKey = parsedUser?.id || parsedUser?.email || "guest";
 
         const localCust = localStorage.getItem(`byse_customers_${uKey}`);
+        const localSales = localStorage.getItem(`byse_sales_${uKey}`);
         const localProd = localStorage.getItem(`byse_products_${uKey}`);
         const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
         const localFiados = localStorage.getItem(`byse_fiados_${uKey}`);
@@ -361,6 +337,7 @@ function SupplementSystem() {
         );
 
         if (localCust) setCustomers(JSON.parse(localCust));
+        if (localSales) setSales(JSON.parse(localSales));
         if (localProd) setProducts(JSON.parse(localProd));
         if (localSellers) setSellers(JSON.parse(localSellers));
         if (localFiados) setFiados(JSON.parse(localFiados));
@@ -368,7 +345,12 @@ function SupplementSystem() {
         if (localPtProds) setProdutosPreTreino(JSON.parse(localPtProds));
         if (localPtCusts) setPreTreinoCustomers(JSON.parse(localPtCusts));
 
-        setLoading(true);
+        // Se há cache local, abre o sistema imediatamente e sincroniza sem bloquear.
+        const hasLocalCache = Boolean(
+          localCust || localSales || localProd || localSellers || localFiados ||
+          localPtRecs || localPtProds || localPtCusts
+        );
+        setLoading(!hasLocalCache);
         fetchUserData(parsedUser).finally(() => setLoading(false));
         return;
       } catch (error) {
@@ -382,6 +364,9 @@ function SupplementSystem() {
   }, []);
 
   const handleLogin = (userData, token) => {
+    syncVersionRef.current += 1;
+    setTab("dashboard");
+    setVisitedTabs(["dashboard"]);
     if (token) localStorage.setItem("byse_token", token);
     localStorage.setItem("byse_user", JSON.stringify(userData));
 
@@ -399,6 +384,7 @@ function SupplementSystem() {
 
     const uKey = userData?.id || userData?.email || "guest";
     const localCust = localStorage.getItem(`byse_customers_${uKey}`);
+    const localSales = localStorage.getItem(`byse_sales_${uKey}`);
     const localProd = localStorage.getItem(`byse_products_${uKey}`);
     const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
     const localFiados = localStorage.getItem(`byse_fiados_${uKey}`);
@@ -411,6 +397,7 @@ function SupplementSystem() {
     );
 
     if (localCust) setCustomers(JSON.parse(localCust));
+    if (localSales) setSales(JSON.parse(localSales));
     if (localProd) setProducts(JSON.parse(localProd));
     if (localSellers) setSellers(JSON.parse(localSellers));
     if (localFiados) setFiados(JSON.parse(localFiados));
@@ -418,10 +405,18 @@ function SupplementSystem() {
     if (localPtProds) setProdutosPreTreino(JSON.parse(localPtProds));
     if (localPtCusts) setPreTreinoCustomers(JSON.parse(localPtCusts));
 
+    const hasLocalCache = Boolean(
+      localCust || localSales || localProd || localSellers || localFiados ||
+      localPtRecs || localPtProds || localPtCusts
+    );
+    setLoading(!hasLocalCache);
     fetchUserData(userData).finally(() => setLoading(false));
   };
 
   const handleLogout = () => {
+    syncVersionRef.current += 1;
+    setTab("dashboard");
+    setVisitedTabs(["dashboard"]);
     localStorage.removeItem("byse_token");
     localStorage.removeItem("byse_user");
 
@@ -707,6 +702,7 @@ function SupplementSystem() {
         : null;
 
     setSales([...newSales]);
+    localStorage.setItem(getStorageKey("sales"), JSON.stringify(newSales));
 
     if (latestSale) {
       try {
@@ -861,8 +857,8 @@ function SupplementSystem() {
   const mobileBottomItems = nav.filter((n) => MOBILE_PRIMARY.includes(n.id));
   const mobileMenuItems = nav.filter((n) => !MOBILE_PRIMARY.includes(n.id));
 
-  const renderScreen = () => {
-    if (tab === "dashboard")
+  const renderScreen = (screenTab = tab) => {
+    if (screenTab === "dashboard")
       return (
         <Dashboard
           {...{
@@ -878,7 +874,7 @@ function SupplementSystem() {
           }}
         />
       );
-    if (tab === "clientes")
+    if (screenTab === "clientes")
       return (
         <Clientes
           customers={customers}
@@ -887,7 +883,7 @@ function SupplementSystem() {
         />
       );
 
-    if (tab === "estoque")
+    if (screenTab === "estoque")
       return (
         <Estoque
           products={products}
@@ -906,7 +902,7 @@ function SupplementSystem() {
         />
       );
 
-    if (tab === "pdv")
+    if (screenTab === "pdv")
       return (
         <PDV
           products={products}
@@ -921,7 +917,7 @@ function SupplementSystem() {
           {...{ cashbackPct, card, border, subtext, accent, text, dark }}
         />
       );
-    if (tab === "vendedores")
+    if (screenTab === "vendedores")
       return (
         <Vendedores
           sellers={sellers}
@@ -929,7 +925,7 @@ function SupplementSystem() {
           {...{ sales, card, border, subtext, accent, text }}
         />
       );
-    if (tab === "catalogo")
+    if (screenTab === "catalogo")
       return (
         <Catalogo
           products={products}
@@ -938,7 +934,7 @@ function SupplementSystem() {
           {...{ sales, card, border, subtext, accent, text, dark, device }}
         />
       );
-    if (tab === "cashback")
+    if (screenTab === "cashback")
       return (
         <Cashback
           customers={customers}
@@ -956,7 +952,7 @@ function SupplementSystem() {
           }}
         />
       );
-    if (tab === "fiados")
+    if (screenTab === "fiados")
       return (
         <Fiados
           fiados={fiados}
@@ -966,7 +962,7 @@ function SupplementSystem() {
         />
       );
 
-    if (tab === "preTreino")
+    if (screenTab === "preTreino")
       return (
         <PreTreino
           clientesPreTreino={preTreinoCustomers}
@@ -1001,7 +997,7 @@ function SupplementSystem() {
         />
       );
 
-    if (tab === "whatsapp")
+    if (screenTab === "whatsapp")
       return (
         <WhatsApp
           {...{
@@ -1017,7 +1013,7 @@ function SupplementSystem() {
           }}
         />
       );
-    if (tab === "trafego")
+    if (screenTab === "trafego")
       return (
         <TrafegoPago
           {...{
@@ -1032,21 +1028,21 @@ function SupplementSystem() {
           }}
         />
       );
-    if (tab === "canais")
+    if (screenTab === "canais")
       return (
         <CanaisDeVenda
           {...{ sales, setSales, card, border, subtext, accent, text }}
         />
       );
-    if (tab === "dre")
+    if (screenTab === "dre")
       return <DRE {...{ sales, card, border, subtext, accent, text }} />;
-    if (tab === "planos")
+    if (screenTab === "planos")
       return <Planos {...{ card, border, subtext, accent, text }} />;
-    if (tab === "menu")
+    if (screenTab === "menu")
       return (
         <MenuGridScreen
           items={mobileMenuItems}
-          onNavigate={setTab}
+          onNavigate={navigateToTab}
           card={card}
           border={border}
           subtext={subtext}
@@ -1059,38 +1055,54 @@ function SupplementSystem() {
 
   if (device === "mobile") {
     return (
-      <div style={{ "--accent": accent, minHeight: "100vh", background: bg }}>
+      <div className="byse-mobile-root" style={{ "--accent": accent, minHeight: "100vh", background: bg }}>
         <style>{GLOBAL_CSS}</style>
+        <style>{`
+          .byse-mobile-root { width:100%; min-height:100vh; min-height:100dvh; overflow:hidden; }
+          .byse-mobile-shell { width:100%; max-width:560px; height:100vh; height:100dvh; min-height:0; margin:0 auto; display:flex; flex-direction:column; overflow:hidden; }
+          .byse-mobile-header { min-height:48px; padding:7px 10px !important; gap:8px; }
+          .byse-mobile-header button { white-space:nowrap; }
+          .byse-mobile-content { flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; padding:10px 10px 14px !important; }
+          .byse-mobile-content > div { min-width:0; max-width:100%; }
+          .byse-mobile-content img, .byse-mobile-content video, .byse-mobile-content canvas { max-width:100%; }
+          .byse-mobile-nav { flex:0 0 auto; min-height:58px; padding-bottom:env(safe-area-inset-bottom); }
+          .byse-mobile-nav button { min-width:0; min-height:54px; padding:7px 2px 6px !important; gap:2px !important; }
+          .byse-mobile-nav button span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px !important; }
+          @media (max-width:360px) {
+            .byse-mobile-header { padding-left:8px !important; padding-right:8px !important; }
+            .byse-mobile-header .byse-device-label { display:none; }
+            .byse-mobile-content { padding:8px 8px 12px !important; }
+            .byse-mobile-nav button span { font-size:8px !important; }
+          }
+        `}</style>
         <div
+          className="byse-mobile-shell"
           style={{
-            maxWidth: 430,
-            margin: "0 auto",
-            minHeight: "100vh",
-            display: "flex",
-            flexDirection: "column",
             background: bg,
             color: text,
             fontFamily: FONT_BODY,
           }}
         >
           <div
+            className="byse-mobile-header"
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              padding: "12px 16px 10px",
+              padding: "8px 10px",
+              minHeight: 48,
               background: card2,
               borderBottom: `1px solid ${border}`,
               flexShrink: 0,
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <LogoMark accent={accent} size={28} />
+              <LogoMark accent={accent} size={25} />
               <span
                 style={{
                   fontFamily: FONT_DISPLAY,
-                  fontSize: 17,
-                  letterSpacing: 2,
+                  fontSize: 15,
+                  letterSpacing: 1.5,
                 }}
               >
                 BYSE <span style={{ color: accent }}>PRO</span>
@@ -1100,18 +1112,18 @@ function SupplementSystem() {
               <button
                 onClick={() => setDevice("desktop")}
                 style={{
-                  padding: "5px 10px",
+                  padding: "5px 8px",
                   background: card,
                   border: `1px solid ${border}`,
                   borderRadius: 7,
                   color: subtext,
                   fontFamily: FONT_BODY,
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
-                💻 Notebook
+                <span className="byse-device-label">💻 Notebook</span>
               </button>
               <button
                 onClick={() => setDark(!dark)}
@@ -1150,16 +1162,16 @@ function SupplementSystem() {
               </button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px" }}>
+          <div className="byse-mobile-content" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "10px 10px 14px", position: "relative" }}>
             {mobileMenuItems.some((i) => i.id === tab) && (
               <button
-                onClick={() => setTab("menu")}
+                onClick={() => navigateToTab("menu")}
                 style={{
                   background: "none",
                   border: "none",
                   color: subtext,
-                  fontSize: 12.5,
-                  marginBottom: 12,
+                  fontSize: 11,
+                  marginBottom: 8,
                   cursor: "pointer",
                   padding: 0,
                 }}
@@ -1167,9 +1179,22 @@ function SupplementSystem() {
                 ← Menu
               </button>
             )}
-            {renderScreen()}
+            {visitedTabs.map((screenTab) => (
+              <div
+                key={screenTab}
+                style={
+                  tab === screenTab
+                    ? { display: "block", width: "100%" }
+                    : { display: "none" }
+                }
+                aria-hidden={tab !== screenTab}
+              >
+                {renderScreen(screenTab)}
+              </div>
+            ))}
           </div>
           <div
+            className="byse-mobile-nav"
             style={{
               display: "flex",
               borderTop: `1px solid ${border}`,
@@ -1183,7 +1208,7 @@ function SupplementSystem() {
               return (
                 <button
                   key={n.id}
-                  onClick={() => setTab(n.id)}
+                  onClick={() => navigateToTab(n.id)}
                   style={{
                     flex: 1,
                     display: "flex",
@@ -1213,7 +1238,7 @@ function SupplementSystem() {
               );
             })}
             <button
-              onClick={() => setTab("menu")}
+              onClick={() => navigateToTab("menu")}
               style={{
                 flex: 1,
                 display: "flex",
@@ -1303,7 +1328,7 @@ function SupplementSystem() {
             return (
               <button
                 key={n.id}
-                onClick={() => setTab(n.id)}
+                onClick={() => navigateToTab(n.id)}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -1429,8 +1454,20 @@ function SupplementSystem() {
             </div>
           </div>
         </div>
-        <div style={{ flex: 1, padding: "28px 32px", maxWidth: 1100 }}>
-          {renderScreen()}
+        <div style={{ flex: 1, padding: "28px 32px", maxWidth: 1100, position: "relative" }}>
+          {visitedTabs.map((screenTab) => (
+            <div
+              key={screenTab}
+              style={
+                tab === screenTab
+                  ? { display: "block", width: "100%" }
+                  : { display: "none" }
+              }
+              aria-hidden={tab !== screenTab}
+            >
+              {renderScreen(screenTab)}
+            </div>
+          ))}
         </div>
       </div>
     </div>

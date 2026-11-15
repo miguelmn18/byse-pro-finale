@@ -499,10 +499,9 @@ function Clientes({
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="Número com 8 dígitos"
+                placeholder="8171-9857"
                 aria-label="Número do WhatsApp do cliente"
-                value={form.phoneNumber}
-                maxLength={8}
+                value={form.phoneNumber.length > 4 ? `${form.phoneNumber.slice(0, 4)}-${form.phoneNumber.slice(4)}` : form.phoneNumber}
                 onChange={(e) => {
                   const rawValue = e.target.value.replace(/\D/g, "");
 
@@ -552,7 +551,7 @@ function Clientes({
                 fontSize: 11,
               }}
             >
-              Exemplo: +55 · 83 · 81709857
+              Exemplo: 55 83 8171-9857
             </span>
           </div>
 

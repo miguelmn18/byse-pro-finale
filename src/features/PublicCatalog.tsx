@@ -15,7 +15,14 @@ import {
   X,
   Plus,
   Minus,
-  Sparkles
+  Sparkles,
+  Info,
+  CreditCard,
+  Truck,
+  FileText,
+  MapPin,
+  Instagram,
+  ChevronLeft
 } from 'lucide-react';
 
 export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) {
@@ -43,6 +50,20 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [query, setQuery] = useState('');
   const [consultMessage, setConsultMessage] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [detailFlavor, setDetailFlavor] = useState('');
+  const [detailQuantity, setDetailQuantity] = useState(1);
+  const [infoPanel, setInfoPanel] = useState('');
+  const [checkoutName, setCheckoutName] = useState('');
+  const [checkoutDdd, setCheckoutDdd] = useState('');
+  const [checkoutNumber, setCheckoutNumber] = useState('');
+  const [checkoutPhoneError, setCheckoutPhoneError] = useState('');
+  const [checkoutSaving, setCheckoutSaving] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState(1);
+  const [paymentMethod, setPaymentMethod] = useState('Dinheiro / espécie');
+  const [orderDelivery, setOrderDelivery] = useState('Retirada');
+  const [detailAddedNotice, setDetailAddedNotice] = useState('');
 
   // Controle da seleção de sabores.
   const [selectedFlavorProduct, setSelectedFlavorProduct] =
@@ -93,6 +114,33 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
   };
 
   const catalogSettings = data?.catalogConfig || data?.config || data?.settings || data || {};
+
+  // O banner é publicado apenas quando a configuração foi habilitada e salva
+  // no Catalogo.tsx. Aceita aliases para compatibilidade com versões anteriores.
+  const catalogBannerEnabled = Boolean(
+    catalogSettings?.catalogBannerEnabled ??
+    catalogSettings?.catalog_banner_enabled ??
+    catalogSettings?.bannerEnabled ??
+    data?.catalogBannerEnabled ??
+    data?.catalog_banner_enabled ??
+    false
+  );
+  const catalogBannerTitle = String(
+    catalogSettings?.catalogBannerTitle ??
+    catalogSettings?.catalog_banner_title ??
+    data?.catalogBannerTitle ??
+    data?.catalog_banner_title ??
+    ''
+  ).trim();
+  const catalogBannerMessage = String(
+    catalogSettings?.catalogBannerMessage ??
+    catalogSettings?.catalog_banner_message ??
+    data?.catalogBannerMessage ??
+    data?.catalog_banner_message ??
+    ''
+  ).trim();
+  const showCatalogBanner = catalogBannerEnabled && Boolean(catalogBannerTitle || catalogBannerMessage);
+
 
   // Imagens cadastradas em Catalogo.tsx. A API pode entregar o campo na raiz
   // da resposta ou dentro de catalogConfig/config/settings.
@@ -367,7 +415,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
    * Produtos com sabores são identificados também pelo sabor,
    * permitindo comprar o mesmo produto com sabores diferentes.
    */
-  const addToCart = (product: any, flavor = '') => {
+  const addToCart = (product: any, flavor = '', quantity = 1) => {
     setCart(prev => {
       const existing = prev.find(
         item =>
@@ -381,7 +429,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           (item.flavor || '') === flavor
             ? {
                 ...item,
-                quantity: item.quantity + 1
+                quantity: item.quantity + quantity
               }
             : item
         );
@@ -391,7 +439,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         ...prev,
         {
           product,
-          quantity: 1,
+          quantity,
           flavor
         }
       ];
@@ -406,18 +454,28 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
    * ABRIR A SELEÇÃO DE SABORES
    */
   const handleProductClick = (product: any) => {
-    const flavors = getProductFlavors(product);
+    setSelectedProduct(product);
+    setDetailFlavor('');
+    setDetailQuantity(1);
+    setDetailAddedNotice('');
+  };
 
-    if (flavors.length > 0) {
-      setSelectedFlavorProduct(product);
-      setSelectedFlavor('');
-      setFlavorNotice(
-        'Atenção: escolha o sabor desejado antes de adicionar este produto ao carrinho.'
-      );
+  const closeProductDetails = () => {
+    setSelectedProduct(null);
+    setDetailFlavor('');
+    setDetailQuantity(1);
+  };
+
+  const addProductDetailsToCart = () => {
+    if (!selectedProduct) return;
+    const flavors = getProductFlavors(selectedProduct);
+    if (flavors.length && !detailFlavor) {
+      alert('Selecione uma variação/sabor antes de adicionar ao carrinho.');
       return;
     }
-
-    addToCart(product);
+    addToCart(selectedProduct, detailFlavor, Math.max(1, Number(detailQuantity) || 1));
+    setDetailAddedNotice('Produto adicionado ao carrinho!');
+    window.setTimeout(() => setDetailAddedNotice(''), 2200);
   };
 
   /*
@@ -473,13 +531,15 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
     if (!product) return 0;
     const offer = getOfferDetails(product);
     const regularPrice = Number(product.price || 0);
-    let effectivePrice = offer.valid ? offer.offerPrice : regularPrice;
+    // No modo VIP, o preço VIP é independente das promoções públicas.
+    // Nunca combina os dois descontos nem utiliza a oferta como fallback.
+    let effectivePrice = vip ? regularPrice : (offer.valid ? offer.offerPrice : regularPrice);
 
     if (vip) {
       const vipValue = product.vip_price !== undefined ? product.vip_price : product.vipPrice;
       const vipPrice = Number(vipValue);
       if (vipValue !== null && vipValue !== undefined && Number.isFinite(vipPrice) && vipPrice > 0) {
-        effectivePrice = effectivePrice > 0 ? Math.min(effectivePrice, vipPrice) : vipPrice;
+        effectivePrice = vipPrice;
       }
     }
 
@@ -574,10 +634,18 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
     );
   };
 
+  const formatCheckoutNumber = (value: string) => {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+    return digits.length > 4 ? `${digits.slice(0, 4)}-${digits.slice(4)}` : digits;
+  };
+
+  const cartQuantity = cart.reduce((total, item) => total + Number(item.quantity || 0), 0);
+
   /*
    * FINALIZAR PEDIDO PELO WHATSAPP
+   * Registra o cliente na base da loja antes de abrir a conversa.
    */
-  const handleCheckoutWhatsApp = () => {
+  const handleCheckoutWhatsApp = async () => {
     if (!data?.whatsapp) {
       alert(
         'Esta loja ainda não configurou um número de WhatsApp para pedidos.'
@@ -601,9 +669,47 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
     }
 
     if (!cart.length) {
-      alert(
-        'Adicione pelo menos um produto ao pedido antes de finalizar.'
+      alert('Adicione pelo menos um produto ao pedido antes de finalizar.');
+      return;
+    }
+
+    const customerName = String(checkoutName || '').trim();
+    const ddd = String(checkoutDdd || '').replace(/\D/g, '');
+    const phoneNumber = String(checkoutNumber || '').replace(/\D/g, '');
+
+    if (!customerName) {
+      alert('Informe o nome do cliente para continuar.');
+      return;
+    }
+    if (ddd.length !== 2) {
+      setCheckoutPhoneError('Informe o DDD com exatamente 2 números.');
+      return;
+    }
+    if (phoneNumber.length !== 8) {
+      setCheckoutPhoneError('Informe exatamente 8 números no WhatsApp.');
+      return;
+    }
+
+    setCheckoutPhoneError('');
+    if (checkoutSaving) return;
+    setCheckoutSaving(true);
+
+    try {
+      const customerResponse = await fetch(
+        `${base}/api/public/catalogo/${encodeURIComponent(id)}/customers`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: customerName, phone: `55${ddd}${phoneNumber}` })
+        }
       );
+      const customerResult = await customerResponse.json().catch(() => ({}));
+      if (!customerResponse.ok) {
+        throw new Error(customerResult?.error || 'Não foi possível registrar seus dados. Tente novamente.');
+      }
+    } catch (customerError: any) {
+      alert(customerError?.message || 'Erro ao registrar seus dados.');
+      setCheckoutSaving(false);
       return;
     }
 
@@ -615,7 +721,11 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
     let message =
       `*Pedido via Catálogo Online - ${
         data?.storeName || 'Loja'
-      }*\n\n`;
+      }*\n\n` +
+      `*Cliente:* ${customerName}\n` +
+      `*WhatsApp:* 55 ${ddd} ${formatCheckoutNumber(phoneNumber)}\n` +
+      `*Forma de pagamento:* ${paymentMethod}\n` +
+      `*Entrega:* ${orderDelivery}\n\n`;
 
     if (vip) {
       message += '🔓 _Condição de Preço VIP Ativa_\n\n';
@@ -647,8 +757,30 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
 
     window.open(
       `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`,
-      '_blank'
+      '_blank',
+      'noopener,noreferrer'
     );
+    setCheckoutSaving(false);
+    setShowCheckout(false);
+    setCheckoutStep(1);
+    setIsCartOpen(false);
+  };
+
+  const continueCheckout = () => {
+    if (checkoutStep === 1) {
+      const ddd = String(checkoutDdd || '').replace(/\D/g, '');
+      const number = String(checkoutNumber || '').replace(/\D/g, '');
+      if (!String(checkoutName || '').trim()) {
+        alert('Informe seu nome para continuar.');
+        return;
+      }
+      if (ddd.length !== 2 || number.length !== 8) {
+        setCheckoutPhoneError(ddd.length !== 2 ? 'Informe o DDD com exatamente 2 números.' : 'Informe exatamente 8 números no WhatsApp.');
+        return;
+      }
+      setCheckoutPhoneError('');
+    }
+    setCheckoutStep(current => Math.min(3, current + 1));
   };
 
   /*
@@ -751,7 +883,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
   const bestSellerIds = getConfiguredIds(data?.bestSellingProductIds, data?.best_selling_product_ids, data?.bestSellerProductIds, data?.best_sellers, data?.bestSellingProducts, catalogSettings?.bestSellingProductIds);
 
   const bestSellingProducts = getConfiguredProducts(bestSellerIds);
-  const weeklyOffers = getConfiguredProducts(weeklyOfferIds).filter((product: any) => getOfferDetails(product).valid);
+  const weeklyOffers = vip ? [] : getConfiguredProducts(weeklyOfferIds).filter((product: any) => getOfferDetails(product).valid);
   const weeklyNewProducts = getConfiguredProducts(weeklyNewIds);
 
   const renderFeaturedShelf = (title: string, subtitle: string, items: any[], marker: string) => {
@@ -779,20 +911,34 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
             {carouselItems.map((product: any, index: number) => {
               const image = product.image_url || product.imageUrl;
               return (
-                <div className="catalog-featured-card" key={`${title}-${product.id}-${index}`}>
+                <div
+                  className="catalog-featured-card"
+                  key={`${title}-${product.id}-${index}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Ver detalhes de ${product.name}`}
+                  onClick={() => handleProductClick(product)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleProductClick(product);
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
                   {image ? <img src={image} alt={product.name} /> : <div className="catalog-featured-image-placeholder"><Tag size={20} /></div>}
                   <div className="catalog-featured-card-content">
                     <div className="featured-name" title={product.name} style={{ color: vip ? '#F5EBD3' : '#F0EFE9', fontSize: 11, fontWeight: 750, lineHeight: 1.25, minHeight: 27, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.name}</div>
                     <div className="featured-price" style={{ color: vip ? '#E6C982' : '#F0EFE9', fontSize: 11, fontWeight: 800, margin: '4px 0 6px' }}>
                       {pricesVisible ? (
                         <>
-                          {getOfferDetails(product).valid && (
+                          {!vip && getOfferDetails(product).valid && (
                             <span style={{ display: 'block', color: '#8A8A82', fontSize: 9, textDecoration: 'line-through', fontWeight: 500 }}>
                               {formatCurrency(getOfferDetails(product).originalPrice)}
                             </span>
                           )}
                           <span>{formatCurrency(getProductPrice(product))}</span>
-                          {getOfferDetails(product).valid && (
+                          {!vip && getOfferDetails(product).valid && (
                             <span style={{ display: 'block', color: '#FCA5A5', fontSize: 9, fontWeight: 800 }}>
                               {getOfferDetails(product).discountPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% OFF
                             </span>
@@ -800,7 +946,14 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
                         </>
                       ) : 'Sob consulta'}
                     </div>
-                    <button onClick={() => handleProductClick(product)}>Adicionar</button>
+                    <button
+                      onClick={event => {
+                        event.stopPropagation();
+                        handleProductClick(product);
+                      }}
+                    >
+                      Ver produto
+                    </button>
                   </div>
                 </div>
               );
@@ -932,7 +1085,9 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .catalog-featured-viewport { width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #454545 transparent; }
         .catalog-featured-viewport.is-animated { overflow: hidden; }
         .catalog-featured-track { display: flex; align-items: stretch; gap: 9px; width: max-content; min-width: 100%; }
-        .catalog-featured-card { flex: 0 0 clamp(132px, 15vw, 168px); width: clamp(132px, 15vw, 168px); min-width: 0; overflow: hidden; border-radius: 10px; border: 1px solid #2E2E2E; background: #1C1C1C; }
+        .catalog-featured-card { flex: 0 0 clamp(132px, 15vw, 168px); width: clamp(132px, 15vw, 168px); min-width: 0; overflow: hidden; border-radius: 10px; border: 1px solid #2E2E2E; background: #1C1C1C; cursor: pointer; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+        .catalog-featured-card:hover { transform: translateY(-3px); border-color: var(--shop-accent); box-shadow: 0 8px 22px rgba(0,0,0,.16); }
+        .catalog-featured-card:focus-visible { outline: 3px solid var(--shop-accent); outline-offset: 3px; }
         .vip-theme .catalog-featured-card { background: #19160F; border-color: #806B3D; }
         .catalog-featured-card img, .catalog-featured-image-placeholder { width: 100%; height: 88px; object-fit: cover; display: block; }
         .catalog-featured-image-placeholder { display: grid; place-items: center; color: #8A8A82; background: #141414; }
@@ -1024,6 +1179,24 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .shop-category-nav::-webkit-scrollbar { display:none; }
         .shop-category-nav button { flex:0 0 auto; border:0; background:transparent; color:var(--shop-text); padding:5px 0; font-size:12px; font-weight:750; cursor:pointer; text-transform:uppercase; letter-spacing:.25px; border-bottom:2px solid transparent; }
         .shop-category-nav button.active,.shop-category-nav button:hover { color:var(--shop-accent); border-bottom-color:var(--shop-accent); }
+        .catalog-header { max-width:none; }
+        .catalog-brand-lockup { display:flex; align-items:center; gap:15px; min-width:0; }
+        .catalog-brand-emblem { width:64px !important; height:64px !important; flex:0 0 64px; }
+        .catalog-brand-name { font-size:30px !important; font-weight:950 !important; letter-spacing:1.2px !important; }
+        .catalog-header-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; }
+        .shop-announcement { min-height:36px; font-size:10px; letter-spacing:1.1px; }
+        .catalog-promo-hero { position:relative; isolation:isolate; overflow:hidden; display:flex; align-items:center; justify-content:flex-start; min-height:218px; margin:24px 0 30px; padding:clamp(26px,4.5vw,48px); border-radius:14px; color:#fff; background:radial-gradient(ellipse at 88% 48%,rgba(125,15,27,.24) 0%,rgba(45,8,13,.12) 34%,transparent 66%),linear-gradient(112deg,#070809 0%,#0b0b0d 58%,#10090b 100%); border:1px solid rgba(210,35,48,.28); box-shadow:0 18px 46px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.045); }
+        .catalog-promo-hero::before { content:''; position:absolute; z-index:0; inset:-1px; pointer-events:none; background:linear-gradient(90deg,rgba(0,0,0,.30) 0%,rgba(0,0,0,.08) 48%,rgba(0,0,0,.12) 100%),radial-gradient(ellipse at 82% 50%,rgba(190,25,42,.20),transparent 46%); }
+        /* Marca integrada à composição: grande, monocromática e suavizada para parecer parte da arte do banner. */
+        .catalog-promo-hero::after { content:''; position:absolute; z-index:1; top:-12%; right:1%; bottom:-12%; width:min(58%,650px); background-image:linear-gradient(90deg,#08090b 0%,rgba(8,9,11,.62) 14%,rgba(8,9,11,.04) 56%,rgba(8,9,11,.18) 100%),var(--catalog-logo-bg); background-repeat:no-repeat,no-repeat; background-position:center,center right; background-size:100% 100%,contain; opacity:.27; filter:grayscale(1) contrast(1.18) brightness(1.12); mix-blend-mode:screen; pointer-events:none; }
+        .catalog-promo-hero-content { position:relative; z-index:2; max-width:min(720px,72%); min-width:0; }
+        .catalog-promo-kicker { display:inline-flex; align-items:center; gap:9px; margin-bottom:14px; color:#f06a75; font-size:10px; font-weight:900; letter-spacing:2.4px; text-shadow:0 2px 12px rgba(0,0,0,.7); }
+        .catalog-promo-kicker::before { content:''; display:inline-block; width:24px; height:2px; border-radius:2px; background:linear-gradient(90deg,#f04452,#8f111d); box-shadow:0 0 12px rgba(240,68,82,.5); }
+        .catalog-promo-hero h2 { margin:0 !important; color:#fff !important; font-size:clamp(27px,4.2vw,46px) !important; line-height:1.06; font-weight:950 !important; letter-spacing:-1.35px !important; text-transform:uppercase; text-shadow:0 3px 22px rgba(0,0,0,.65); }
+        .catalog-promo-announcement { display:flex; align-items:flex-start; gap:10px; width:fit-content; max-width:100%; margin-top:19px; padding:11px 15px; border:1px solid rgba(255,255,255,.13); border-left:2px solid #d83242; border-radius:7px; background:linear-gradient(100deg,rgba(255,255,255,.085),rgba(255,255,255,.035)); box-shadow:0 8px 24px rgba(0,0,0,.20); backdrop-filter:blur(8px); color:#f5f5f5; font-size:12px; line-height:1.5; font-weight:650; }
+        .catalog-promo-announcement svg { flex:0 0 auto; color:#ff7777; margin-top:1px; }
+        .catalog-promo-decoration { display:flex; align-items:center; gap:10px; color:rgba(255,255,255,.15); font-size:10px; font-weight:900; letter-spacing:3px; transform:rotate(-90deg); white-space:nowrap; }
+        .catalog-promo-decoration strong { color:rgba(255,255,255,.22); font-size:78px; line-height:1; }
         .catalog-search-section { margin:0 auto 26px !important; max-width:560px; }
         .catalog-search-section input { border:1px solid var(--shop-border) !important; border-radius:4px !important; background:var(--shop-surface) !important; color:var(--shop-text) !important; padding:13px 16px !important; }
         .catalog-featured-section { margin:0 0 34px !important; }
@@ -1039,7 +1212,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .catalog-category-image-placeholder { background:var(--shop-surface-alt) !important; color:var(--shop-accent) !important; aspect-ratio: 1 / 1 !important; }
         .catalog-category-name { color:var(--shop-text) !important; }
         .catalog-category-count { color:var(--shop-muted) !important; }
-        .catalog-products-grid { grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:18px !important; }
+        .catalog-products-grid { grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:18px !important; align-items:stretch; }
         .catalog-product-card { overflow:hidden; transition:transform .2s ease,border-color .2s ease !important; }
         .catalog-product-card:hover { transform:translateY(-3px); border-color:var(--shop-accent) !important; }
         .catalog-product-image { height:auto !important; max-height:none !important; aspect-ratio:1/1 !important; object-fit:contain !important; background:var(--shop-surface-alt) !important; padding:8px; box-sizing:border-box; }
@@ -1063,6 +1236,16 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         @media (max-width:600px) {
           .public-catalog-root { padding:0 12px 32px !important; }
           .catalog-header { margin:0 -12px 0 !important; padding:16px 12px !important; }
+          .catalog-brand-emblem { width:48px !important; height:48px !important; flex-basis:48px; }
+          .catalog-brand-name { font-size:23px !important; }
+          .catalog-promo-hero { min-height:176px; margin:16px 0 22px; padding:23px 18px; border-radius:11px; }
+          .catalog-promo-hero::after { top:0; right:-7%; bottom:0; width:78%; background-position:center,center right; background-size:100% 100%,contain; opacity:.20; }
+          .catalog-promo-hero-content { max-width:82%; }
+          .catalog-promo-hero h2 { font-size:clamp(23px,7vw,30px) !important; letter-spacing:-.7px !important; }
+          .catalog-promo-kicker { font-size:8px; letter-spacing:1.5px; }
+          .catalog-promo-announcement { margin-top:13px; font-size:11px; padding:9px 10px; }
+          .catalog-promo-decoration { display:none; }
+
           .catalog-brand-name { font-size:22px !important; }
           .catalog-header-actions { grid-template-columns:1fr 1fr !important; }
           .shop-category-nav { gap:18px; padding:12px 0; margin-bottom:14px; }
@@ -1080,7 +1263,131 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         }
         @media (prefers-reduced-motion:reduce) { .catalog-product-card { transition:none !important; } }
 
-      `}</style>
+
+        /* UX responsiva: hierarquia clara entre marca, campanha, navegação e produtos. */
+        .public-catalog-root { width:100%; max-width:1240px !important; margin:0 auto !important; padding:0 24px 48px !important; box-sizing:border-box; }
+        .catalog-header { margin:0 -24px 0 !important; padding:20px 24px !important; border-radius:0 !important; }
+        .catalog-promo-hero { margin:18px 0 16px !important; min-height:210px; }
+        .shop-category-nav { position:relative; display:flex; align-items:center; gap:22px; width:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; padding:13px 2px 14px; margin:0 0 22px; border-bottom:1px solid var(--shop-border); scrollbar-width:thin; scrollbar-color:var(--shop-border) transparent; -webkit-overflow-scrolling:touch; }
+        .shop-category-nav button { flex:0 0 auto; min-height:40px; padding:7px 2px; font-size:12px; letter-spacing:.2px; }
+        .shop-category-nav button:focus-visible,.catalog-category-card:focus-visible { outline:3px solid var(--shop-accent); outline-offset:4px; }
+        .catalog-search-section { width:100%; max-width:620px; margin:0 auto 28px !important; }
+        .catalog-search-section input { min-height:48px; border-radius:12px !important; }
+        .catalog-categories-section { margin:34px 0 28px; }
+        .catalog-categories-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)); justify-items:center; align-items:start; gap:22px 16px; width:100%; }
+        .catalog-category-card { display:flex; flex-direction:column; align-items:center; justify-content:flex-start; width:100%; max-width:142px; min-width:0; padding:5px 5px 9px !important; border:1px solid transparent !important; border-radius:16px !important; background:transparent !important; text-align:center !important; box-shadow:none !important; transition:transform .2s ease,border-color .2s ease,background .2s ease !important; }
+        .catalog-category-card:hover { transform:translateY(-3px); border-color:var(--shop-border) !important; background:var(--shop-surface) !important; }
+        .catalog-category-image-placeholder { width:clamp(82px,8.5vw,112px); height:clamp(82px,8.5vw,112px); aspect-ratio:1/1 !important; flex:0 0 auto; overflow:hidden; border-radius:50% !important; border:3px solid var(--shop-surface); outline:1px solid var(--shop-border); background:var(--shop-surface-alt) !important; box-shadow:0 5px 18px rgba(0,0,0,.12); }
+        .catalog-category-image { width:100%; height:100%; aspect-ratio:1/1 !important; border-radius:50%; object-fit:cover; }
+        .catalog-category-image-fallback { border-radius:50%; }
+        .catalog-category-name { width:100%; padding:11px 2px 3px !important; color:var(--shop-text) !important; font-size:12px !important; line-height:1.3; font-weight:800 !important; overflow-wrap:anywhere; }
+        .catalog-category-count { padding:0 2px 2px !important; color:var(--shop-muted) !important; font-size:10px !important; }
+        .catalog-featured-section { margin-bottom:28px; }
+        .catalog-products-grid { gap:16px !important; }
+        @media (min-width:1200px) { .catalog-categories-grid { grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:26px 18px; } }
+        @media (max-width:900px) {
+          .public-catalog-root { padding-left:18px !important; padding-right:18px !important; }
+          .catalog-header { margin-left:-18px !important; margin-right:-18px !important; padding-left:18px !important; padding-right:18px !important; }
+          .catalog-promo-hero { min-height:190px; }
+          .catalog-categories-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:20px 10px; }
+          .catalog-products-grid { grid-template-columns:repeat(3,minmax(0,1fr)) !important; }
+        }
+        @media (max-width:600px) {
+          .public-catalog-root { padding:0 14px 34px !important; }
+          .catalog-header { margin:0 -14px 0 !important; padding:15px 14px 14px !important; gap:13px !important; align-items:flex-start !important; }
+          .catalog-brand-lockup { gap:10px; flex:1 1 100%; }
+          .catalog-brand-emblem { width:44px !important; height:44px !important; flex-basis:44px !important; }
+          .catalog-brand-name { font-size:22px !important; }
+          .catalog-brand-tagline { font-size:8px; letter-spacing:1.1px; }
+          .catalog-brand-description { font-size:10px !important; margin-top:5px !important; }
+          .catalog-header-actions { display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)) !important; width:100%; gap:7px !important; }
+          .catalog-header-actions > *, .catalog-vip-group { min-width:0; }
+          .catalog-header-actions .catalog-action-btn { width:100%; min-height:42px; padding:8px 5px !important; gap:4px !important; font-size:10px !important; white-space:normal !important; }
+          .catalog-vip-group { display:contents; }
+          .catalog-promo-hero { min-height:158px !important; margin:13px 0 10px !important; padding:20px 16px !important; border-radius:14px !important; }
+          .catalog-promo-hero::after { top:0; right:-9%; bottom:0; width:78%; opacity:.17; background-position:center,center right; background-size:100% 100%,contain; }
+          .catalog-promo-hero-content { max-width:88% !important; }
+          .catalog-promo-kicker { margin-bottom:10px; font-size:8px; letter-spacing:1.2px; }
+          .catalog-promo-hero h2 { font-size:clamp(22px,7vw,29px) !important; line-height:1.08; letter-spacing:-.65px !important; }
+          .catalog-promo-announcement { margin-top:12px; padding:9px 10px; font-size:10px; line-height:1.45; border-radius:9px; }
+          .shop-category-nav { gap:18px; margin:0 -14px 17px; padding:9px 14px 11px; width:calc(100% + 28px); border-bottom:1px solid var(--shop-border); }
+          .shop-category-nav button { min-height:42px; font-size:11px; }
+          .catalog-search-section { margin:0 0 22px !important; max-width:none; }
+          .catalog-search-section input { min-height:46px; padding:12px 14px !important; font-size:14px !important; border-radius:12px !important; }
+          .catalog-featured-section { margin-bottom:24px !important; }
+          .catalog-featured-section h2,.catalog-categories-section h2,.public-catalog-root h2 { font-size:19px !important; }
+          .catalog-featured-viewport { margin-right:-14px; padding-right:14px; }
+          .catalog-featured-card { flex-basis:132px; width:132px; border-radius:12px; }
+          .catalog-featured-card img,.catalog-featured-image-placeholder { height:92px; }
+          .catalog-featured-card-content { padding:8px !important; }
+          .catalog-featured-card .featured-name { font-size:11px !important; }
+          .catalog-featured-card .featured-price { font-size:12px !important; }
+          .catalog-categories-section { margin:28px 0 24px; }
+          .catalog-categories-grid { grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:17px 7px !important; }
+          .catalog-category-card { max-width:116px; padding:4px 2px 7px !important; border-radius:13px !important; }
+          .catalog-category-image-placeholder { width:clamp(76px,23vw,94px); height:clamp(76px,23vw,94px); border-width:2px; }
+          .catalog-category-name { padding:9px 1px 3px !important; font-size:11px !important; line-height:1.25; }
+          .catalog-category-count { font-size:9px !important; }
+          .catalog-products-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:11px !important; }
+          .catalog-product-card { border-radius:11px !important; }
+          .catalog-product-image { aspect-ratio:1/1 !important; padding:6px; }
+          .catalog-product-content { padding:9px !important; }
+          .catalog-product-name { font-size:12px !important; line-height:1.3 !important; min-height:32px; }
+          .catalog-product-description { font-size:10px !important; line-height:1.35 !important; }
+          .catalog-product-footer { padding:5px 9px 10px !important; gap:7px !important; }
+          .catalog-product-price { font-size:15px !important; }
+          .catalog-product-action { min-height:38px; padding:8px !important; font-size:10px !important; border-radius:8px !important; }
+        }
+        @media (max-width:360px) {
+          .catalog-categories-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:18px 10px !important; }
+          .catalog-category-image-placeholder { width:88px; height:88px; }
+          .catalog-header-actions { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+        }
+        @media (prefers-reduced-motion:reduce) {
+          .catalog-category-card,.catalog-product-card { transition:none !important; }
+          .catalog-best-sellers-track { animation:none !important; }
+        }
+
+        /* Correção definitiva de largura e faixa branca lateral em celulares */
+        html, body, #root { width:100%; max-width:100%; min-width:0; margin:0; overflow-x:hidden; }
+        *, *::before, *::after { box-sizing:border-box; }
+        .public-catalog-root, .vip-theme, .catalog-header, .catalog-products-grid { min-width:0; max-width:100%; }
+        .public-catalog-root { width:100%; overflow-x:clip; }
+        .catalog-info-nav { display:flex; flex-wrap:wrap; gap:8px; padding:12px 0 18px; }
+        .catalog-info-nav button, .catalog-info-nav a { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:38px; padding:8px 12px; border:1px solid var(--shop-border); border-radius:999px; background:var(--shop-surface); color:var(--shop-text); text-decoration:none; font-size:12px; font-weight:700; cursor:pointer; }
+        .catalog-info-panel { position:relative; margin:0 0 20px; padding:20px 48px 20px 20px; border:1px solid var(--shop-border); border-radius:14px; background:var(--shop-surface); color:var(--shop-text); box-shadow:0 10px 30px rgba(0,0,0,.08); }
+        .catalog-info-panel h3 { margin:0 0 10px; font-size:18px; }
+        .catalog-info-panel p { margin:0; white-space:pre-line; line-height:1.65; color:var(--shop-muted); font-size:14px; }
+        .catalog-info-panel h4 { margin:14px 0 6px; }
+        .catalog-info-close { position:absolute; top:12px; right:12px; border:0; background:transparent; color:var(--shop-text); cursor:pointer; }
+        .catalog-product-detail-backdrop { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.78); backdrop-filter:blur(5px); overflow-y:auto; }
+        .catalog-product-detail { position:relative; width:min(900px,100%); max-height:92vh; overflow:auto; padding:22px; border:1px solid var(--shop-border); border-radius:18px; background:var(--shop-surface); color:var(--shop-text); box-shadow:0 24px 80px rgba(0,0,0,.4); }
+        .catalog-detail-back { display:inline-flex; align-items:center; gap:5px; padding:8px 10px; margin-bottom:14px; border:1px solid var(--shop-border); border-radius:8px; background:transparent; color:var(--shop-text); cursor:pointer; }
+        .catalog-detail-close { position:absolute; top:18px; right:18px; border:0; background:transparent; color:var(--shop-text); cursor:pointer; }
+        .catalog-detail-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; }
+        .catalog-detail-image-wrap { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; align-content:start; }
+        .catalog-detail-image-wrap img { display:block; width:100%; max-height:340px; aspect-ratio:1/1; object-fit:contain; border-radius:12px; background:var(--shop-surface-alt); }
+        .catalog-detail-copy h2 { margin:8px 0 12px; font-size:26px; line-height:1.15; }
+        .catalog-detail-category { color:var(--shop-muted); font-size:11px; text-transform:uppercase; font-weight:800; letter-spacing:.08em; }
+        .catalog-detail-description { color:var(--shop-muted); line-height:1.65; white-space:pre-line; }
+        .catalog-detail-price { margin:18px 0; font-size:27px; font-weight:900; }
+        .catalog-detail-price small { display:inline-block; margin-left:6px; color:#16a34a; font-size:10px; }
+        .catalog-detail-field { display:grid; gap:8px; margin:16px 0; font-size:13px; font-weight:700; }
+        .catalog-detail-field select { width:100%; min-height:44px; padding:10px; border:1px solid var(--shop-border); border-radius:9px; background:var(--shop-surface-alt); color:var(--shop-text); }
+        .catalog-detail-quantity { display:flex; align-items:center; justify-content:space-between; margin:20px 0; }
+        .catalog-detail-quantity div { display:flex; align-items:center; gap:16px; }
+        .catalog-detail-quantity button { width:36px; height:36px; display:grid; place-items:center; border:1px solid var(--shop-border); border-radius:9px; background:var(--shop-surface-alt); color:var(--shop-text); cursor:pointer; }
+        .catalog-detail-cart-actions { display:flex; align-items:stretch; gap:8px; width:100%; margin-top:9px; }
+        .catalog-detail-cart-actions .catalog-detail-add { flex:1; margin-top:0; }
+        .catalog-detail-cart-indicator { position:relative; min-width:54px; border:1px solid rgba(220,38,38,.55); border-radius:11px; background:rgba(220,38,38,.13); color:#fff; display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer; font-weight:850; }
+        .catalog-detail-cart-indicator span { min-width:19px; height:19px; padding:0 4px; display:inline-flex; align-items:center; justify-content:center; border-radius:20px; background:#DC2626; color:#fff; font-size:10px; }
+        .catalog-detail-added-notice { display:flex; align-items:center; gap:6px; margin-top:7px; color:#34d399; font-size:12px; font-weight:700; }
+        .catalog-detail-add, .catalog-detail-whatsapp { width:100%; min-height:46px; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:9px; border:0; border-radius:10px; background:var(--shop-accent); color:white; font-weight:800; cursor:pointer; }
+        .catalog-detail-whatsapp { background:#16864a; }
+        @media(max-width:650px) { .catalog-detail-layout { grid-template-columns:1fr; gap:14px; } .catalog-detail-image-wrap { grid-template-columns:repeat(2,minmax(0,1fr)); } .catalog-detail-image-wrap img { max-height:210px; } .catalog-detail-copy h2 { font-size:21px; } .catalog-product-detail { padding:16px; } .catalog-info-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .catalog-info-nav button,.catalog-info-nav a { min-width:0; font-size:11px; padding:8px 6px; } }
+      `}
+
+</style>
       <div className="catalog-falling-background" aria-hidden="true">
         {productsList
           .filter((product: any) => Boolean(product.image_url || product.imageUrl))
@@ -1100,7 +1407,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
             />
           ))}
       </div>
-      <div className="shop-announcement">Confira nossas novidades e ofertas especiais</div>
+      <div className="shop-announcement">COMPRA FÁCIL • ATENDIMENTO DIRETO PELO WHATSAPP • M-BYSE</div>
       <div className="public-catalog-root" style={{ maxWidth: 1240, margin: '0 auto' }}>
         {/* CABEÇALHO */}
         <div
@@ -1264,6 +1571,51 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           </div>
         </div>
 
+        <nav className="catalog-info-nav" aria-label="Informações da loja">
+          <button onClick={() => setInfoPanel(infoPanel === 'loja' ? '' : 'loja')}><Info size={16}/> Loja</button>
+          <button onClick={() => setInfoPanel(infoPanel === 'pagamento' ? '' : 'pagamento')}><CreditCard size={16}/> Pagamento</button>
+          <button onClick={() => setInfoPanel(infoPanel === 'entrega' ? '' : 'entrega')}><Truck size={16}/> Entrega</button>
+          <button onClick={() => setInfoPanel(infoPanel === 'politicas' ? '' : 'politicas')}><FileText size={16}/> Termos e privacidade</button>
+          {data?.address && <button onClick={() => setInfoPanel(infoPanel === 'localizacao' ? '' : 'localizacao')}><MapPin size={16}/> Localização</button>}
+          {data?.instagram && <a href={String(data.instagram).startsWith('http') ? data.instagram : `https://instagram.com/${String(data.instagram).replace(/^@/, '')}`} target="_blank" rel="noreferrer"><Instagram size={16}/> Instagram</a>}
+        </nav>
+
+        {infoPanel && (
+          <section className="catalog-info-panel" aria-live="polite">
+            <button className="catalog-info-close" onClick={() => setInfoPanel('')} aria-label="Fechar painel"><X size={18}/></button>
+            <h3>{infoPanel === 'loja' ? 'Sobre a loja' : infoPanel === 'pagamento' ? 'Formas de pagamento' : infoPanel === 'entrega' ? 'Entrega e retirada' : infoPanel === 'localizacao' ? 'Localização' : 'Termos e privacidade'}</h3>
+            {infoPanel === 'loja' && <p>{data?.storeDescription || data?.description || `Bem-vindo(a) à ${data?.storeName || 'nossa loja'}. Entre em contato pelo WhatsApp para mais informações.`}</p>}
+            {infoPanel === 'pagamento' && <p>{(data?.paymentMethods || data?.payment_methods || catalogSettings?.paymentMethods || catalogSettings?.payment_methods || []).map((item: any) => typeof item === 'string' ? item : item?.name || item?.label).filter(Boolean).join(' • ') || data?.paymentInfo || catalogSettings?.paymentInfo || 'Consulte as formas de pagamento disponíveis diretamente com a loja pelo WhatsApp.'}</p>}
+            {infoPanel === 'entrega' && <p>{data?.deliveryInfo || data?.delivery_info || catalogSettings?.deliveryInfo || catalogSettings?.delivery_info || 'Consulte prazos, valores de entrega e opções de retirada diretamente com a loja.'}</p>}
+            {infoPanel === 'localizacao' && <p>{data?.address || 'Endereço não informado.'}</p>}
+            {infoPanel === 'politicas' && <div className="catalog-policy-content"><h4>Termos e condições</h4><p>{data?.termsAndConditions || data?.terms_and_conditions || catalogSettings?.termsAndConditions || catalogSettings?.terms_and_conditions || 'Consulte as condições de compra e atendimento diretamente com a loja.'}</p><h4>Política de privacidade</h4><p>{data?.privacyPolicy || data?.privacy_policy || catalogSettings?.privacyPolicy || catalogSettings?.privacy_policy || 'Os dados fornecidos durante o atendimento são utilizados para dar continuidade à sua solicitação e ao seu pedido.'}</p></div>}
+          </section>
+        )}
+
+        {/* BANNER PRINCIPAL — título e aviso são controlados pelo Catalogo.tsx */}
+        {showCatalogBanner && (
+          <section
+            className="catalog-promo-hero"
+            aria-label="Destaque da loja"
+            style={{ "--catalog-logo-bg": `url("${logoByse}")` }}
+          >
+            <div className="catalog-promo-hero-content">
+              <span className="catalog-promo-kicker">M-BYSE • NUTRIÇÃO ESPORTIVA</span>
+              {catalogBannerTitle && <h2>{catalogBannerTitle}</h2>}
+              {catalogBannerMessage && (
+                <div className="catalog-promo-announcement">
+                  <Sparkles size={15} />
+                  <span>{catalogBannerMessage}</span>
+                </div>
+              )}
+            </div>
+            <div className="catalog-promo-decoration" aria-hidden="true">
+              <span>PERFORMANCE</span>
+              <strong>+</strong>
+            </div>
+          </section>
+        )}
+
         <nav className="shop-category-nav" aria-label="Categorias do catálogo">
           <button type="button" className={selectedCategory === 'Todos' ? 'active' : ''} onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(false); }}>Início</button>
           {categories.map((cat: string) => (
@@ -1271,6 +1623,8 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           ))}
           <button type="button" onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(true); }}>Todos os produtos</button>
         </nav>
+
+
 
         {/* PESQUISA */}
         <div
@@ -1468,11 +1822,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
                 <div
                   className="catalog-product-card"
                   key={p.id}
-                  onClick={() => {
-                    if (flavors.length > 0) {
-                      handleProductClick(p);
-                    }
-                  }}
+                  onClick={() => handleProductClick(p)}
                   style={{
                     background: '#1C1C1C',
                     border: '1px solid #2E2E2E',
@@ -1481,7 +1831,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
-                    cursor: flavors.length > 0 ? 'pointer' : 'default'
+                    cursor: 'pointer'
                   }}
                 >
                   <div>
@@ -1727,9 +2077,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
                         flexShrink: 0
                       }}
                     >
-                      {flavors.length > 0
-                        ? 'Escolher sabor'
-                        : 'Adicionar'}
+                      Ver detalhes
                     </button>
                   </div>
                 </div>
@@ -1740,7 +2088,41 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           </>
         )}
 
-        {/* MODAL DE SELEÇÃO DE SABORES */}
+        {/* DETALHES DO PRODUTO — modal interno, sem recarregar a página */}
+        {selectedProduct && (
+          <div className="catalog-product-detail-backdrop" onClick={closeProductDetails}>
+            <section className="catalog-product-detail" role="dialog" aria-modal="true" aria-label={`Detalhes de ${selectedProduct.name}`} onClick={e => e.stopPropagation()}>
+              <button className="catalog-detail-back" onClick={closeProductDetails}><ChevronLeft size={18}/> Voltar à loja</button>
+              <button className="catalog-detail-close" onClick={closeProductDetails} aria-label="Fechar detalhes"><X size={20}/></button>
+              <div className="catalog-detail-layout">
+                <div className="catalog-detail-image-wrap">
+                  {(Array.isArray(selectedProduct.images) ? selectedProduct.images : Array.isArray(selectedProduct.gallery) ? selectedProduct.gallery : [selectedProduct.image_url || selectedProduct.imageUrl]).filter(Boolean).map((image: any, index: number) => {
+                    const src = typeof image === 'string' ? image : image?.url || image?.src || image?.imageUrl || image?.image_url;
+                    return src ? <img key={`${selectedProduct.id}-${index}`} src={src} alt={`${selectedProduct.name} ${index + 1}`} /> : null;
+                  })}
+                </div>
+                <div className="catalog-detail-copy">
+                  <span className="catalog-detail-category">{selectedProduct.category || 'Geral'}</span>
+                  <h2>{selectedProduct.name}</h2>
+                  {selectedProduct.description && <p className="catalog-detail-description">{selectedProduct.description}</p>}
+                  {pricesVisible ? <div className="catalog-detail-price">{formatCurrency(getProductPrice(selectedProduct))}{vip && <small> PREÇO VIP</small>}</div> : <div className="catalog-detail-price">Valor sob consulta</div>}
+                  {getProductFlavors(selectedProduct).length > 0 && <label className="catalog-detail-field">Escolha a variação / sabor<select value={detailFlavor} onChange={e => setDetailFlavor(e.target.value)}><option value="">Selecione uma opção</option>{getProductFlavors(selectedProduct).map((flavor: string) => <option key={flavor} value={flavor}>{flavor}</option>)}</select></label>}
+                  <div className="catalog-detail-quantity"><span>Quantidade</span><div><button onClick={() => setDetailQuantity(q => Math.max(1, q - 1))}><Minus size={16}/></button><strong>{detailQuantity}</strong><button onClick={() => setDetailQuantity(q => q + 1)}><Plus size={16}/></button></div></div>
+                  <div className="catalog-detail-cart-actions">
+                    <button className="catalog-detail-add" onClick={addProductDetailsToCart}><ShoppingBag size={17}/> Adicionar ao carrinho</button>
+                    <button type="button" className="catalog-detail-cart-indicator" onClick={() => { closeProductDetails(); setIsCartOpen(true); }} aria-label={`Abrir carrinho com ${cartQuantity} itens`} title="Ver carrinho">
+                      <ShoppingBag size={19}/><span>{cartQuantity}</span>
+                    </button>
+                  </div>
+                  {detailAddedNotice && <div className="catalog-detail-added-notice"><CheckCircle2 size={15}/> {detailAddedNotice}</div>}
+                  <button className="catalog-detail-whatsapp" onClick={() => { closeProductDetails(); setConsultMessage(`Tenho interesse no produto ${selectedProduct.name}.`); handleConsultWhatsApp(); }}><MessageCircle size={17}/> Consultar pelo WhatsApp</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* MODAL DE SELEÇÃO DE SABORES (compatibilidade) */}
         {selectedFlavorProduct && (
           <div
             onClick={() => {
@@ -2373,28 +2755,109 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
                   )}
 
                   <button
-                    onClick={handleCheckoutWhatsApp}
+                    onClick={() => { setCheckoutStep(1); setShowCheckout(true); setIsCartOpen(false); }}
                     style={{
-                      width: '100%',
-                      background: '#16a34a',
-                      color: '#fff',
-                      border: 0,
-                      borderRadius: 10,
-                      padding: 12,
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      cursor: 'pointer',
-                      fontSize: 13
+                      width: '100%', background: '#16a34a', color: '#fff', border: 0,
+                      borderRadius: 10, padding: 13, fontWeight: 700, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center', gap: 8,
+                      cursor: 'pointer', fontSize: 14
                     }}
                   >
-                    <MessageCircle size={18} />
-                    Finalizar Pedido via WhatsApp
+                    <CheckCircle2 size={18} /> Finalizar venda
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* CHECKOUT EM ETAPAS DENTRO DO CATÁLOGO */}
+        {showCheckout && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.76)', backdropFilter: 'blur(5px)' }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="checkout-title" style={{ width: '100%', maxWidth: 430, maxHeight: '90vh', overflowY: 'auto', borderRadius: 18, background: '#191919', border: '1px solid #3b3b3b', boxShadow: '0 24px 80px rgba(0,0,0,.5)', color: '#fff' }}>
+              <div style={{ padding: '17px 19px', borderBottom: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ color: '#a3a3a3', fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase' }}>Finalização do pedido</div>
+                  <h3 id="checkout-title" style={{ margin: '5px 0 0', fontSize: 18 }}> {checkoutStep === 1 ? 'Informações pessoais' : checkoutStep === 2 ? 'Pagamento e entrega' : 'Enviar pedido'} </h3>
+                </div>
+                <button type="button" onClick={() => setShowCheckout(false)} aria-label="Fechar finalização" style={{ width: 34, height: 34, border: '1px solid #414141', borderRadius: 9, background: '#252525', color: '#ddd', cursor: 'pointer' }}><X size={17} /></button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 7, padding: '15px 19px 5px' }}>
+                {[1, 2, 3].map(step => (
+                  <div key={step} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 25, height: 25, flexShrink: 0, borderRadius: '50%', display: 'grid', placeItems: 'center', background: checkoutStep >= step ? accent : '#333', color: '#fff', fontSize: 12, fontWeight: 800 }}>{step}</div>
+                    <span style={{ color: checkoutStep === step ? '#fff' : '#888', fontSize: 10, fontWeight: checkoutStep === step ? 700 : 500 }}>{step === 1 ? 'Dados' : step === 2 ? 'Pagamento' : 'WhatsApp'}</span>
+                    {step < 3 && <div style={{ height: 1, flex: 1, background: checkoutStep > step ? accent : '#3a3a3a' }} />}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ padding: 19 }}>
+                {checkoutStep === 1 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <p style={{ margin: '0 0 2px', color: '#bdbdbd', fontSize: 12, lineHeight: 1.5 }}>Informe seus dados para identificarmos seu pedido.</p>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#ddd' }}>Nome completo
+                      <input type="text" value={checkoutName} onChange={e => setCheckoutName(e.target.value)} placeholder="Digite seu nome" aria-label="Nome do cliente" style={{ width: '100%', boxSizing: 'border-box', padding: 12, borderRadius: 9, border: '1px solid #414141', background: '#101010', color: '#fff', outline: 'none' }} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: '#ddd' }}>WhatsApp
+                      <div style={{ display: 'grid', gridTemplateColumns: '60px 68px minmax(0, 1fr)', gap: 7 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #414141', borderRadius: 9, background: '#292929', color: '#fff', fontWeight: 700, fontSize: 13 }}>+55</div>
+                        <input type="text" inputMode="numeric" maxLength={2} value={checkoutDdd} onChange={e => setCheckoutDdd(e.target.value.replace(/\D/g, '').slice(0, 2))} placeholder="DDD" aria-label="DDD do WhatsApp" style={{ minWidth: 0, width: '100%', boxSizing: 'border-box', padding: 11, textAlign: 'center', borderRadius: 9, border: '1px solid #414141', background: '#101010', color: '#fff', outline: 'none' }} />
+                        <input type="text" inputMode="numeric" value={formatCheckoutNumber(checkoutNumber)} onChange={e => { const raw = e.target.value.replace(/\D/g, ''); if (raw.length > 8) setCheckoutPhoneError('Você ultrapassou a quantidade de números. São necessários apenas 8 dígitos.'); else setCheckoutPhoneError(''); setCheckoutNumber(raw.slice(0, 8)); }} placeholder="8171-9857" aria-label="Número do WhatsApp" style={{ minWidth: 0, width: '100%', boxSizing: 'border-box', padding: 11, borderRadius: 9, border: `1px solid ${checkoutPhoneError ? '#ef4444' : '#414141'}`, background: '#101010', color: '#fff', outline: 'none' }} />
+                      </div>
+                    </label>
+                    {checkoutPhoneError && <small role="alert" style={{ color: '#f87171', fontSize: 11 }}>{checkoutPhoneError}</small>}
+                    <small style={{ color: '#929292', fontSize: 10 }}>Formato: 55 83 8171-9857. O código do Brasil já está incluído.</small>
+                  </div>
+                )}
+
+                {checkoutStep === 2 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 17 }}>
+                    <div>
+                      <strong style={{ display: 'block', marginBottom: 9, fontSize: 13 }}>Forma de pagamento</strong>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        {['Dinheiro / espécie', 'Cartão', 'Pix'].map(option => (
+                          <button key={option} type="button" onClick={() => setPaymentMethod(option)} style={{ padding: 12, borderRadius: 10, border: `1px solid ${paymentMethod === option ? accent : '#414141'}`, background: paymentMethod === option ? `${accent}22` : '#101010', color: '#fff', cursor: 'pointer', fontWeight: paymentMethod === option ? 700 : 500, fontSize: 12 }}>{paymentMethod === option ? '✓ ' : ''}{option}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <strong style={{ display: 'block', marginBottom: 9, fontSize: 13 }}>Como deseja receber?</strong>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        {['Retirada', 'Delivery'].map(option => (
+                          <button key={option} type="button" onClick={() => setOrderDelivery(option)} style={{ padding: 12, borderRadius: 10, border: `1px solid ${orderDelivery === option ? accent : '#414141'}`, background: orderDelivery === option ? `${accent}22` : '#101010', color: '#fff', cursor: 'pointer', fontWeight: orderDelivery === option ? 700 : 500, fontSize: 12 }}>{option === 'Retirada' ? '🏬 ' : '🛵 '}{option === orderDelivery ? '✓ ' : ''}{option}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {checkoutStep === 3 && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ width: 58, height: 58, margin: '0 auto 12px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'rgba(34,197,94,.14)', color: '#4ade80' }}><MessageCircle size={27} /></div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: 16 }}>Tudo pronto, {checkoutName.trim()}!</h4>
+                    <p style={{ margin: '0 0 15px', color: '#aaa', fontSize: 12, lineHeight: 1.5 }}>Confira os dados. Ao tocar no botão, seu pedido será preparado e direcionado ao WhatsApp do vendedor.</p>
+                    <div style={{ textAlign: 'left', padding: 13, borderRadius: 10, background: '#101010', border: '1px solid #383838', fontSize: 12, lineHeight: 1.9, color: '#ddd' }}>
+                      <div><b>Cliente:</b> {checkoutName.trim()}</div>
+                      <div><b>WhatsApp:</b> +55 ({checkoutDdd}) {formatCheckoutNumber(checkoutNumber)}</div>
+                      <div><b>Pagamento:</b> {paymentMethod}</div>
+                      <div><b>Recebimento:</b> {orderDelivery}</div>
+                      <div><b>Itens:</b> {cartQuantity}</div>
+                      <div><b>Total:</b> {pricesVisible ? calculateTotal().toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Sob consulta'}</div>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 9, marginTop: 20 }}>
+                  {checkoutStep > 1 && <button type="button" onClick={() => setCheckoutStep(step => step - 1)} style={{ flex: 1, padding: 12, borderRadius: 10, border: '1px solid #454545', background: '#252525', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>Voltar</button>}
+                  {checkoutStep < 3 ? (
+                    <button type="button" onClick={continueCheckout} style={{ flex: 1, padding: 12, borderRadius: 10, border: 0, borderRadius: 10, background: accent, color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Continuar</button>
+                  ) : (
+                    <button type="button" onClick={handleCheckoutWhatsApp} disabled={checkoutSaving} style={{ flex: 1, padding: 14, borderRadius: 10, border: 0, background: '#16a34a', color: '#fff', cursor: checkoutSaving ? 'wait' : 'pointer', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><MessageCircle size={18} />{checkoutSaving ? 'Preparando pedido...' : 'Enviar pedido para WhatsApp'}</button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}

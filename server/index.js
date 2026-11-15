@@ -331,37 +331,81 @@ app.put("/api/app-state/:key", authMiddleware, async (req, res) => {
 // ==========================================
 
 
+
 app.get("/api/public/catalogo/:userId", async (req, res) => {
   try {
-    const userId = String(req.params.userId || "");
+    const userId = String(req.params.userId || "").trim();
 
-    if (!JWT_SECRET) {
-      console.error("[PUBLIC CATALOG] JWT_SECRET não configurado.");
-
-      return res.status(500).json({
-        error: "Configuração de segurança indisponível.",
+    if (!userId) {
+      return res.status(400).json({
+        error: "Identificador da loja inválido."
       });
     }
 
-    const userResult = await pool.query(
-      `SELECT id, name, vip_catalog_password_hash
-       FROM users
-       WHERE id = $1`,
-      [userId]
+    // Cache curto, separado entre cliente comum e VIP.
+    res.set(
+      "Cache-Control",
+      "private, max-age=10, stale-while-revalidate=20"
     );
+    res.vary("Authorization");
+
+    if (!JWT_SECRET) {
+      return res.status(500).json({
+        error: "Configuração de segurança indisponível."
+      });
+    }
+
+    // Consultas independentes executadas simultaneamente.
+    const [
+      userResult,
+      productsResult,
+      stateResult,
+      salesResult
+    ] = await Promise.all([
+      pool.query(
+        `SELECT id, name, vip_catalog_password_hash
+         FROM users
+         WHERE id = $1`,
+        [userId]
+      ),
+
+      pool.query(
+        `SELECT *
+         FROM products
+         WHERE user_id = $1
+         ORDER BY name`,
+        [userId]
+      ),
+
+      pool.query(
+        `SELECT state
+         FROM user_app_states
+         WHERE user_id = $1
+         AND state_key = $2`,
+        [userId, "catalogo"]
+      ),
+
+      pool.query(
+        `SELECT items
+         FROM sales
+         WHERE user_id = $1`,
+        [userId]
+      )
+    ]);
 
     const user = userResult.rows[0];
 
     if (!user) {
       return res.status(404).json({
-        error: "Loja não encontrada.",
+        error: "Loja não encontrada."
       });
     }
 
-    // VALIDAÇÃO DO TOKEN VIP
+    // Verificação do token VIP.
     let isVip = false;
 
     const authHeader = req.headers.authorization || "";
+
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7).trim()
       : "";
@@ -370,56 +414,107 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
       try {
         const payload = jwt.verify(token, JWT_SECRET, {
           issuer: "byse-pro-catalog",
-          algorithms: ["HS256"],
+          algorithms: ["HS256"]
         });
 
-        if (
-          payload &&
-          String(payload.sub) === userId &&
-          payload.scope === "catalog-vip"
-        ) {
-          isVip = true;
-        } else {
-          console.warn(
-            "[PUBLIC CATALOG] Token não corresponde à loja:",
-            userId
-          );
-        }
-      } catch (err) {
-        console.error("[VIP TOKEN ERROR]", err.message);
+        isVip =
+          String(payload?.sub) === userId &&
+          payload?.scope === "catalog-vip";
+      } catch {
+        isVip = false;
       }
     }
 
-    console.log("[PUBLIC CATALOG] Loja:", userId, "| VIP:", isVip);
-
-    // PRODUTOS DA LOJA
-    const productsResult = await pool.query(
-      `SELECT *
-       FROM products
-       WHERE user_id = $1
-       ORDER BY name`,
-      [userId]
-    );
-
-    // CONFIGURAÇÕES DO CATÁLOGO
-    const stateResult = await pool.query(
-      `SELECT state
-       FROM user_app_states
-       WHERE user_id = $1 AND state_key = $2`,
-      [userId, "catalogo"]
-    );
-
     const cfg = json(stateResult.rows[0]?.state, {});
 
-    // =====================================================
-    // IMAGENS DAS CATEGORIAS
-    // Recupera as imagens cadastradas em Catalogo.tsx.
-    // Aceita os formatos camelCase e snake_case.
-    // =====================================================
+    const asBoolean = (value, fallback = false) => {
+      if (
+        value === undefined ||
+        value === null ||
+        value === ""
+      ) {
+        return fallback;
+      }
 
+      if (typeof value === "boolean") return value;
+      if (typeof value === "number") return value === 1;
+
+      return [
+        "true",
+        "1",
+        "yes",
+        "sim",
+        "on"
+      ].includes(String(value).trim().toLowerCase());
+    };
+
+    // Cálculo dos produtos mais vendidos.
+    const soldQuantities = {};
+
+    for (const sale of salesResult.rows || []) {
+      const items = json(sale.items, []);
+
+      if (!Array.isArray(items)) continue;
+
+      for (const item of items) {
+        const id =
+          item.productId ??
+          item.product_id ??
+          item.product?.id ??
+          item.id ??
+          item.productName ??
+          item.name;
+
+        if (id == null) continue;
+
+        const quantity = Number(
+          item.qty ?? item.quantity ?? 1
+        );
+
+        if (
+          !Number.isFinite(quantity) ||
+          quantity <= 0
+        ) {
+          continue;
+        }
+
+        const key = String(id);
+
+        soldQuantities[key] =
+          (soldQuantities[key] || 0) + quantity;
+      }
+    }
+
+    const bestSellingProductIds = Object.entries(
+      soldQuantities
+    )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([id]) => id);
+
+    // Banner.
+    const catalogBannerEnabled = asBoolean(
+      cfg.catalogBannerEnabled ??
+      cfg.catalog_banner_enabled,
+      false
+    );
+
+    const catalogBannerTitle = String(
+      cfg.catalogBannerTitle ??
+      cfg.catalog_banner_title ??
+      ""
+    ).trim();
+
+    const catalogBannerMessage = String(
+      cfg.catalogBannerMessage ??
+      cfg.catalog_banner_message ??
+      ""
+    ).trim();
+
+    // Imagens das categorias.
     const rawCategoryImages =
-      cfg.categoryImages ||
-      cfg.category_images ||
+      cfg.categoryImages ??
+      cfg.category_images ??
       {};
 
     const categoryImages =
@@ -429,152 +524,171 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
         ? rawCategoryImages
         : {};
 
-    // MAIS VENDIDOS
-    const salesResult = await pool.query(
-      `SELECT items
-       FROM sales
-       WHERE user_id = $1`,
-      [userId]
-    );
-
-    const soldQuantities = {};
-
-    for (const sale of salesResult.rows || []) {
-      const saleItems = json(sale.items, []);
-
-      if (!Array.isArray(saleItems)) continue;
-
-      for (const item of saleItems) {
-        const productId =
-          item.productId ??
-          item.product_id ??
-          item.product?.id ??
-          item.id ??
-          item.productName ??
-          item.name;
-
-        if (productId == null) continue;
-
-        const key = String(productId);
-
-        const quantity = Number(
-          item.qty ?? item.quantity ?? 1
-        );
-
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-          continue;
-        }
-
-        soldQuantities[key] =
-          (soldQuantities[key] || 0) + quantity;
-      }
-    }
-
-    const bestSellingProductIds = Object.entries(soldQuantities)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([productId]) => productId);
-
-    // DESTAQUES SEMANAIS
+    // Ofertas semanais.
     const weeklyOfferProductIds = Array.isArray(
       cfg.weeklyOfferProductIds
     )
       ? cfg.weeklyOfferProductIds.map(String)
-      : [];
+      : Array.isArray(cfg.weekly_offer_product_ids)
+        ? cfg.weekly_offer_product_ids.map(String)
+        : [];
 
+    // Novidades.
     const weeklyNewProductIds = Array.isArray(
       cfg.weeklyNewProductIds
     )
       ? cfg.weeklyNewProductIds.map(String)
-      : [];
+      : Array.isArray(cfg.weekly_new_product_ids)
+        ? cfg.weekly_new_product_ids.map(String)
+        : [];
 
-    // VISIBILIDADE DOS PREÇOS
-    const catalogVisible =
-      cfg.catalogVisible !== undefined
-        ? Boolean(cfg.catalogVisible)
-        : true;
+    const catalogVisible = asBoolean(
+      cfg.catalogVisible ??
+      cfg.catalog_visible,
+      true
+    );
 
-    // NORMALIZAÇÃO DOS PRODUTOS
-    const normalizedProducts = productsResult.rows.map((product) => {
-      const normalized = normalizeProduct(product);
+    // Normalização dos produtos.
+    const products = (productsResult.rows || []).map(
+      (product) => {
+        const normalized = normalizeProduct(product);
+        const result = { ...normalized };
 
-      if (!normalized || typeof normalized !== "object") {
-        return normalized;
+        // Preços VIP somente para clientes autenticados.
+        if (!isVip) {
+          delete result.vipPrice;
+          delete result.vip_price;
+          delete result.vipPrice3x;
+          delete result.vip_price_3x;
+        }
+
+        // Oculta somente os valores.
+        // Não remove produtos, imagens ou informações.
+        if (!catalogVisible && !isVip) {
+          delete result.price;
+          delete result.salePrice;
+          delete result.sale_price;
+          delete result.originalPrice;
+          delete result.original_price;
+          delete result.costPrice;
+          delete result.cost_price;
+        }
+
+        return result;
       }
+    );
 
-      const result = { ...normalized };
+    const paymentMethods =
+      cfg.paymentMethods ??
+      cfg.payment_methods ??
+      [];
 
-      // CLIENTE NORMAL: OCULTA SOMENTE OS PREÇOS VIP
-      if (!isVip) {
-        delete result.vipPrice;
-        delete result.vip_price;
-        delete result.vipPrice3x;
-        delete result.vip_price_3x;
-      }
-
-      // CATÁLOGO COM PREÇOS OCULTOS E SEM ACESSO VIP
-      if (!catalogVisible && !isVip) {
-        delete result.price;
-        delete result.salePrice;
-        delete result.sale_price;
-        delete result.originalPrice;
-        delete result.original_price;
-        delete result.costPrice;
-        delete result.cost_price;
-        delete result.vipPrice;
-        delete result.vip_price;
-        delete result.vipPrice3x;
-        delete result.vip_price_3x;
-      }
-
-      return result;
-    });
-
-    // RESPOSTA DO CATÁLOGO
     return res.json({
       storeName: user.name || "Loja",
 
       whatsapp: cfg.whatsapp || "",
       address: cfg.address || "",
       instagram: cfg.instagram || "",
-      bannerUrl: cfg.bannerUrl || "",
 
-      // IMAGENS PERSONALIZADAS DAS CATEGORIAS
+      bannerUrl:
+        cfg.bannerUrl ||
+        cfg.banner_url ||
+        "",
+
+      storeDescription:
+        cfg.storeDescription ??
+        cfg.store_description ??
+        cfg.description ??
+        "",
+
+      businessHours:
+        cfg.businessHours ??
+        cfg.business_hours ??
+        "",
+
+      paymentMethods: Array.isArray(paymentMethods)
+        ? paymentMethods
+        : [],
+
+      paymentInfo:
+        cfg.paymentInfo ??
+        cfg.payment_info ??
+        "",
+
+      deliveryInfo:
+        cfg.deliveryInfo ??
+        cfg.delivery_info ??
+        "",
+
+      pickupInfo:
+        cfg.pickupInfo ??
+        cfg.pickup_info ??
+        "",
+
+      termsAndConditions:
+        cfg.termsAndConditions ??
+        cfg.terms_and_conditions ??
+        "",
+
+      privacyPolicy:
+        cfg.privacyPolicy ??
+        cfg.privacy_policy ??
+        "",
+
+      catalogBannerEnabled,
+      catalogBannerTitle,
+      catalogBannerMessage,
+
+      catalog_banner_enabled: catalogBannerEnabled,
+      catalog_banner_title: catalogBannerTitle,
+      catalog_banner_message: catalogBannerMessage,
+
       categoryImages,
-
       catalogVisible,
 
       bestSellingProductIds,
-      weeklyOfferProductIds,
+
+      weeklyOfferProductIds: isVip
+        ? []
+        : weeklyOfferProductIds,
+
       weeklyNewProductIds,
 
-      weeklyOfferDetails:
-        cfg.weeklyOfferDetails &&
-        typeof cfg.weeklyOfferDetails === "object"
+      weeklyOfferDetails: isVip
+        ? {}
+        : cfg.weeklyOfferDetails &&
+          typeof cfg.weeklyOfferDetails === "object"
           ? cfg.weeklyOfferDetails
           : {},
 
       isVip,
+      products,
 
-      products: normalizedProducts,
-
-      vipEnabled: Boolean(user.vip_catalog_password_hash),
+      vipEnabled: Boolean(
+        user.vip_catalog_password_hash
+      )
     });
 
-  } catch (err) {
-    console.error("[PUBLIC CATALOG ERROR]", err);
+  } catch (error) {
+    console.error("[PUBLIC CATALOG ERROR]", error);
 
     return res.status(500).json({
-      error: "Erro ao carregar catálogo público.",
+      error: "Erro ao carregar catálogo público."
     });
   }
 });
 
 
+
 app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
   try {
-    const userId = String(req.params.userId || "");
-    const password = String(req.body?.password ?? "");
+    const userId = String(
+      req.params.userId || ""
+    ).trim();
+
+    const password = String(
+      req.body?.password ?? ""
+    );
 
     if (!userId || !password) {
       return res.status(400).json({
@@ -584,13 +698,19 @@ app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
     }
 
     if (!JWT_SECRET) {
-      console.error("[VIP VERIFY] JWT_SECRET não configurado.");
+      console.error(
+        "[VIP VERIFY] JWT_SECRET não configurado."
+      );
 
       return res.status(500).json({
         success: false,
         error: "Configuração de segurança indisponível.",
       });
     }
+
+    // =====================================================
+    // BUSCAR SENHA VIP DA LOJA
+    // =====================================================
 
     const result = await pool.query(
       `SELECT vip_catalog_password_hash
@@ -609,7 +729,12 @@ app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
       });
     }
 
-    const passwordHash = result.rows[0].vip_catalog_password_hash;
+    // =====================================================
+    // COMPARAR SENHA
+    // =====================================================
+
+    const passwordHash =
+      result.rows[0].vip_catalog_password_hash;
 
     const passwordIsValid = await bcrypt.compare(
       password,
@@ -617,13 +742,20 @@ app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
     );
 
     if (!passwordIsValid) {
-      console.log("[VIP VERIFY] Senha inválida para loja:", userId);
+      console.log(
+        "[VIP VERIFY] Senha inválida para loja:",
+        userId
+      );
 
       return res.status(401).json({
         success: false,
         error: "Senha VIP inválida.",
       });
     }
+
+    // =====================================================
+    // GERAR TOKEN VIP
+    // =====================================================
 
     const accessToken = jwt.sign(
       {
@@ -638,7 +770,10 @@ app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
       }
     );
 
-    console.log("[VIP VERIFY] Acesso liberado para loja:", userId);
+    console.log(
+      "[VIP VERIFY] Acesso liberado para loja:",
+      userId
+    );
 
     return res.json({
       success: true,
@@ -656,54 +791,73 @@ app.post("/api/public/catalogo/:userId/vip/verify", async (req, res) => {
   }
 });
 
+
 app.get("/api/catalogo/config", authMiddleware, async (req, res) => {
-  const r = await pool.query(
-    "SELECT vip_catalog_password_hash FROM users WHERE id=$1",
-    [req.user.id],
-  );
+  try {
+    res.set("Cache-Control", "no-store");
 
-  const state = await pool.query(
-    "SELECT state FROM user_app_states WHERE user_id=$1 AND state_key=$2",
-    [req.user.id, "catalogo"],
-  );
+    const [userResult, stateResult] = await Promise.all([
+      pool.query(
+        "SELECT vip_catalog_password_hash FROM users WHERE id = $1",
+        [req.user.id]
+      ),
 
-  const cfg = json(state.rows[0]?.state, {});
+      pool.query(
+        `SELECT state
+         FROM user_app_states
+         WHERE user_id = $1
+         AND state_key = $2`,
+        [req.user.id, "catalogo"]
+      )
+    ]);
 
-  res.json({
-    ...cfg,
+    const cfg = json(stateResult.rows[0]?.state, {});
 
-    vipConfigured: Boolean(r.rows[0]?.vip_catalog_password_hash),
+    return res.json({
+      ...cfg,
 
-    // CORREÇÃO: ENDEREÇO DO CATÁLOGO PÚBLICO
-    publicUrl: `${FRONTEND_URL.replace(/\/$/, "")}/publicCatalog/${req.user.id}`,
-  });
+      vipConfigured: Boolean(
+        userResult.rows[0]?.vip_catalog_password_hash
+      ),
+
+      publicUrl:
+        `${FRONTEND_URL.replace(/\/$/, "")}/publicCatalog/${req.user.id}`
+    });
+
+  } catch (error) {
+    console.error("[CATALOGO CONFIG GET ERROR]", error);
+
+    return res.status(500).json({
+      error: "Erro ao carregar configurações do catálogo."
+    });
+  }
 });
 
-app.put("/api/catalogo/config", authMiddleware, async (req, res) => {
-  try {
-    const { vipPassword, ...receivedCfg } = req.body || {};
 
-    // NORMALIZAÇÃO DOS DESTAQUES
+app.put("/api/catalogo/config", authMiddleware, async (req, res) => {
+  const {
+    vipPassword,
+    publicUrl,
+    vipConfigured,
+    ...receivedCfg
+  } = req.body || {};
+
+  try {
     const cfg = {
       ...receivedCfg,
 
       weeklyOfferProductIds: Array.isArray(
         receivedCfg.weeklyOfferProductIds
       )
-        ? receivedCfg.weeklyOfferProductIds
-            .map(String)
-            .slice(0, 8)
+        ? receivedCfg.weeklyOfferProductIds.map(String).slice(0, 8)
         : [],
 
       weeklyNewProductIds: Array.isArray(
         receivedCfg.weeklyNewProductIds
       )
-        ? receivedCfg.weeklyNewProductIds
-            .map(String)
-            .slice(0, 8)
+        ? receivedCfg.weeklyNewProductIds.map(String).slice(0, 8)
         : [],
 
-      // NORMALIZAÇÃO DOS PREÇOS PROMOCIONAIS
       weeklyOfferDetails:
         receivedCfg.weeklyOfferDetails &&
         typeof receivedCfg.weeklyOfferDetails === "object" &&
@@ -749,7 +903,7 @@ app.put("/api/catalogo/config", authMiddleware, async (req, res) => {
                                 originalPrice) *
                               100
                             ).toFixed(2)
-                          ),
+                          )
                         }
                       : {
                           originalPrice: Number.isFinite(originalPrice)
@@ -758,60 +912,91 @@ app.put("/api/catalogo/config", authMiddleware, async (req, res) => {
 
                           offerPrice: 0,
                           discountAmount: 0,
-                          discountPercent: 0,
-                        },
+                          discountPercent: 0
+                        }
                   ];
                 })
             )
-          : {},
+          : {}
     };
 
-    // SALVAR CONFIGURAÇÕES NO BANCO
-    await pool.query(
-      `INSERT INTO user_app_states(user_id,state_key,state,updated_at)
-       VALUES($1,'catalogo',$2,NOW())
-       ON CONFLICT(user_id,state_key)
-       DO UPDATE SET state=EXCLUDED.state,updated_at=NOW()`,
-      [req.user.id, JSON.stringify(cfg)]
-    );
+    // Gera o hash antes da transação.
+    let vipHash;
 
-    // CONFIGURAÇÃO DA SENHA VIP
     if (vipPassword !== undefined) {
-      if (!String(vipPassword).trim()) {
-        await pool.query(
-          "UPDATE users SET vip_catalog_password_hash=NULL WHERE id=$1",
-          [req.user.id]
-        );
-      } else {
-        await pool.query(
-          "UPDATE users SET vip_catalog_password_hash=$1 WHERE id=$2",
+      vipHash = String(vipPassword).trim()
+        ? await bcrypt.hash(String(vipPassword), 12)
+        : null;
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `INSERT INTO user_app_states(
+          user_id,
+          state_key,
+          state,
+          updated_at
+        )
+        VALUES($1, 'catalogo', $2, NOW())
+        ON CONFLICT(user_id, state_key)
+        DO UPDATE SET
+          state = EXCLUDED.state,
+          updated_at = NOW()`,
+        [
+          req.user.id,
+          JSON.stringify(cfg)
+        ]
+      );
+
+      if (vipPassword !== undefined) {
+        await client.query(
+          `UPDATE users
+           SET vip_catalog_password_hash = $1
+           WHERE id = $2`,
           [
-            await bcrypt.hash(String(vipPassword), 12),
-            req.user.id,
+            vipHash,
+            req.user.id
           ]
         );
       }
+
+      await client.query("COMMIT");
+
+    } catch (transactionError) {
+      await client.query("ROLLBACK");
+      throw transactionError;
+
+    } finally {
+      client.release();
     }
 
-    // RESPOSTA
-    res.json({
+    return res.json({
       success: true,
 
-      // CORREÇÃO: URL DO PUBLIC CATALOG
-      publicUrl: `${FRONTEND_URL.replace(/\/$/, "")}/publicCatalog/${req.user.id}`,
+      ...cfg,
+
+      publicUrl:
+        `${FRONTEND_URL.replace(/\/$/, "")}/publicCatalog/${req.user.id}`,
+
+      vipConfigured:
+        vipPassword !== undefined
+          ? Boolean(vipHash)
+          : undefined,
 
       weeklyOfferProductIds: cfg.weeklyOfferProductIds,
       weeklyNewProductIds: cfg.weeklyNewProductIds,
-
-      // CORREÇÃO: DEVOLVE OS DETALHES DAS OFERTAS SALVAS
-      weeklyOfferDetails: cfg.weeklyOfferDetails,
+      weeklyOfferDetails: cfg.weeklyOfferDetails
     });
 
-  } catch (err) {
-    console.error("[CATALOGO CONFIG ERROR]", err);
+  } catch (error) {
+    console.error("[CATALOGO CONFIG PUT ERROR]", error);
 
-    res.status(500).json({
-      error: "Erro ao salvar configurações do catálogo.",
+    return res.status(500).json({
+      error: "Erro ao salvar configurações do catálogo."
     });
   }
 });
@@ -933,6 +1118,101 @@ async function saveCustomer(req, res) {
     });
   }
 }
+
+
+// Cadastro público feito pelo checkout do catálogo.
+// O userId vincula o cliente à loja dona da vitrine.
+app.post("/api/public/catalogo/:userId/customers", async (req, res) => {
+  try {
+    const userId = String(req.params.userId || "").trim();
+    const name = String(req.body?.name || req.body?.nome || "").trim();
+    const phone = String(req.body?.phone || req.body?.telefone || "")
+      .replace(/\D/g, "");
+
+    if (!userId || !(await userExists(userId))) {
+      return res.status(404).json({ error: "Loja não encontrada." });
+    }
+
+    if (!name) {
+      return res.status(400).json({
+        error: "Informe o nome do cliente."
+      });
+    }
+
+    if (!/^55\d{10}$/.test(phone)) {
+      return res.status(400).json({
+        error: "WhatsApp inválido. Use 55 + DDD + 8 números."
+      });
+    }
+
+    // Evita duplicar o cliente quando ele fizer novos pedidos.
+    const existing = await pool.query(
+      `SELECT *
+       FROM customers
+       WHERE user_id=$1 AND phone=$2
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, phone]
+    );
+
+    if (existing.rows.length) {
+      const updated = await pool.query(
+        `UPDATE customers
+         SET name=$1
+         WHERE id=$2 AND user_id=$3
+         RETURNING *`,
+        [name, existing.rows[0].id, userId]
+      );
+
+      return res.status(200).json(
+        normalizeCustomer(updated.rows[0])
+      );
+    }
+
+    const customerId = `cli_${crypto.randomUUID()}`;
+    const now = new Date();
+
+    const fixedVencimento =
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+
+    await pool.query(
+      `INSERT INTO customers(
+        id,user_id,name,phone,cpf,data_aniversario,
+        cashback,cashback_expiration_date,cashback_expiry,
+        cashback_lost,status,whatsapp_opt_in,
+        reminders_enabled,status_mensalidade,
+        data_vencimento,valor_mensalidade,
+        pre_treino_tipo,pre_treino_inicio,
+        pre_treino_fim,pre_treino_valor_avulso
+      ) VALUES(
+        $1,$2,$3,$4,NULL,NULL,
+        0,NULL,NULL,0,'Ativo',0,
+        1,'Pendente (Não Pago)',
+        $5,0,'avulso',NULL,$5,0
+      )`,
+      [customerId, userId, name, phone, fixedVencimento]
+    );
+
+    const saved = await pool.query(
+      `SELECT *
+       FROM customers
+       WHERE id=$1 AND user_id=$2`,
+      [customerId, userId]
+    );
+
+    return res.status(201).json(
+      normalizeCustomer(saved.rows[0])
+    );
+
+  } catch (error) {
+    console.error("[PUBLIC CATALOG CUSTOMER]", error);
+
+    return res.status(500).json({
+      error: "Não foi possível registrar o cliente."
+    });
+  }
+});
+
 
 app.get("/api/customers", authMiddleware, getCustomers);
 
@@ -2034,19 +2314,51 @@ const handleGetConfig = async (req, res) => {
 // SALVAR CONFIGURAÇÕES
 // ==========================================
 
+
 const handleSaveConfig = async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    const r = await pool.query(
+    await client.query("BEGIN");
+
+    const r = await client.query(
       `SELECT pdv_config
        FROM user_pdv_configs
-       WHERE user_id=$1`,
-      [req.user.id],
+       WHERE user_id = $1
+       FOR UPDATE`,
+      [req.user.id]
     );
 
     const currentConfig = json(
       r.rows[0]?.pdv_config,
-      {},
+      {}
     );
+
+    const defaultDays = Number(
+      currentConfig.cashbackValidityDays ??
+      defaultPdv.cashbackValidityDays
+    );
+
+    const hasValidityChange =
+      Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        "cashbackValidityDays"
+      );
+
+    const rawDays = Number(
+      req.body.cashbackValidityDays ??
+      defaultDays
+    );
+
+    const configuredDays =
+      Number.isFinite(rawDays) && rawDays > 0
+        ? Math.min(Math.floor(rawDays), 3650)
+        : defaultDays;
+
+    // Identifica se o vendedor realmente mudou a validade.
+    const validityChanged =
+      hasValidityChange &&
+      configuredDays !== defaultDays;
 
     const updatedConfig = {
       ...defaultPdv,
@@ -2055,24 +2367,11 @@ const handleSaveConfig = async (req, res) => {
 
       cashbackPercentage: Number(
         req.body.cashbackPercentage ??
-          currentConfig.cashbackPercentage ??
-          defaultPdv.cashbackPercentage,
+        currentConfig.cashbackPercentage ??
+        defaultPdv.cashbackPercentage
       ),
 
-      cashbackValidityDays: (() => {
-        const raw = Number(
-          req.body.cashbackValidityDays ??
-            currentConfig.cashbackValidityDays ??
-            defaultPdv.cashbackValidityDays,
-        );
-
-        return Number.isFinite(raw) && raw > 0
-          ? Math.min(Math.floor(raw), 3650)
-          : Number(
-              currentConfig.cashbackValidityDays ||
-              defaultPdv.cashbackValidityDays
-            );
-      })(),
+      cashbackValidityDays: configuredDays,
 
       cashbackMessage:
         req.body.cashbackMessage ||
@@ -2085,34 +2384,93 @@ const handleSaveConfig = async (req, res) => {
         req.body.messageTemplate ||
         req.body.cashbackMessage ||
         currentConfig.messageTemplate ||
-        defaultPdv.messageTemplate,
+        defaultPdv.messageTemplate
     };
 
-    await pool.query(
-      `INSERT INTO user_pdv_configs(
+    // 1. Salva as novas configurações da loja.
+    await client.query(
+      `INSERT INTO user_pdv_configs (
         user_id,
         pdv_config
       )
-      VALUES($1,$2)
-      ON CONFLICT(user_id)
-      DO UPDATE SET pdv_config=$2`,
+      VALUES ($1, $2)
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        pdv_config = EXCLUDED.pdv_config`,
       [
         req.user.id,
-        JSON.stringify(updatedConfig),
-      ],
+        JSON.stringify(updatedConfig)
+      ]
     );
+
+    let updatedCustomers = 0;
+
+    // 2. Se a validade mudou, atualiza os cashbacks ativos.
+    if (validityChanged) {
+      const updateResult = await client.query(
+        `UPDATE customers
+         SET
+           cashback_expiration_date =
+             CURRENT_DATE + ($2::integer),
+
+           cashback_expiry =
+             CURRENT_DATE + ($2::integer)
+
+         WHERE user_id = $1
+
+           AND COALESCE(cashback, 0) > 0
+
+           AND COALESCE(
+             cashback_expiration_date,
+             cashback_expiry
+           ) IS NOT NULL
+
+           AND COALESCE(
+             cashback_expiration_date,
+             cashback_expiry
+           ) >= CURRENT_DATE
+
+         RETURNING id`,
+        [
+          req.user.id,
+          configuredDays
+        ]
+      );
+
+      updatedCustomers = updateResult.rowCount || 0;
+    }
+
+    await client.query("COMMIT");
 
     return res.json({
       success: true,
+
+      cashbackValidityDays: configuredDays,
+
+      validityChanged,
+
+      updatedCustomers,
+
+      message: validityChanged
+        ? `${updatedCustomers} cliente(s) tiveram a validade do cashback atualizada para ${configuredDays} dias.`
+        : "Configurações salvas com sucesso."
     });
 
   } catch (error) {
-    console.error("[PDV CONFIG SAVE ERROR]", error);
+    await client.query("ROLLBACK");
+
+    console.error(
+      "[PDV CONFIG SAVE ERROR]",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      error: "Erro ao salvar as configurações do PDV/Cashback.",
+      error: "Erro ao salvar as configurações do PDV/Cashback."
     });
+
+  } finally {
+    client.release();
   }
 };
 

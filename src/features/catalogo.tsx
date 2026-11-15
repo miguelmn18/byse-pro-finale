@@ -1,7 +1,7 @@
 
 // @ts-nocheck
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Copy,
@@ -39,6 +39,27 @@ interface Product {
   imageUrl?: string;
 }
 
+const readCatalogConfigCache = (userId: any) => {
+  if (!userId || typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(`byse_catalog_config_${String(userId)}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeCatalogConfigCache = (userId: any, config: any) => {
+  if (!userId || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(`byse_catalog_config_${String(userId)}`, JSON.stringify(config || {}));
+  } catch (error) {
+    console.warn('[CATALOGO] Não foi possível atualizar o cache local:', error);
+  }
+};
+
 export default function Catalogo({
   products = [],
   userId,
@@ -49,9 +70,12 @@ export default function Catalogo({
   accent,
   text
 }: any) {
-  const [cfg, setCfg] = useState<any>({});
+  const [cfg, setCfg] = useState<any>(() => readCatalogConfigCache(userId));
   const [vipPassword, setVipPassword] = useState('');
   const [saving, setSaving] = useState(false);
+  const [vipVerifying, setVipVerifying] = useState(false);
+  const [vipError, setVipError] = useState('');
+  const configRequestRef = useRef(0);
   const [saved, setSaved] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -69,8 +93,17 @@ export default function Catalogo({
 
   // true: preços visíveis
   // false: somente os preços ficam ocultos.
-  const [isCatalogVisible, setIsCatalogVisible] = useState(true);
+  const [isCatalogVisible, setIsCatalogVisible] = useState(
+    () => readCatalogConfigCache(userId).catalogVisible !== false
+  );
   const [uploadingCategory, setUploadingCategory] = useState<string>('');
+
+  useEffect(() => {
+    setIsVipUnlocked(false);
+    setVipPasswordInput('');
+    setShowVipModal(false);
+    setVipError('');
+  }, [userId]);
 
   // Imagens personalizadas por categoria, persistidas em catalogo/config.
   const categoryImages: Record<string, string> =
@@ -175,32 +208,42 @@ export default function Catalogo({
 
   useEffect(() => {
     let active = true;
+    const requestId = ++configRequestRef.current;
+    const controller = new AbortController();
+
+    // Carrega primeiro o último estado local, sem bloquear a abertura da aba.
+    const cached = readCatalogConfigCache(userId);
+    if (active && cached && Object.keys(cached).length) {
+      setCfg(cached);
+      setIsCatalogVisible(cached.catalogVisible !== false);
+    }
 
     const loadConfig = async () => {
       try {
-        const response = await fetch(
-          `${base}/api/catalogo/config`,
-          { headers: headers() }
-        );
+        const response = await fetch(`${base}/api/catalogo/config`, {
+          method: 'GET',
+          headers: headers(),
+          signal: controller.signal,
+          cache: 'no-store'
+        });
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (response.status !== 401) {
+            console.warn('[CATALOGO] Não foi possível atualizar a configuração:', response.status);
+          }
+          return;
+        }
 
         const loaded = await response.json();
-
-        if (!active) return;
+        if (!active || requestId !== configRequestRef.current) return;
 
         setCfg(loaded);
-
-        if (loaded.catalogVisible !== undefined) {
-          setIsCatalogVisible(
-            Boolean(loaded.catalogVisible)
-          );
+        setIsCatalogVisible(loaded.catalogVisible !== false);
+        writeCatalogConfigCache(userId, loaded);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Erro ao atualizar configurações do catálogo:', error);
         }
-      } catch (error) {
-        console.error(
-          'Erro ao carregar configurações do catálogo:',
-          error
-        );
       }
     };
 
@@ -208,8 +251,9 @@ export default function Catalogo({
 
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [base]);
+  }, [base, userId]);
 
   const publicUrl = userId
   ? `${window.location.origin}/publicCatalog/${encodeURIComponent(String(userId))}`
@@ -336,16 +380,18 @@ export default function Catalogo({
 
       const data = await response.json();
 
-      setCfg((prev: any) => ({
-        ...prev,
+      const { vipPassword: _neverCacheVipPassword, ...safePayload } = payload;
+      const savedConfig = {
+        ...cfg,
+        ...safePayload,
         ...data,
         weeklyOfferDetails: data.weeklyOfferDetails || payload.weeklyOfferDetails || {},
         whatsapp: payload.whatsapp,
         catalogVisible: isCatalogVisible,
-        vipConfigured:
-          Boolean(vipPassword.trim()) ||
-          prev.vipConfigured
-      }));
+        vipConfigured: Boolean(vipPassword.trim()) || data.vipConfigured || cfg.vipConfigured
+      };
+      setCfg(savedConfig);
+      writeCatalogConfigCache(userId, savedConfig);
 
       setVipPassword('');
       setSaved(true);
@@ -398,11 +444,9 @@ export default function Catalogo({
 
       const data = await response.json();
 
-      setCfg((prev: any) => ({
-        ...prev,
-        ...data,
-        catalogVisible: next
-      }));
+      const updatedConfig = { ...cfg, ...data, catalogVisible: next };
+      setCfg(updatedConfig);
+      writeCatalogConfigCache(userId, updatedConfig);
     } catch (error) {
       console.error(error);
 
@@ -418,39 +462,32 @@ export default function Catalogo({
     }
   };
 
-  const categories = [
+  const categories = useMemo(() => [
     'Todos',
     ...Array.from(
       new Set(
-        products.map((product: any) =>
+        (Array.isArray(products) ? products : []).map((product: any) =>
           product.category || 'Geral'
         )
       )
     )
-  ];
+  ], [products]);
 
-  const filteredProducts = products.filter(
-    (product: any) => {
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = query.trim().toLocaleLowerCase('pt-BR');
+    return (Array.isArray(products) ? products : []).filter((product: any) => {
       const matchesCategory =
         selectedCategory === 'Todos' ||
         (product.category || 'Geral') === selectedCategory;
 
-      const search = query.toLowerCase();
+      if (!matchesCategory) return false;
+      if (!normalizedSearch) return true;
 
-      const matchesSearch =
-        String(product.name || '')
-          .toLowerCase()
-          .includes(search) ||
-        String(product.description || '')
-          .toLowerCase()
-          .includes(search) ||
-        String(product.category || '')
-          .toLowerCase()
-          .includes(search);
-
-      return matchesCategory && matchesSearch;
-    }
-  );
+      return [product.name, product.description, product.category].some((value) =>
+        String(value || '').toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+      );
+    });
+  }, [products, selectedCategory, query]);
 
   const getVipPrice = (product: any) =>
     product.vip_price !== undefined
@@ -475,6 +512,51 @@ export default function Catalogo({
     }
 
     return Number(product.price || 0);
+  };
+
+  // VIP continua vendo os preços mesmo quando a vitrine comum os oculta.
+  const canShowPrices = isCatalogVisible || isVipUnlocked;
+
+  const verifyVipAccess = async () => {
+    const password = vipPasswordInput.trim();
+    if (!password) {
+      setVipError('Digite a senha VIP.');
+      return;
+    }
+    if (!userId) {
+      setVipError('Não foi possível identificar a loja.');
+      return;
+    }
+
+    setVipVerifying(true);
+    setVipError('');
+    try {
+      const response = await fetch(
+        `${base}/api/public/catalogo/${encodeURIComponent(String(userId))}/vip/verify`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        }
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success || !result.accessToken) {
+        throw new Error(result.error || 'Senha VIP inválida.');
+      }
+
+      try {
+        localStorage.setItem(`vip_token_${String(userId)}`, result.accessToken);
+      } catch {}
+
+      setIsVipUnlocked(true);
+      setShowVipModal(false);
+      setVipPasswordInput('');
+      setVipError('');
+    } catch (error: any) {
+      setVipError(error?.message || 'Não foi possível validar a senha VIP.');
+    } finally {
+      setVipVerifying(false);
+    }
   };
 
   const formatCurrency = (value: number) =>
@@ -631,11 +713,26 @@ export default function Catalogo({
 
   return (
     <div
+      className="byse-catalog-root"
       style={{
         color: text,
-        paddingBottom: 40
+        paddingBottom: 40,
+        minWidth: 0,
+        width: '100%',
+        boxSizing: 'border-box'
       }}
     >
+      <style>{`
+        .byse-catalog-root, .byse-catalog-root * { box-sizing: border-box; }
+        @media (max-width: 640px) {
+          .byse-catalog-root { padding-bottom: 18px !important; }
+          .byse-catalog-root .byse-catalog-product-card { border-radius: 11px !important; }
+          .byse-catalog-root input, .byse-catalog-root button { max-width: 100%; }
+        }
+        @media (max-width: 380px) {
+          .byse-catalog-root { font-size: 13px; }
+        }
+      `}</style>
       <SectionTitle
         title="Catálogo & Vitrine Digital"
         sub="Gerencie seu link público e configure a senha de acesso VIP para os seus clientes"
@@ -963,6 +1060,84 @@ export default function Catalogo({
         </div>
       </div>
 
+      {/* BANNER DA VITRINE PÚBLICA */}
+      <div style={{ ...cardStyle, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+          <Sparkles size={18} color={accent} />
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Banner principal da vitrine</h3>
+        </div>
+        <p style={{ color: subtext, fontSize: 12, lineHeight: 1.5, margin: '0 0 14px' }}>
+          Configure separadamente o título principal e o aviso de oferta ou novidade que aparecerão no PublicCatalog.
+          O banner só será publicado depois de habilitar e salvar esta configuração.
+        </p>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, border: `1px solid ${border}`, borderRadius: 10, marginBottom: 14, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={Boolean(cfg.catalogBannerEnabled)}
+            onChange={event => {
+              setCfg((previous: any) => ({ ...previous, catalogBannerEnabled: event.target.checked }));
+              setSaved(false);
+            }}
+            style={{ width: 17, height: 17, accentColor: accent }}
+          />
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <strong style={{ display: 'block', fontSize: 13 }}>Exibir banner no catálogo público</strong>
+            <small style={{ color: subtext, fontSize: 11 }}>Desative para ocultar o banner sem apagar os textos cadastrados.</small>
+          </span>
+          <span style={{ color: cfg.catalogBannerEnabled ? '#16a34a' : subtext, fontSize: 10, fontWeight: 800 }}>
+            {cfg.catalogBannerEnabled ? 'ATIVADO' : 'DESATIVADO'}
+          </span>
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
+          <label style={{ display: 'grid', gap: 6, fontSize: 11, fontWeight: 750 }}>
+            Título principal
+            <input
+              type="text"
+              maxLength={90}
+              value={cfg.catalogBannerTitle || ''}
+              onChange={event => {
+                setCfg((previous: any) => ({ ...previous, catalogBannerTitle: event.target.value }));
+                setSaved(false);
+              }}
+              placeholder="Ex.: Sua melhor versão começa aqui"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 11, fontWeight: 750 }}>
+            Aviso de oferta / novidade
+            <input
+              type="text"
+              maxLength={180}
+              value={cfg.catalogBannerMessage || ''}
+              onChange={event => {
+                setCfg((previous: any) => ({ ...previous, catalogBannerMessage: event.target.value }));
+                setSaved(false);
+              }}
+              placeholder="Ex.: Semana especial: ofertas e novidades selecionadas!"
+              style={inputStyle}
+            />
+          </label>
+        </div>
+
+        <div style={{ marginTop: 14, padding: 16, borderRadius: 12, color: '#fff', background: `linear-gradient(115deg, ${accent}, #171717 78%)`, border: `1px solid ${accent}66` }}>
+          <div style={{ fontSize: 9, fontWeight: 900, letterSpacing: 1.5, opacity: .8, marginBottom: 7 }}>PRÉVIA DO BANNER</div>
+          <div style={{ fontSize: 21, lineHeight: 1.15, fontWeight: 900 }}>{cfg.catalogBannerTitle || 'Título principal da sua loja'}</div>
+          <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, opacity: .92 }}>
+            {cfg.catalogBannerMessage || 'Seu aviso de oferta ou novidade aparecerá aqui.'}
+          </div>
+          {!cfg.catalogBannerEnabled && <div style={{ marginTop: 10, fontSize: 10, fontWeight: 800, opacity: .8 }}>PRÉVIA — BANNER OCULTO ATÉ SER ATIVADO</div>}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={save} disabled={saving} style={{ ...buttonStyle, background: accent, color: '#fff', border: 0, padding: '11px 18px', opacity: saving ? 0.7 : 1 }}>
+            <Save size={14} /> {saving ? 'Salvando...' : 'Salvar banner da vitrine'}
+          </button>
+        </div>
+        {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '8px 0 0', textAlign: 'right' }}>Configurações salvas com sucesso.</p>}
+      </div>
+
       {/* DESTAQUES DA VITRINE PÚBLICA */}
       <div style={{ ...cardStyle, marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
@@ -1184,7 +1359,7 @@ export default function Catalogo({
                 color: isCatalogVisible ? text : accent
               }}
             >
-              {isCatalogVisible ? (
+              {canShowPrices ? (
                 <Eye size={15} />
               ) : (
                 <EyeOff size={15} />
@@ -1382,8 +1557,8 @@ export default function Catalogo({
             style={{
               display: 'grid',
               gridTemplateColumns:
-                'repeat(auto-fill, minmax(220px, 1fr))',
-              gap: 16
+                'repeat(auto-fill, minmax(min(100%, 165px), 1fr))',
+              gap: 12
             }}
           >
             {filteredProducts.map((product: any) => {
@@ -1418,6 +1593,7 @@ export default function Catalogo({
                     background: card,
                     minWidth: 0
                   }}
+                  className="byse-catalog-product-card"
                 >
                   <div>
                     {/* IMAGEM SEMPRE VISÍVEL */}
@@ -1426,7 +1602,7 @@ export default function Catalogo({
                       <div
                         style={{
                           width: '100%',
-                          aspectRatio: '4 / 5',
+                          aspectRatio: '1 / 1.15',
                           overflow: 'hidden',
                           background: 'rgba(0,0,0,0.03)'
                         }}
@@ -1526,7 +1702,7 @@ export default function Catalogo({
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      {isCatalogVisible ? (
+                      {canShowPrices ? (
                         hasVipPrice ? (
                           <div>
                             <span
@@ -1794,7 +1970,7 @@ export default function Catalogo({
 
                       {/* SOMENTE O PREÇO É OCULTADO */}
 
-                      {isCatalogVisible ? (
+                      {canShowPrices ? (
                         <span
                           style={{
                             fontSize: 11,
@@ -1922,7 +2098,7 @@ export default function Catalogo({
                     Total do Pedido:
                   </span>
 
-                  {isCatalogVisible ? (
+                  {canShowPrices ? (
                     <span
                       style={{
                         fontSize: 18,
@@ -2055,19 +2231,23 @@ export default function Catalogo({
               onChange={(event) =>
                 setVipPasswordInput(event.target.value)
               }
+              autoComplete="current-password"
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
-                  alert(
-                    'A validação da senha VIP precisa ser realizada pelo servidor.'
-                  );
+                  verifyVipAccess();
                 }
               }}
               style={{
                 ...inputStyle,
-                marginBottom: 14
+                marginBottom: 8
               }}
             />
+            {vipError && (
+              <p style={{ color: '#ef4444', fontSize: 11, margin: '0 0 12px', fontWeight: 700 }}>
+                {vipError}
+              </p>
+            )}
 
             <div
               style={{
@@ -2090,28 +2270,20 @@ export default function Catalogo({
               </button>
 
               <button
-                onClick={() => {
-                  if (!vipPasswordInput.trim()) {
-                    alert('Insira uma senha válida.');
-                    return;
-                  }
-
-                  // Mantém o comportamento visual anterior.
-                  // Para segurança real, valide a senha no backend.
-                  setIsVipUnlocked(true);
-                  setShowVipModal(false);
-                  setVipPasswordInput('');
-                }}
+                onClick={verifyVipAccess}
+                disabled={vipVerifying}
                 style={{
                   ...buttonStyle,
                   flex: 1,
                   padding: 10,
                   border: 0,
                   background: '#f59e0b',
-                  color: '#fff'
+                  color: '#fff',
+                  opacity: vipVerifying ? 0.7 : 1,
+                  cursor: vipVerifying ? 'wait' : 'pointer'
                 }}
               >
-                Desbloquear
+                {vipVerifying ? 'Verificando...' : 'Desbloquear'}
               </button>
             </div>
           </div>
