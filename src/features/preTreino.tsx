@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { SectionTitle } from '../components/common';
 
+
 const money = (v: number) =>
   Number(v || 0).toLocaleString('pt-BR', {
     style: 'currency',
@@ -114,81 +115,9 @@ export function PreTreino({
     refreshReport();
   }, [registros, API_URL]);
 
-  // Carregar clientes.
-  useEffect(() => {
-    const fetchPreTreinoCustomers = async () => {
-      try {
-        const r = await fetch(`${baseUrl}/pre-treino/customers`, {
-          headers: headers()
-        });
-
-        if (!r.ok) return;
-
-        const data = await r.json();
-
-        const normalized = Array.isArray(data)
-          ? data.map((c: any) => {
-              const createdAtDate = c.created_at
-                ? new Date(c.created_at)
-                : new Date();
-
-              const year = createdAtDate.getFullYear();
-              const month = String(createdAtDate.getMonth() + 1).padStart(2, '0');
-              const fixedVencimento = `${year}-${month}-01`;
-
-              return {
-                ...c,
-                tipo: c.tipo || c.preTreinoTipo || 'mensal',
-                valorMensalidade: Number(
-                  c.valorMensalidade ?? c.valor_mensalidade ?? 0
-                ),
-                valorAvulso: Number(
-                  c.valorAvulso ?? c.valor_avulso ?? 0
-                ),
-                statusMensalidade:
-                  c.statusMensalidade ||
-                  c.status_mensalidade ||
-                  'Pendente (Não Pago)',
-                dataVencimento: fixedVencimento,
-                data_vencimento: fixedVencimento,
-                diasContadorVencimento: calculateDaysCounter(c.created_at)
-              };
-            })
-          : [];
-
-        if (typeof setClientesPreTreino === 'function') {
-          setClientesPreTreino(normalized);
-        }
-      } catch (e) {
-        console.error('[FETCH CUSTOMERS ERROR]', e);
-      }
-    };
-
-    fetchPreTreinoCustomers();
-  }, [API_URL]);
-
-  // Carregar produtos. O estoque não é mais utilizado.
-  useEffect(() => {
-    const fetchPreTreinoProducts = async () => {
-      try {
-        const r = await fetch(`${baseUrl}/pre-treino/products`, {
-          headers: headers()
-        });
-
-        if (!r.ok) return;
-
-        const data = await r.json();
-
-        if (typeof setProdutosPreTreino === 'function') {
-          setProdutosPreTreino(Array.isArray(data) ? data : []);
-        }
-      } catch (e) {
-        console.error('[FETCH PRODUCTS ERROR]', e);
-      }
-    };
-
-    fetchPreTreinoProducts();
-  }, [API_URL]);
+  // Clientes e produtos são carregados pelo SupplementSystem, que mantém
+  // cache isolado por usuário e sincroniza os dados em segundo plano.
+  // Este componente apenas grava alterações e atualiza o estado recebido por props.
 
   const customers = rawCustomers.map((c: any) => {
     const createdAtDate = c.created_at

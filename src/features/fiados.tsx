@@ -113,15 +113,6 @@ import {
 
 // Normaliza a URL para funcionar tanto com VITE_API_URL terminando em /api
 // quanto com a URL-base do backend sem /api. Evita gerar /fiados sem o prefixo /api.
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:3333/api"
-)
-  .trim()
-  .replace(/\/+$/, "")
-  .replace(/\/api$/i, "");
-
-const FIADOS_API_URL = `${API_BASE_URL}/api/fiados`;
 
 function Fiados({
   fiados,
@@ -131,8 +122,14 @@ function Fiados({
   border,
   subtext,
   accent,
-  text
+  text,
+  apiUrl
 }) {
+  const configuredApiUrl = (apiUrl || import.meta.env.VITE_API_URL || "http://localhost:3333/api")
+    .trim()
+    .replace(/\/+$/, "");
+  const FIADOS_API_URL = `${configuredApiUrl.replace(/\/api$/i, "")}/api/fiados`;
+
   const [showForm, setShowForm] = useState(false);
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
   const [customerMode, setCustomerMode] = useState("registered");

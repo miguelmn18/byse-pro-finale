@@ -97,6 +97,7 @@ export default function Catalogo({
     () => readCatalogConfigCache(userId).catalogVisible !== false
   );
   const [uploadingCategory, setUploadingCategory] = useState<string>('');
+  const [uploadingCatalogBanner, setUploadingCatalogBanner] = useState(false);
 
   useEffect(() => {
     setIsVipUnlocked(false);
@@ -158,6 +159,71 @@ export default function Catalogo({
       reader.onerror = () => reject(new Error('Erro ao ler o arquivo.'));
       reader.readAsDataURL(file);
     });
+  };
+
+  // O banner é padronizado em proporção 4:1 (1600 x 400 px).
+  // A imagem é recortada centralizadamente, sem deformar o conteúdo.
+  const processCatalogBannerImage = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Selecione um arquivo de imagem válido.'));
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      reject(new Error('O banner deve ter no máximo 10 MB.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const targetWidth = 1600;
+        const targetHeight = 400;
+        const targetRatio = targetWidth / targetHeight;
+        const sourceRatio = image.width / image.height;
+        let sx = 0, sy = 0, sw = image.width, sh = image.height;
+        if (sourceRatio > targetRatio) {
+          sw = image.height * targetRatio;
+          sx = (image.width - sw) / 2;
+        } else {
+          sh = image.width / targetRatio;
+          sy = (image.height - sh) / 2;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('Não foi possível processar a imagem.'));
+          return;
+        }
+        context.drawImage(image, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
+        const compressed = canvas.toDataURL('image/jpeg', 0.78);
+        if (compressed.length > 1_500_000) {
+          reject(new Error('A imagem ficou muito grande após a compressão. Escolha outra imagem.'));
+          return;
+        }
+        resolve(compressed);
+      };
+      image.onerror = () => reject(new Error('Não foi possível abrir a imagem.'));
+      image.src = String(reader.result);
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler o arquivo.'));
+    reader.readAsDataURL(file);
+  });
+
+  const handleCatalogBannerImage = async (file?: File) => {
+    if (!file) return;
+    setUploadingCatalogBanner(true);
+    setSaved(false);
+    try {
+      const image = await processCatalogBannerImage(file);
+      setCfg((previous: any) => ({ ...previous, catalogBrandBannerImage: image }));
+    } catch (error: any) {
+      console.error('Erro ao processar banner do catálogo:', error);
+      alert(error?.message || 'Não foi possível carregar o banner.');
+    } finally {
+      setUploadingCatalogBanner(false);
+    }
   };
 
   const handleCategoryImage = async (category: string, file?: File) => {
@@ -348,8 +414,8 @@ export default function Catalogo({
       return;
     }
 
-    if (uploadingCategory) {
-      alert('Aguarde o processamento da imagem da categoria terminar.');
+    if (uploadingCategory || uploadingCatalogBanner) {
+      alert('Aguarde o processamento das imagens terminar.');
       return;
     }
 
@@ -1060,82 +1126,203 @@ export default function Catalogo({
         </div>
       </div>
 
-      {/* BANNER DA VITRINE PÚBLICA */}
+      {/* IDENTIDADE E INFORMAÇÕES DA LOJA FÍSICA */}
+      <div style={{ ...cardStyle, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+          <Store size={18} color={accent} />
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Identidade e informações da loja</h3>
+        </div>
+        <p style={{ color: subtext, fontSize: 12, lineHeight: 1.55, margin: '0 0 16px' }}>
+          Personalize o nome da sua marca no catálogo público e informe endereço, apresentação, pagamentos e opções de entrega. Essas configurações pertencem somente a este login/loja.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 13 }}>
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 750 }}>
+            Nome da marca na barra do catálogo público
+            <input
+              value={cfg.publicBrandName || ''}
+              onChange={e => { setCfg((p: any) => ({ ...p, publicBrandName: e.target.value })); setSaved(false); }}
+              placeholder="Ex.: M-BYSE, Nutri Power, Max Suplementos"
+              style={inputStyle}
+              maxLength={60}
+            />
+            <small style={{ color: subtext, fontSize: 10, fontWeight: 400 }}>Este nome substitui “M-BYSE” apenas na vitrine pública. Não altera o nome de usuário ou da conta.</small>
+          </label>
+
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 750 }}>
+            Endereço da loja física
+            <input
+              value={cfg.address || ''}
+              onChange={e => { setCfg((p: any) => ({ ...p, address: e.target.value })); setSaved(false); }}
+              placeholder="Rua, número, bairro, cidade - UF"
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 750 }}>
+            Frase de apresentação da loja
+            <input
+              value={cfg.storeSlogan || ''}
+              onChange={e => { setCfg((p: any) => ({ ...p, storeSlogan: e.target.value })); setSaved(false); }}
+              placeholder="Ex.: Temos compromisso com a qualidade."
+              style={inputStyle}
+              maxLength={180}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 750 }}>
+            Informações adicionais sobre a loja (opcional)
+            <textarea
+              value={cfg.storeDescription || ''}
+              onChange={e => { setCfg((p: any) => ({ ...p, storeDescription: e.target.value })); setSaved(false); }}
+              placeholder="Conte um pouco sobre sua loja, atendimento e diferenciais..."
+              rows={3}
+              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+            />
+          </label>
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <strong style={{ display: 'block', fontSize: 13, marginBottom: 9 }}>Formas de pagamento aceitas</strong>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 8 }}>
+            {[
+              { value: 'Dinheiro', icon: '💵', label: 'Dinheiro' },
+              { value: 'Pix', icon: '📱', label: 'Pix' },
+              { value: 'Cartão de crédito/débito', icon: '💳', label: 'Cartão crédito/débito' },
+              { value: 'Boleto', icon: '🧾', label: 'Boleto' }
+            ].map(option => {
+              const selected = Array.isArray(cfg.paymentMethods) && cfg.paymentMethods.includes(option.value);
+              return (
+                <label key={option.value} style={{ display: 'flex', alignItems: 'center', gap: 9, minHeight: 46, padding: '9px 11px', border: `1px solid ${selected ? accent : border}`, borderRadius: 10, background: selected ? `${accent}12` : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={e => {
+                      setCfg((p: any) => {
+                        const current = Array.isArray(p.paymentMethods) ? p.paymentMethods : [];
+                        return { ...p, paymentMethods: e.target.checked ? [...current, option.value] : current.filter((v: string) => v !== option.value) };
+                      });
+                      setSaved(false);
+                    }}
+                    style={{ accentColor: accent }}
+                  />
+                  <span style={{ fontSize: 18 }}>{option.icon}</span>
+                  <span>{option.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14, marginTop: 20 }}>
+          <div>
+            <strong style={{ display: 'block', fontSize: 13, marginBottom: 9 }}>Como a loja atende os pedidos?</strong>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {[
+                { value: 'delivery', icon: '🚚', label: 'Delivery / Entrega' },
+                { value: 'pickup', icon: '🏪', label: 'Somente retirada' }
+              ].map(option => (
+                <label key={option.value} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: 11, border: `1px solid ${(cfg.deliveryMode || 'delivery') === option.value ? accent : border}`, borderRadius: 10, background: (cfg.deliveryMode || 'delivery') === option.value ? `${accent}12` : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                  <input type="radio" name="catalog-delivery-mode" checked={(cfg.deliveryMode || 'delivery') === option.value} onChange={() => { setCfg((p: any) => ({ ...p, deliveryMode: option.value })); setSaved(false); }} style={{ accentColor: accent }} />
+                  <span style={{ fontSize: 18 }}>{option.icon}</span>
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {(cfg.deliveryMode || 'delivery') === 'delivery' && (
+            <div>
+              <strong style={{ display: 'block', fontSize: 13, marginBottom: 9 }}>Área de entrega</strong>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {[
+                  { value: 'local', icon: '📍', label: 'Somente na região / localização' },
+                  { value: 'brazil', icon: '🇧🇷', label: 'Entrega em todo o Brasil' }
+                ].map(option => (
+                  <label key={option.value} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: 11, border: `1px solid ${(cfg.deliveryCoverage || 'local') === option.value ? accent : border}`, borderRadius: 10, background: (cfg.deliveryCoverage || 'local') === option.value ? `${accent}12` : 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    <input type="radio" name="catalog-delivery-coverage" checked={(cfg.deliveryCoverage || 'local') === option.value} onChange={() => { setCfg((p: any) => ({ ...p, deliveryCoverage: option.value })); setSaved(false); }} style={{ accentColor: accent }} />
+                    <span style={{ fontSize: 18 }}>{option.icon}</span>
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <label style={{ display: 'grid', gap: 6, marginTop: 16, fontSize: 12, fontWeight: 750 }}>
+          Observações sobre entrega ou retirada (opcional)
+          <textarea
+            value={cfg.deliveryInfo || ''}
+            onChange={e => { setCfg((p: any) => ({ ...p, deliveryInfo: e.target.value })); setSaved(false); }}
+            placeholder="Ex.: Consulte disponibilidade e prazo pelo WhatsApp."
+            rows={2}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+          />
+        </label>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <button onClick={save} disabled={saving} style={{ ...buttonStyle, background: accent, color: '#fff', border: 0, padding: '11px 18px', opacity: saving ? 0.7 : 1 }}>
+            <Save size={14} /> {saving ? 'Salvando...' : 'Salvar informações da loja'}
+          </button>
+        </div>
+        {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '9px 0 0', textAlign: 'right' }}>Informações salvas com sucesso.</p>}
+      </div>
+
+      {/* IMAGEM DO BANNER DA VITRINE PÚBLICA */}
       <div style={{ ...cardStyle, marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
           <Sparkles size={18} color={accent} />
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Banner principal da vitrine</h3>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Imagem do banner do catálogo</h3>
         </div>
-        <p style={{ color: subtext, fontSize: 12, lineHeight: 1.5, margin: '0 0 14px' }}>
-          Configure separadamente o título principal e o aviso de oferta ou novidade que aparecerão no PublicCatalog.
-          O banner só será publicado depois de habilitar e salvar esta configuração.
+        <p style={{ color: subtext, fontSize: 12, lineHeight: 1.55, margin: '0 0 14px' }}>
+          Envie a arte pronta da sua loja. Não é necessário cadastrar título ou texto: a imagem será exibida diretamente no topo do PublicCatalog depois de salvar.
         </p>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, border: `1px solid ${border}`, borderRadius: 10, marginBottom: 14, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={Boolean(cfg.catalogBannerEnabled)}
-            onChange={event => {
-              setCfg((previous: any) => ({ ...previous, catalogBannerEnabled: event.target.checked }));
-              setSaved(false);
-            }}
-            style={{ width: 17, height: 17, accentColor: accent }}
-          />
-          <span style={{ minWidth: 0, flex: 1 }}>
-            <strong style={{ display: 'block', fontSize: 13 }}>Exibir banner no catálogo público</strong>
-            <small style={{ color: subtext, fontSize: 11 }}>Desative para ocultar o banner sem apagar os textos cadastrados.</small>
-          </span>
-          <span style={{ color: cfg.catalogBannerEnabled ? '#16a34a' : subtext, fontSize: 10, fontWeight: 800 }}>
-            {cfg.catalogBannerEnabled ? 'ATIVADO' : 'DESATIVADO'}
-          </span>
-        </label>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
-          <label style={{ display: 'grid', gap: 6, fontSize: 11, fontWeight: 750 }}>
-            Título principal
-            <input
-              type="text"
-              maxLength={90}
-              value={cfg.catalogBannerTitle || ''}
-              onChange={event => {
-                setCfg((previous: any) => ({ ...previous, catalogBannerTitle: event.target.value }));
-                setSaved(false);
-              }}
-              placeholder="Ex.: Sua melhor versão começa aqui"
-              style={inputStyle}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: 6, fontSize: 11, fontWeight: 750 }}>
-            Aviso de oferta / novidade
-            <input
-              type="text"
-              maxLength={180}
-              value={cfg.catalogBannerMessage || ''}
-              onChange={event => {
-                setCfg((previous: any) => ({ ...previous, catalogBannerMessage: event.target.value }));
-                setSaved(false);
-              }}
-              placeholder="Ex.: Semana especial: ofertas e novidades selecionadas!"
-              style={inputStyle}
-            />
-          </label>
-        </div>
-
-        <div style={{ marginTop: 14, padding: 16, borderRadius: 12, color: '#fff', background: `linear-gradient(115deg, ${accent}, #171717 78%)`, border: `1px solid ${accent}66` }}>
-          <div style={{ fontSize: 9, fontWeight: 900, letterSpacing: 1.5, opacity: .8, marginBottom: 7 }}>PRÉVIA DO BANNER</div>
-          <div style={{ fontSize: 21, lineHeight: 1.15, fontWeight: 900 }}>{cfg.catalogBannerTitle || 'Título principal da sua loja'}</div>
-          <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, opacity: .92 }}>
-            {cfg.catalogBannerMessage || 'Seu aviso de oferta ou novidade aparecerá aqui.'}
+        <div style={{ padding: 12, borderRadius: 10, border: `1px solid ${border}`, background: `${accent}0D`, marginBottom: 14 }}>
+          <strong style={{ display: 'block', fontSize: 12, marginBottom: 5 }}>Formato recomendado do banner</strong>
+          <div style={{ fontSize: 12, color: subtext, lineHeight: 1.55 }}>
+            <strong>1600 × 400 pixels (proporção 4:1)</strong> · imagem horizontal · JPG, JPEG, PNG ou WEBP · até 10 MB.
+            <br />Crie sua arte nesse tamanho para evitar cortes. Se enviar outra proporção, o sistema fará um recorte central para ajustar ao formato.
           </div>
-          {!cfg.catalogBannerEnabled && <div style={{ marginTop: 10, fontSize: 10, fontWeight: 800, opacity: .8 }}>PRÉVIA — BANNER OCULTO ATÉ SER ATIVADO</div>}
         </div>
-
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14, alignItems: 'center' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 800, marginBottom: 7 }}>Selecionar imagem do banner</label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/*"
+              disabled={uploadingCatalogBanner}
+              onChange={event => {
+                const file = event.target.files?.[0];
+                if (file) handleCatalogBannerImage(file);
+                event.currentTarget.value = '';
+              }}
+              style={{ ...inputStyle, padding: 9 }}
+            />
+            <small style={{ display: 'block', color: subtext, fontSize: 10, lineHeight: 1.5, marginTop: 6 }}>
+              A imagem será ajustada automaticamente para 1600 × 400 px, sem esticar ou deformar.
+            </small>
+            {uploadingCatalogBanner && <small style={{ display: 'block', color: accent, marginTop: 6 }}>Processando imagem...</small>}
+            {cfg.catalogBrandBannerImage && (
+              <button
+                type="button"
+                onClick={() => { setCfg((previous: any) => ({ ...previous, catalogBrandBannerImage: '' })); setSaved(false); }}
+                style={{ ...buttonStyle, marginTop: 8, padding: '7px 10px', color: '#dc2626' }}
+              >Remover imagem</button>
+            )}
+          </div>
+          {cfg.catalogBrandBannerImage ? (
+            <img src={cfg.catalogBrandBannerImage} alt="Prévia do banner do catálogo" style={{ width: '100%', aspectRatio: '4 / 1', objectFit: 'cover', borderRadius: 10, border: `1px solid ${border}` }} />
+          ) : (
+            <div style={{ aspectRatio: '4 / 1', minHeight: 70, display: 'grid', placeItems: 'center', padding: 14, border: `1px dashed ${border}`, borderRadius: 10, color: subtext, fontSize: 11, textAlign: 'center' }}>Nenhuma imagem selecionada</div>
+          )}
+        </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-          <button onClick={save} disabled={saving} style={{ ...buttonStyle, background: accent, color: '#fff', border: 0, padding: '11px 18px', opacity: saving ? 0.7 : 1 }}>
-            <Save size={14} /> {saving ? 'Salvando...' : 'Salvar banner da vitrine'}
+          <button onClick={save} disabled={saving || uploadingCatalogBanner || Boolean(uploadingCategory)} style={{ ...buttonStyle, background: accent, color: '#fff', border: 0, padding: '11px 18px', opacity: saving || uploadingCatalogBanner ? 0.7 : 1 }}>
+            <Save size={14} /> {saving ? 'Salvando...' : 'Salvar banner'}
           </button>
         </div>
-        {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '8px 0 0', textAlign: 'right' }}>Configurações salvas com sucesso.</p>}
+        {saved && <p style={{ color: '#16a34a', fontSize: 11, margin: '8px 0 0', textAlign: 'right' }}>Banner salvo com sucesso.</p>}
       </div>
 
       {/* DESTAQUES DA VITRINE PÚBLICA */}

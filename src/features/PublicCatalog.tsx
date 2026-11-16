@@ -3,7 +3,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import vipAnimation from '../Animation_for_VIP.mp4';
-import logoByse from '../logobyse.jpeg';
 
 import {
   Lock,
@@ -113,34 +112,68 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
     return [...mergedIncoming, ...preservedPrevious];
   };
 
-  const catalogSettings = data?.catalogConfig || data?.config || data?.settings || data || {};
-
-  // O banner é publicado apenas quando a configuração foi habilitada e salva
-  // no Catalogo.tsx. Aceita aliases para compatibilidade com versões anteriores.
-  const catalogBannerEnabled = Boolean(
-    catalogSettings?.catalogBannerEnabled ??
-    catalogSettings?.catalog_banner_enabled ??
-    catalogSettings?.bannerEnabled ??
-    data?.catalogBannerEnabled ??
-    data?.catalog_banner_enabled ??
-    false
-  );
-  const catalogBannerTitle = String(
-    catalogSettings?.catalogBannerTitle ??
-    catalogSettings?.catalog_banner_title ??
-    data?.catalogBannerTitle ??
-    data?.catalog_banner_title ??
+  // A rota pública pode devolver as configurações em diferentes níveis,
+  // dependendo da versão do backend. Procura o campo do banner em todos eles.
+  const catalogSettings =
+    data?.catalogConfig || data?.catalog_config || data?.config ||
+    data?.settings || data?.catalogSettings || data?.catalog_settings ||
+    data?.catalog?.config || data?.catalog || data || {};
+  const catalogBrandBannerImage = String(
+    catalogSettings?.catalogBrandBannerImage ??
+    catalogSettings?.catalog_brand_banner_image ??
+    catalogSettings?.bannerImage ??
+    catalogSettings?.banner_image ??
+    data?.catalogBrandBannerImage ??
+    data?.catalog_brand_banner_image ??
+    data?.bannerImage ??
+    data?.banner_image ??
     ''
   ).trim();
-  const catalogBannerMessage = String(
-    catalogSettings?.catalogBannerMessage ??
-    catalogSettings?.catalog_banner_message ??
-    data?.catalogBannerMessage ??
-    data?.catalog_banner_message ??
+
+  const publicBrandName = String(
+    catalogSettings?.publicBrandName ??
+    catalogSettings?.public_brand_name ??
+    data?.publicBrandName ??
+    data?.public_brand_name ??
+    'M-BYSE'
+  ).trim() || 'M-BYSE';
+
+  const storeSlogan = String(
+    catalogSettings?.storeSlogan ??
+    catalogSettings?.store_slogan ??
+    data?.storeSlogan ??
+    data?.store_slogan ??
     ''
   ).trim();
-  const showCatalogBanner = catalogBannerEnabled && Boolean(catalogBannerTitle || catalogBannerMessage);
 
+  const configuredPaymentMethods =
+    catalogSettings?.paymentMethods ??
+    catalogSettings?.payment_methods ??
+    data?.paymentMethods ??
+    data?.payment_methods ??
+    [];
+
+  const deliveryMode = String(
+    catalogSettings?.deliveryMode ??
+    catalogSettings?.delivery_mode ??
+    data?.deliveryMode ??
+    data?.delivery_mode ??
+    'delivery'
+  ).toLowerCase();
+
+  const deliveryCoverage = String(
+    catalogSettings?.deliveryCoverage ??
+    catalogSettings?.delivery_coverage ??
+    data?.deliveryCoverage ??
+    data?.delivery_coverage ??
+    'local'
+  ).toLowerCase();
+
+  const deliveryDisplayMessage = deliveryMode === 'pickup'
+    ? 'Apenas retirada.'
+    : deliveryCoverage === 'brazil'
+      ? 'Entregamos em todo o Brasil.'
+      : 'Entrega disponível somente na região da loja.';
 
   // Imagens cadastradas em Catalogo.tsx. A API pode entregar o campo na raiz
   // da resposta ou dentro de catalogConfig/config/settings.
@@ -1188,7 +1221,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .catalog-promo-hero { position:relative; isolation:isolate; overflow:hidden; display:flex; align-items:center; justify-content:flex-start; min-height:218px; margin:24px 0 30px; padding:clamp(26px,4.5vw,48px); border-radius:14px; color:#fff; background:radial-gradient(ellipse at 88% 48%,rgba(125,15,27,.24) 0%,rgba(45,8,13,.12) 34%,transparent 66%),linear-gradient(112deg,#070809 0%,#0b0b0d 58%,#10090b 100%); border:1px solid rgba(210,35,48,.28); box-shadow:0 18px 46px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.045); }
         .catalog-promo-hero::before { content:''; position:absolute; z-index:0; inset:-1px; pointer-events:none; background:linear-gradient(90deg,rgba(0,0,0,.30) 0%,rgba(0,0,0,.08) 48%,rgba(0,0,0,.12) 100%),radial-gradient(ellipse at 82% 50%,rgba(190,25,42,.20),transparent 46%); }
         /* Marca integrada à composição: grande, monocromática e suavizada para parecer parte da arte do banner. */
-        .catalog-promo-hero::after { content:''; position:absolute; z-index:1; top:-12%; right:1%; bottom:-12%; width:min(58%,650px); background-image:linear-gradient(90deg,#08090b 0%,rgba(8,9,11,.62) 14%,rgba(8,9,11,.04) 56%,rgba(8,9,11,.18) 100%),var(--catalog-logo-bg); background-repeat:no-repeat,no-repeat; background-position:center,center right; background-size:100% 100%,contain; opacity:.27; filter:grayscale(1) contrast(1.18) brightness(1.12); mix-blend-mode:screen; pointer-events:none; }
+        .catalog-promo-hero::after { content:''; position:absolute; z-index:1; top:0; right:0; bottom:0; width:42%; background:radial-gradient(ellipse at 70% 50%,rgba(190,25,42,.22),transparent 68%); pointer-events:none; }
         .catalog-promo-hero-content { position:relative; z-index:2; max-width:min(720px,72%); min-width:0; }
         .catalog-promo-kicker { display:inline-flex; align-items:center; gap:9px; margin-bottom:14px; color:#f06a75; font-size:10px; font-weight:900; letter-spacing:2.4px; text-shadow:0 2px 12px rgba(0,0,0,.7); }
         .catalog-promo-kicker::before { content:''; display:inline-block; width:24px; height:2px; border-radius:2px; background:linear-gradient(90deg,#f04452,#8f111d); box-shadow:0 0 12px rgba(240,68,82,.5); }
@@ -1239,7 +1272,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           .catalog-brand-emblem { width:48px !important; height:48px !important; flex-basis:48px; }
           .catalog-brand-name { font-size:23px !important; }
           .catalog-promo-hero { min-height:176px; margin:16px 0 22px; padding:23px 18px; border-radius:11px; }
-          .catalog-promo-hero::after { top:0; right:-7%; bottom:0; width:78%; background-position:center,center right; background-size:100% 100%,contain; opacity:.20; }
+          .catalog-promo-hero::after { top:0; right:0; bottom:0; width:45%; opacity:.20; }
           .catalog-promo-hero-content { max-width:82%; }
           .catalog-promo-hero h2 { font-size:clamp(23px,7vw,30px) !important; letter-spacing:-.7px !important; }
           .catalog-promo-kicker { font-size:8px; letter-spacing:1.5px; }
@@ -1265,10 +1298,12 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
 
 
         /* UX responsiva: hierarquia clara entre marca, campanha, navegação e produtos. */
-        .public-catalog-root { width:100%; max-width:1240px !important; margin:0 auto !important; padding:0 24px 48px !important; box-sizing:border-box; }
+        .public-catalog-root { width:100%; max-width:1240px !important; margin:0 auto !important; padding:0 24px 48px !important; overflow:visible !important; box-sizing:border-box; }
         .catalog-header { margin:0 -24px 0 !important; padding:20px 24px !important; border-radius:0 !important; }
         .catalog-promo-hero { margin:18px 0 16px !important; min-height:210px; }
-        .shop-category-nav { position:relative; display:flex; align-items:center; gap:22px; width:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; padding:13px 2px 14px; margin:0 0 22px; border-bottom:1px solid var(--shop-border); scrollbar-width:thin; scrollbar-color:var(--shop-border) transparent; -webkit-overflow-scrolling:touch; }
+        .catalog-store-banner-wrap { width:100%; margin:0 0 14px; overflow:hidden; border-radius:8px; background:var(--shop-surface); }
+        .catalog-store-banner { display:block; width:100%; aspect-ratio:4 / 1; max-height:none; min-height:0; object-fit:cover; object-position:center; }
+        .shop-category-nav { position:-webkit-sticky !important; position:sticky !important; top:0 !important; align-self:flex-start; z-index:9999; display:flex; align-items:center; gap:22px; width:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; padding:13px 14px 14px; margin:0 0 22px; border:1px solid var(--shop-border); border-top:0; background:var(--shop-surface); box-shadow:0 7px 18px rgba(0,0,0,.10); scrollbar-width:thin; scrollbar-color:var(--shop-border) transparent; -webkit-overflow-scrolling:touch; }
         .shop-category-nav button { flex:0 0 auto; min-height:40px; padding:7px 2px; font-size:12px; letter-spacing:.2px; }
         .shop-category-nav button:focus-visible,.catalog-category-card:focus-visible { outline:3px solid var(--shop-accent); outline-offset:4px; }
         .catalog-search-section { width:100%; max-width:620px; margin:0 auto 28px !important; }
@@ -1300,17 +1335,19 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           .catalog-brand-name { font-size:22px !important; }
           .catalog-brand-tagline { font-size:8px; letter-spacing:1.1px; }
           .catalog-brand-description { font-size:10px !important; margin-top:5px !important; }
-          .catalog-header-actions { display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)) !important; width:100%; gap:7px !important; }
+          .catalog-header-actions { display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)) !important; width:100%; gap:7px !important; }
           .catalog-header-actions > *, .catalog-vip-group { min-width:0; }
           .catalog-header-actions .catalog-action-btn { width:100%; min-height:42px; padding:8px 5px !important; gap:4px !important; font-size:10px !important; white-space:normal !important; }
-          .catalog-vip-group { display:contents; }
+          .catalog-vip-group { grid-column:1 / -1 !important; display:flex !important; justify-content:center !important; align-items:center !important; width:100% !important; margin:0 auto !important; }
+          .catalog-vip-btn { width:min(100%, 280px) !important; min-width:0 !important; justify-content:center !important; margin:0 auto !important; }
+          .catalog-vip-logout { min-width:64px !important; }
           .catalog-promo-hero { min-height:158px !important; margin:13px 0 10px !important; padding:20px 16px !important; border-radius:14px !important; }
-          .catalog-promo-hero::after { top:0; right:-9%; bottom:0; width:78%; opacity:.17; background-position:center,center right; background-size:100% 100%,contain; }
+          .catalog-promo-hero::after { top:0; right:0; bottom:0; width:45%; opacity:.17; }
           .catalog-promo-hero-content { max-width:88% !important; }
           .catalog-promo-kicker { margin-bottom:10px; font-size:8px; letter-spacing:1.2px; }
           .catalog-promo-hero h2 { font-size:clamp(22px,7vw,29px) !important; line-height:1.08; letter-spacing:-.65px !important; }
           .catalog-promo-announcement { margin-top:12px; padding:9px 10px; font-size:10px; line-height:1.45; border-radius:9px; }
-          .shop-category-nav { gap:18px; margin:0 -14px 17px; padding:9px 14px 11px; width:calc(100% + 28px); border-bottom:1px solid var(--shop-border); }
+          .shop-category-nav { gap:18px; margin:0 -14px 17px; padding:9px 14px 11px; width:calc(100% + 28px); border-bottom:1px solid var(--shop-border); top:0; }
           .shop-category-nav button { min-height:42px; font-size:11px; }
           .catalog-search-section { margin:0 0 22px !important; max-width:none; }
           .catalog-search-section input { min-height:46px; padding:12px 14px !important; font-size:14px !important; border-radius:12px !important; }
@@ -1349,7 +1386,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         }
 
         /* Correção definitiva de largura e faixa branca lateral em celulares */
-        html, body, #root { width:100%; max-width:100%; min-width:0; margin:0; overflow-x:hidden; }
+        html, body, #root { width:100%; max-width:100%; min-width:0; margin:0; overflow-x:clip; overflow-y:visible; }
         *, *::before, *::after { box-sizing:border-box; }
         .public-catalog-root, .vip-theme, .catalog-header, .catalog-products-grid { min-width:0; max-width:100%; }
         .public-catalog-root { width:100%; overflow-x:clip; }
@@ -1385,7 +1422,328 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .catalog-detail-add, .catalog-detail-whatsapp { width:100%; min-height:46px; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:9px; border:0; border-radius:10px; background:var(--shop-accent); color:white; font-weight:800; cursor:pointer; }
         .catalog-detail-whatsapp { background:#16864a; }
         @media(max-width:650px) { .catalog-detail-layout { grid-template-columns:1fr; gap:14px; } .catalog-detail-image-wrap { grid-template-columns:repeat(2,minmax(0,1fr)); } .catalog-detail-image-wrap img { max-height:210px; } .catalog-detail-copy h2 { font-size:21px; } .catalog-product-detail { padding:16px; } .catalog-info-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .catalog-info-nav button,.catalog-info-nav a { min-width:0; font-size:11px; padding:8px 6px; } }
+        /* Ajustes finais: navegação sticky e centralização do acesso VIP no celular. */
+        .public-catalog-root {
+          overflow:visible !important;
+          contain:none !important;
+          transform:none !important;
+        }
+        .shop-category-nav {
+          position:-webkit-sticky !important;
+          position:sticky !important;
+          top:0 !important;
+          z-index:99999 !important;
+          align-self:stretch;
+          width:100%;
+          max-width:100%;
+          min-width:0;
+          flex-wrap:nowrap;
+          background:rgba(15,15,15,.98) !important;
+          backdrop-filter:blur(14px);
+          -webkit-backdrop-filter:blur(14px);
+          box-shadow:0 8px 18px rgba(0,0,0,.22);
+          isolation:isolate;
+          scroll-margin-top:0;
+        }
+        .catalog-payment-options { display:flex; flex-wrap:wrap; gap:9px; }
+        .catalog-payment-chip { display:inline-flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid #3a3a3a; border-radius:10px; background:#202020; color:#F0EFE9; font-size:12px; font-weight:700; }
+        .catalog-payment-chip b { font-size:17px; font-weight:400; }
+        .catalog-store-banner { width:100% !important; aspect-ratio:4 / 1 !important; height:auto !important; max-height:none !important; object-fit:cover !important; }
+        @media (max-width:600px) {
+          /* Os três controles formam um único grupo centralizado no mobile. */
+          .catalog-header-actions {
+            display:flex !important;
+            flex-direction:row !important;
+            flex-wrap:wrap !important;
+            justify-content:center !important;
+            align-items:center !important;
+            align-content:center !important;
+            width:100% !important;
+            margin:0 auto !important;
+            gap:9px !important;
+          }
+          .catalog-header-actions > *,
+          .catalog-header-actions .catalog-vip-group {
+            flex:0 0 auto !important;
+            width:auto !important;
+            min-width:0 !important;
+            margin:0 !important;
+          }
+          .catalog-vip-group {
+            display:flex !important;
+            flex-direction:row !important;
+            justify-content:center !important;
+            align-items:center !important;
+            gap:7px !important;
+          }
+          .catalog-header-actions .catalog-action-btn,
+          .catalog-vip-btn {
+            display:inline-flex !important;
+            width:auto !important;
+            min-width:0 !important;
+            max-width:100% !important;
+            min-height:42px !important;
+            justify-content:center !important;
+            align-items:center !important;
+            margin:0 !important;
+            padding:9px 11px !important;
+            white-space:nowrap !important;
+            font-size:11px !important;
+          }
+
+          /* Centraliza o cartão inteiro da marca no celular, não apenas os botões. */
+          .catalog-header {
+            display:flex !important;
+            flex-direction:column !important;
+            align-items:center !important;
+            justify-content:center !important;
+            text-align:center !important;
+            box-sizing:border-box !important;
+            width:calc(100% + 28px) !important;
+            max-width:none !important;
+            margin-left:-14px !important;
+            margin-right:-14px !important;
+            padding:18px 14px 17px !important;
+            gap:13px !important;
+          }
+          .catalog-header .catalog-brand-lockup {
+            display:flex !important;
+            flex:0 0 auto !important;
+            flex-direction:column !important;
+            align-items:center !important;
+            justify-content:center !important;
+            width:100% !important;
+            max-width:100% !important;
+            margin:0 auto !important;
+            text-align:center !important;
+          }
+          .catalog-header .catalog-brand-copy {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            margin:0 auto !important;
+            text-align:center !important;
+          }
+          .catalog-header .catalog-brand-name,
+          .catalog-header .catalog-brand-tagline,
+          .catalog-header .catalog-store-name,
+          .catalog-header .catalog-brand-description {
+            width:100% !important;
+            text-align:center !important;
+            overflow-wrap:anywhere !important;
+          }
+          .catalog-header .catalog-header-actions {
+            display:flex !important;
+            flex:0 0 auto !important;
+            flex-direction:row !important;
+            flex-wrap:wrap !important;
+            justify-content:center !important;
+            align-items:center !important;
+            width:100% !important;
+            max-width:100% !important;
+            margin:0 auto !important;
+          }
+        }
+
+        /* MOBILE: ocupa toda a largura real da tela e compacta o topo. */
+        @media (max-width: 600px) {
+          html, body, #root {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            overflow-x: clip !important;
+          }
+
+          .shop-announcement {
+            width: 100% !important;
+            min-height: 27px !important;
+            padding: 5px 8px !important;
+            font-size: 8px !important;
+            line-height: 1.25 !important;
+            letter-spacing: .55px !important;
+            overflow-wrap: anywhere;
+          }
+
+          .public-catalog-root {
+            display: block !important;
+            width: 100% !important;
+            max-width: none !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 10px 28px !important;
+            box-sizing: border-box !important;
+            overflow-x: clip !important;
+          }
+
+          .catalog-header {
+            width: calc(100% + 20px) !important;
+            max-width: none !important;
+            min-height: 0 !important;
+            margin: 0 -10px 0 !important;
+            padding: 12px 10px 11px !important;
+            gap: 8px !important;
+            border-radius: 0 !important;
+            box-sizing: border-box !important;
+          }
+
+          .catalog-header .catalog-brand-lockup,
+          .catalog-header .catalog-brand-copy {
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+          }
+
+          .catalog-header .catalog-brand-name,
+          .catalog-header-title {
+            margin: 0 !important;
+            font-size: clamp(17px, 5vw, 21px) !important;
+            line-height: 1.1 !important;
+            letter-spacing: .5px !important;
+          }
+
+          .catalog-header .catalog-brand-tagline {
+            margin-top: 3px !important;
+            font-size: 8px !important;
+            line-height: 1.2 !important;
+            letter-spacing: .65px !important;
+          }
+
+          .catalog-header .catalog-store-name {
+            margin-top: 3px !important;
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+          }
+
+          .catalog-header .catalog-brand-description {
+            margin: 4px 0 0 !important;
+            font-size: 9px !important;
+            line-height: 1.25 !important;
+          }
+
+          .catalog-header-actions {
+            width: 100% !important;
+            max-width: 100% !important;
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            align-items: center !important;
+            gap: 6px !important;
+            margin: 2px auto 0 !important;
+          }
+
+          .catalog-header-actions .catalog-action-btn,
+          .catalog-vip-btn {
+            min-height: 34px !important;
+            padding: 6px 9px !important;
+            font-size: 10px !important;
+            line-height: 1.1 !important;
+            border-radius: 7px !important;
+          }
+
+          .catalog-info-nav {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            gap: 6px !important;
+            width: calc(100% + 20px) !important;
+            margin: 0 -10px !important;
+            padding: 8px 10px 9px !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            white-space: nowrap !important;
+            scrollbar-width: none !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .catalog-info-nav::-webkit-scrollbar { display: none !important; }
+
+          .catalog-info-nav button,
+          .catalog-info-nav a {
+            flex: 0 0 auto !important;
+            min-height: 31px !important;
+            padding: 6px 9px !important;
+            gap: 5px !important;
+            font-size: 10px !important;
+            line-height: 1 !important;
+            border-radius: 8px !important;
+          }
+
+          .catalog-info-nav svg {
+            width: 13px !important;
+            height: 13px !important;
+          }
+
+          .catalog-info-panel {
+            margin: 0 0 10px !important;
+            padding: 12px 36px 12px 12px !important;
+            border-radius: 10px !important;
+          }
+
+          .catalog-info-panel h3 {
+            margin: 0 0 6px !important;
+            font-size: 14px !important;
+          }
+
+          .catalog-info-panel p {
+            font-size: 11px !important;
+            line-height: 1.45 !important;
+          }
+
+          .catalog-info-close {
+            top: 7px !important;
+            right: 7px !important;
+          }
+
+          .shop-category-nav {
+            width: calc(100% + 20px) !important;
+            max-width: none !important;
+            margin: 0 -10px 12px !important;
+            padding: 7px 10px 8px !important;
+            gap: 16px !important;
+            border-left: 0 !important;
+            border-right: 0 !important;
+            border-radius: 0 !important;
+            top: 0 !important;
+          }
+
+          .shop-category-nav button {
+            min-height: 35px !important;
+            font-size: 10px !important;
+            padding: 5px 0 !important;
+          }
+
+          .catalog-store-banner-wrap {
+            width: 100% !important;
+            margin: 0 0 12px !important;
+            overflow: hidden !important;
+          }
+
+          .catalog-store-banner {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            aspect-ratio: 16 / 5 !important;
+            object-fit: cover !important;
+            border-radius: 8px !important;
+          }
+
+          .catalog-search-section {
+            width: 100% !important;
+            margin: 0 0 15px !important;
+            gap: 7px !important;
+          }
+
+          .catalog-search-section input {
+            min-height: 40px !important;
+            padding: 9px 11px !important;
+            font-size: 12px !important;
+          }
+        }
+
       `}
+
 
 </style>
       <div className="catalog-falling-background" aria-hidden="true">
@@ -1407,7 +1765,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
             />
           ))}
       </div>
-      <div className="shop-announcement">COMPRA FÁCIL • ATENDIMENTO DIRETO PELO WHATSAPP • M-BYSE</div>
+      <div className="shop-announcement">COMPRA FÁCIL • ATENDIMENTO DIRETO PELO WHATSAPP • {publicBrandName.toLocaleUpperCase('pt-BR')}</div>
       <div className="public-catalog-root" style={{ maxWidth: 1240, margin: '0 auto' }}>
         {/* CABEÇALHO */}
         <div
@@ -1426,11 +1784,10 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           }}
         >
           <div className="catalog-brand-lockup">
-            <img src={logoByse} alt="Logo M-BYSE" className="catalog-brand-emblem" />
             <div className="catalog-brand-copy">
-              <h1 className="catalog-header-title catalog-brand-name">M-BYSE</h1>
+              <h1 className="catalog-header-title catalog-brand-name">{publicBrandName}</h1>
               <div className="catalog-brand-tagline">NUTRIÇÃO ESPORTIVA <span>•</span> PERFORMANCE</div>
-              {data?.storeName && String(data.storeName).trim().toUpperCase() !== 'M-BYSE' && (
+              {data?.storeName && String(data.storeName).trim().toUpperCase() !== publicBrandName.toUpperCase() && (
                 <div className="catalog-store-name">{data.storeName}</div>
               )}
               <p className="catalog-brand-description">
@@ -1584,35 +1941,44 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           <section className="catalog-info-panel" aria-live="polite">
             <button className="catalog-info-close" onClick={() => setInfoPanel('')} aria-label="Fechar painel"><X size={18}/></button>
             <h3>{infoPanel === 'loja' ? 'Sobre a loja' : infoPanel === 'pagamento' ? 'Formas de pagamento' : infoPanel === 'entrega' ? 'Entrega e retirada' : infoPanel === 'localizacao' ? 'Localização' : 'Termos e privacidade'}</h3>
-            {infoPanel === 'loja' && <p>{data?.storeDescription || data?.description || `Bem-vindo(a) à ${data?.storeName || 'nossa loja'}. Entre em contato pelo WhatsApp para mais informações.`}</p>}
-            {infoPanel === 'pagamento' && <p>{(data?.paymentMethods || data?.payment_methods || catalogSettings?.paymentMethods || catalogSettings?.payment_methods || []).map((item: any) => typeof item === 'string' ? item : item?.name || item?.label).filter(Boolean).join(' • ') || data?.paymentInfo || catalogSettings?.paymentInfo || 'Consulte as formas de pagamento disponíveis diretamente com a loja pelo WhatsApp.'}</p>}
-            {infoPanel === 'entrega' && <p>{data?.deliveryInfo || data?.delivery_info || catalogSettings?.deliveryInfo || catalogSettings?.delivery_info || 'Consulte prazos, valores de entrega e opções de retirada diretamente com a loja.'}</p>}
-            {infoPanel === 'localizacao' && <p>{data?.address || 'Endereço não informado.'}</p>}
+            {infoPanel === 'loja' && (
+              <div>
+                {storeSlogan && <p style={{ fontWeight: 800, color: '#F0EFE9' }}>{storeSlogan}</p>}
+                <p>{data?.storeDescription || data?.description || `Bem-vindo(a) à ${data?.storeName || publicBrandName}. Entre em contato pelo WhatsApp para mais informações.`}</p>
+              </div>
+            )}
+            {infoPanel === 'pagamento' && (
+              <div className="catalog-payment-options">
+                {(Array.isArray(configuredPaymentMethods) ? configuredPaymentMethods : [])
+                  .map((item: any) => typeof item === 'string' ? item : item?.name || item?.label)
+                  .filter(Boolean)
+                  .map((method: string) => {
+                    const normalized = String(method).toLowerCase();
+                    const icon = normalized.includes('pix') ? '📱'
+                      : normalized.includes('dinheiro') ? '💵'
+                      : normalized.includes('cart') ? '💳'
+                      : normalized.includes('boleto') ? '🧾' : '✓';
+                    return <span className="catalog-payment-chip" key={method}><b>{icon}</b>{method}</span>;
+                  })}
+                {(!Array.isArray(configuredPaymentMethods) || configuredPaymentMethods.length === 0) && (
+                  <p>{data?.paymentInfo || catalogSettings?.paymentInfo || 'Consulte as formas de pagamento disponíveis diretamente com a loja pelo WhatsApp.'}</p>
+                )}
+              </div>
+            )}
+            {infoPanel === 'entrega' && (
+              <div>
+                <p style={{ fontWeight: 800, color: '#F0EFE9' }}>{deliveryDisplayMessage}</p>
+                {deliveryMode !== 'pickup' && <p>{data?.deliveryInfo || data?.delivery_info || catalogSettings?.deliveryInfo || catalogSettings?.delivery_info || 'Consulte prazos e valores pelo WhatsApp.'}</p>}
+              </div>
+            )}
+            {infoPanel === 'localizacao' && (
+              <div>
+                <p>{data?.address || 'Endereço não informado.'}</p>
+                {storeSlogan && <p>{storeSlogan}</p>}
+                {deliveryMode !== 'pickup' && <p>{deliveryCoverage === 'brazil' ? 'Entrega para todo o Brasil.' : 'Entrega somente na região da loja.'}</p>}
+              </div>
+            )}
             {infoPanel === 'politicas' && <div className="catalog-policy-content"><h4>Termos e condições</h4><p>{data?.termsAndConditions || data?.terms_and_conditions || catalogSettings?.termsAndConditions || catalogSettings?.terms_and_conditions || 'Consulte as condições de compra e atendimento diretamente com a loja.'}</p><h4>Política de privacidade</h4><p>{data?.privacyPolicy || data?.privacy_policy || catalogSettings?.privacyPolicy || catalogSettings?.privacy_policy || 'Os dados fornecidos durante o atendimento são utilizados para dar continuidade à sua solicitação e ao seu pedido.'}</p></div>}
-          </section>
-        )}
-
-        {/* BANNER PRINCIPAL — título e aviso são controlados pelo Catalogo.tsx */}
-        {showCatalogBanner && (
-          <section
-            className="catalog-promo-hero"
-            aria-label="Destaque da loja"
-            style={{ "--catalog-logo-bg": `url("${logoByse}")` }}
-          >
-            <div className="catalog-promo-hero-content">
-              <span className="catalog-promo-kicker">M-BYSE • NUTRIÇÃO ESPORTIVA</span>
-              {catalogBannerTitle && <h2>{catalogBannerTitle}</h2>}
-              {catalogBannerMessage && (
-                <div className="catalog-promo-announcement">
-                  <Sparkles size={15} />
-                  <span>{catalogBannerMessage}</span>
-                </div>
-              )}
-            </div>
-            <div className="catalog-promo-decoration" aria-hidden="true">
-              <span>PERFORMANCE</span>
-              <strong>+</strong>
-            </div>
           </section>
         )}
 
@@ -1624,7 +1990,16 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           <button type="button" onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(true); }}>Todos os produtos</button>
         </nav>
 
-
+        {/* BANNER DA MARCA: fica logo depois da navegação por categorias */}
+        {catalogBrandBannerImage && (
+          <div className="catalog-store-banner-wrap">
+            <img
+              src={catalogBrandBannerImage}
+              alt={`Banner de ${publicBrandName}`}
+              className="catalog-store-banner"
+            />
+          </div>
+        )}
 
         {/* PESQUISA */}
         <div

@@ -748,57 +748,28 @@ function SupplementSystem() {
     }
   };
 
-  const handleUpdatePreTreinoRecords = async (newRecords) => {
-    const latest =
-      Array.isArray(newRecords) && newRecords.length > 0
-        ? newRecords[newRecords.length - 1]
-        : null;
-
-    setPreTreinoRecords([...newRecords]);
-    localStorage.setItem(
-      getStorageKey("pre_treino_records"),
-      JSON.stringify(newRecords),
-    );
-
-    if (latest) {
-      try {
-        await fetch(`${API_URL}/pre-treino/records`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(latest),
-        });
-      } catch (err) {
-        console.error("Erro ao salvar registro de pré-treino:", err);
-      }
-    }
+  const handleUpdatePreTreinoRecords = (valueOrUpdater) => {
+    setPreTreinoRecords((current) => {
+      const updated = typeof valueOrUpdater === "function"
+        ? valueOrUpdater(current)
+        : valueOrUpdater;
+      const safe = Array.isArray(updated) ? updated : current;
+      localStorage.setItem(getStorageKey("pre_treino_records"), JSON.stringify(safe));
+      return safe;
+    });
   };
 
-  const handleUpdatePreTreinoProducts = async (newProds) => {
-    const latest =
-      Array.isArray(newProds) && newProds.length > 0
-        ? newProds[newProds.length - 1]
-        : null;
-
-    setProdutosPreTreino([...newProds]);
-    localStorage.setItem(
-      getStorageKey("pre_treino_products"),
-      JSON.stringify(newProds),
-    );
-
-    if (latest) {
-      try {
-        await fetch(`${API_URL}/pre-treino/products`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(latest),
-        });
-      } catch (err) {
-        console.error("Erro ao salvar produto de pré-treino:", err);
-      }
-    }
+  const handleUpdatePreTreinoProducts = (valueOrUpdater) => {
+    setProdutosPreTreino((current) => {
+      const updated = typeof valueOrUpdater === "function"
+        ? valueOrUpdater(current)
+        : valueOrUpdater;
+      const safe = Array.isArray(updated) ? updated : current;
+      localStorage.setItem(getStorageKey("pre_treino_products"), JSON.stringify(safe));
+      return safe;
+    });
   };
 
-  // Padrões originais de cores preservados
   const bg = dark ? "#121212" : "#F4F4F5";
   const card = dark ? "#18181B" : "#FFFFFF";
   const card2 = dark ? "#202024" : "#FAFAFA";
@@ -956,7 +927,7 @@ function SupplementSystem() {
       return (
         <Fiados
           fiados={fiados}
-          setFiados={setFiados}
+          setFiados={handleFiadosStateUpdate}
           apiUrl={API_URL}
           {...{ customers, card, border, subtext, accent, text }}
         />
@@ -966,31 +937,20 @@ function SupplementSystem() {
       return (
         <PreTreino
           clientesPreTreino={preTreinoCustomers}
-          setClientesPreTreino={(newCusts) => {
-            setPreTreinoCustomers(newCusts);
-            localStorage.setItem(
-              getStorageKey("pre_treino_customers"),
-              JSON.stringify(newCusts),
-            );
+          setClientesPreTreino={(valueOrUpdater) => {
+            setPreTreinoCustomers((current) => {
+              const updated = typeof valueOrUpdater === "function"
+                ? valueOrUpdater(current)
+                : valueOrUpdater;
+              const safe = Array.isArray(updated) ? updated : current;
+              localStorage.setItem(getStorageKey("pre_treino_customers"), JSON.stringify(safe));
+              return safe;
+            });
           }}
           produtosPreTreino={produtosPreTreino}
-          setProdutosPreTreino={(newProds) => {
-            setProdutosPreTreino(newProds);
-            localStorage.setItem(
-              getStorageKey("pre_treino_products"),
-              JSON.stringify(newProds),
-            );
-            handleUpdatePreTreinoProducts(newProds);
-          }}
+          setProdutosPreTreino={handleUpdatePreTreinoProducts}
           registros={preTreinoRecords}
-          setRegistros={(newRecs) => {
-            setPreTreinoRecords(newRecs);
-            localStorage.setItem(
-              getStorageKey("pre_treino_records"),
-              JSON.stringify(newRecs),
-            );
-            handleUpdatePreTreinoRecords(newRecs);
-          }}
+          setRegistros={handleUpdatePreTreinoRecords}
           API_URL={API_URL}
           getAuthHeaders={getAuthHeaders}
           {...{ card, border, subtext, accent, text, dark }}

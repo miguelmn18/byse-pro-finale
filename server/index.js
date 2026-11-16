@@ -332,6 +332,8 @@ app.put("/api/app-state/:key", authMiddleware, async (req, res) => {
 
 
 
+
+
 app.get("/api/public/catalogo/:userId", async (req, res) => {
   try {
     const userId = String(req.params.userId || "").trim();
@@ -427,6 +429,7 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
 
     const cfg = json(stateResult.rows[0]?.state, {});
 
+    // Conversão segura de valores booleanos.
     const asBoolean = (value, fallback = false) => {
       if (
         value === undefined ||
@@ -492,7 +495,7 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
       .slice(0, 8)
       .map(([id]) => id);
 
-    // Banner.
+    // Banner promocional.
     const catalogBannerEnabled = asBoolean(
       cfg.catalogBannerEnabled ??
       cfg.catalog_banner_enabled,
@@ -508,6 +511,13 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
     const catalogBannerMessage = String(
       cfg.catalogBannerMessage ??
       cfg.catalog_banner_message ??
+      ""
+    ).trim();
+
+    // Imagem personalizada do banner da marca.
+    const catalogBrandBannerImage = String(
+      cfg.catalogBrandBannerImage ??
+      cfg.catalog_brand_banner_image ??
       ""
     ).trim();
 
@@ -542,13 +552,141 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
         ? cfg.weekly_new_product_ids.map(String)
         : [];
 
+    // Visibilidade do catálogo.
     const catalogVisible = asBoolean(
       cfg.catalogVisible ??
       cfg.catalog_visible,
       true
     );
 
-    // Normalização dos produtos.
+    // =====================================================
+    // IDENTIDADE PERSONALIZADA DA MARCA
+    // =====================================================
+
+    const publicBrandName = String(
+      cfg.publicBrandName ??
+      cfg.public_brand_name ??
+      "M-BYSE"
+    ).trim() || "M-BYSE";
+
+    // =====================================================
+    // INFORMAÇÕES DA LOJA
+    // =====================================================
+
+    const address = String(
+      cfg.address ??
+      cfg.storeAddress ??
+      cfg.store_address ??
+      ""
+    ).trim();
+
+    const storeSlogan = String(
+      cfg.storeSlogan ??
+      cfg.store_slogan ??
+      ""
+    ).trim();
+
+    const storeDescription =
+      cfg.storeDescription ??
+      cfg.store_description ??
+      cfg.description ??
+      "";
+
+    // =====================================================
+    // MÉTODOS DE PAGAMENTO
+    // =====================================================
+
+    const rawPaymentMethods =
+      cfg.paymentMethods ??
+      cfg.payment_methods ??
+      [];
+
+    const paymentMethods = Array.isArray(rawPaymentMethods)
+      ? rawPaymentMethods
+      : [];
+
+    // =====================================================
+    // MODALIDADE DE ATENDIMENTO
+    // =====================================================
+
+    const rawDeliveryMode = String(
+      cfg.deliveryMode ??
+      cfg.delivery_mode ??
+      "delivery"
+    ).trim().toLowerCase();
+
+    const deliveryMode =
+      rawDeliveryMode === "pickup"
+        ? "pickup"
+        : "delivery";
+
+    // =====================================================
+    // ABRANGÊNCIA DA ENTREGA
+    // =====================================================
+
+    const rawDeliveryCoverage = String(
+      cfg.deliveryCoverage ??
+      cfg.delivery_coverage ??
+      "local"
+    ).trim().toLowerCase();
+
+    const deliveryCoverage =
+      rawDeliveryCoverage === "brazil"
+        ? "brazil"
+        : "local";
+
+    // =====================================================
+    // INFORMAÇÕES COMPLEMENTARES
+    // =====================================================
+
+    const whatsapp = String(
+      cfg.whatsapp ?? ""
+    ).trim();
+
+    const instagram = String(
+      cfg.instagram ?? ""
+    ).trim();
+
+    const bannerUrl = String(
+      cfg.bannerUrl ??
+      cfg.banner_url ??
+      ""
+    ).trim();
+
+    const businessHours =
+      cfg.businessHours ??
+      cfg.business_hours ??
+      "";
+
+    const paymentInfo =
+      cfg.paymentInfo ??
+      cfg.payment_info ??
+      "";
+
+    const deliveryInfo =
+      cfg.deliveryInfo ??
+      cfg.delivery_info ??
+      "";
+
+    const pickupInfo =
+      cfg.pickupInfo ??
+      cfg.pickup_info ??
+      "";
+
+    const termsAndConditions =
+      cfg.termsAndConditions ??
+      cfg.terms_and_conditions ??
+      "";
+
+    const privacyPolicy =
+      cfg.privacyPolicy ??
+      cfg.privacy_policy ??
+      "";
+
+    // =====================================================
+    // NORMALIZAÇÃO DOS PRODUTOS
+    // =====================================================
+
     const products = (productsResult.rows || []).map(
       (product) => {
         const normalized = normalizeProduct(product);
@@ -578,63 +716,57 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
       }
     );
 
-    const paymentMethods =
-      cfg.paymentMethods ??
-      cfg.payment_methods ??
-      [];
+    // =====================================================
+    // RESPOSTA DO CATÁLOGO PÚBLICO
+    // =====================================================
 
     return res.json({
+      // Identificação da loja.
       storeName: user.name || "Loja",
 
-      whatsapp: cfg.whatsapp || "",
-      address: cfg.address || "",
-      instagram: cfg.instagram || "",
+      // NOVO: nome personalizado da marca.
+      publicBrandName,
+      public_brand_name: publicBrandName,
 
-      bannerUrl:
-        cfg.bannerUrl ||
-        cfg.banner_url ||
-        "",
+      // Contato e localização.
+      whatsapp,
+      address,
+      instagram,
 
-      storeDescription:
-        cfg.storeDescription ??
-        cfg.store_description ??
-        cfg.description ??
-        "",
+      // Banner principal.
+      bannerUrl,
 
-      businessHours:
-        cfg.businessHours ??
-        cfg.business_hours ??
-        "",
+      // Descrição e slogan.
+      storeDescription,
+      storeSlogan,
+      store_slogan: storeSlogan,
 
-      paymentMethods: Array.isArray(paymentMethods)
-        ? paymentMethods
-        : [],
+      // Horários.
+      businessHours,
 
-      paymentInfo:
-        cfg.paymentInfo ??
-        cfg.payment_info ??
-        "",
+      // Métodos de pagamento.
+      paymentMethods,
+      payment_methods: paymentMethods,
 
-      deliveryInfo:
-        cfg.deliveryInfo ??
-        cfg.delivery_info ??
-        "",
+      paymentInfo,
 
-      pickupInfo:
-        cfg.pickupInfo ??
-        cfg.pickup_info ??
-        "",
+      // Informações de entrega e retirada.
+      deliveryInfo,
+      pickupInfo,
 
-      termsAndConditions:
-        cfg.termsAndConditions ??
-        cfg.terms_and_conditions ??
-        "",
+      // NOVO: modalidade de atendimento.
+      deliveryMode,
+      delivery_mode: deliveryMode,
 
-      privacyPolicy:
-        cfg.privacyPolicy ??
-        cfg.privacy_policy ??
-        "",
+      // NOVO: abrangência da entrega.
+      deliveryCoverage,
+      delivery_coverage: deliveryCoverage,
 
+      // Políticas.
+      termsAndConditions,
+      privacyPolicy,
+
+      // Banner promocional.
       catalogBannerEnabled,
       catalogBannerTitle,
       catalogBannerMessage,
@@ -643,17 +775,26 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
       catalog_banner_title: catalogBannerTitle,
       catalog_banner_message: catalogBannerMessage,
 
+      // Imagem personalizada do banner da marca.
+      catalogBrandBannerImage,
+      catalog_brand_banner_image: catalogBrandBannerImage,
+
+      // Imagens e visibilidade das categorias.
       categoryImages,
       catalogVisible,
 
+      // Produtos mais vendidos.
       bestSellingProductIds,
 
+      // Ofertas semanais.
       weeklyOfferProductIds: isVip
         ? []
         : weeklyOfferProductIds,
 
+      // Novidades.
       weeklyNewProductIds,
 
+      // Detalhes das ofertas.
       weeklyOfferDetails: isVip
         ? {}
         : cfg.weeklyOfferDetails &&
@@ -661,12 +802,15 @@ app.get("/api/public/catalogo/:userId", async (req, res) => {
           ? cfg.weeklyOfferDetails
           : {},
 
+      // Situação VIP.
       isVip,
-      products,
 
       vipEnabled: Boolean(
         user.vip_catalog_password_hash
-      )
+      ),
+
+      // Produtos da loja.
+      products
     });
 
   } catch (error) {
@@ -3029,99 +3173,6 @@ app.delete(
   },
 );
 
-app.post("/api/pre-treino/records", authMiddleware, async (req, res) => {
-  const r = req.body || {};
-
-  const id = r.id || `ptr_${crypto.randomUUID()}`;
-
-  let customerName =
-    r.customerName || r.nomeCliente || r.nome_cliente || "Cliente avulso";
-
-  let phone =
-    r.customerPhone || r.telefoneCliente || r.telefone_cliente || null;
-
-  const cid = r.customerId || r.customer_id || null;
-
-  if (cid) {
-    const c = await pool.query(
-      `SELECT name,phone
-           FROM pre_treino_clientes
-           WHERE id=$1
-           AND user_id=$2`,
-      [cid, req.user.id],
-    );
-
-    if (c.rows[0]) {
-      customerName = c.rows[0].name;
-
-      phone = c.rows[0].phone;
-    }
-  }
-
-  await pool.query(
-    `INSERT INTO pre_treino_registros(
-        id,user_id,customer_id,
-        nome_cliente,telefone_cliente,
-        produto_id,nome_produto,
-        custo,valor,tipo_consumo,
-        data,horario
-      )
-      VALUES(
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
-      )
-      ON CONFLICT(id,user_id)
-      DO UPDATE SET
-        customer_id=$3,
-        nome_cliente=$4,
-        telefone_cliente=$5,
-        produto_id=$6,
-        nome_produto=$7,
-        custo=$8,
-        valor=$9,
-        tipo_consumo=$10,
-        data=$11,
-        horario=$12`,
-    [
-      id,
-      req.user.id,
-      cid,
-      customerName,
-      phone,
-      r.productId || r.produto_id || null,
-      r.productName || r.nomeProduto || r.nome_produto || "",
-      Number(r.cost ?? r.custo ?? 0),
-      Number(r.value ?? r.valor ?? 0),
-      r.type || r.tipo_consumo || "avulso",
-      r.date || r.data || new Date().toISOString().slice(0, 10),
-      r.time ||
-        r.horario ||
-        new Date().toLocaleTimeString("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-    ],
-  );
-
-  if (r.productId || r.produto_id) {
-    await pool.query(
-      `UPDATE pre_treino_produtos
-         SET stock=
-           GREATEST(
-             0,
-             COALESCE(stock,0)-1
-           )
-         WHERE id=$1
-         AND user_id=$2
-         AND COALESCE(stock,0)>0`,
-      [r.productId || r.produto_id, req.user.id],
-    );
-  }
-
-  res.status(201).json({
-    success: true,
-    id,
-  });
-});
 
 app.delete("/api/pre-treino/records/:id", authMiddleware, async (req, res) => {
   await pool.query(
