@@ -1,4 +1,6 @@
-const CACHE_NAME = "byse-pro-static-v1";
+
+const CACHE_NAME = "byse-pro-static-v2";
+
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/icons/byse-192.png",
@@ -55,6 +57,7 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       }).catch(() => cached);
+
       return cached || networkRequest;
     })
   );

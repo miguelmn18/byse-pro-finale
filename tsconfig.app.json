@@ -14,4 +14,4 @@
 "noUnusedLocals":false,
 "noUnusedParameters":false,
 "jsx":"react-jsx"},
-"include":["src", "src/main.tsx"]}
+"include":["src", "src/main.tsx", "public"]}
