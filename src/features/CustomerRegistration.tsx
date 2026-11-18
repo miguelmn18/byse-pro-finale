@@ -26,6 +26,7 @@ export function CustomerRegistration({ card, border, text, subtext, accent, onSa
       name,
       phone,
       cpf,
+      birthDate: birthDate || null,
       data_aniversario: birthDate || null,
       cashback: parseFloat(initialCashback) || 0,
       cashback_expiry: expiryDateStr,

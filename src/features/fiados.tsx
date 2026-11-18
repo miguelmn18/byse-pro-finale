@@ -3,9 +3,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Users,
+  BarChart3,
+  CalendarDays,
+  UserRound,
+  Wallet,
+  TrendingUp,
   Package,
   ShoppingCart,
-  BarChart3,
   Store,
   MessageCircle,
   Gift,
@@ -36,7 +40,6 @@ import {
   List,
   History,
   LayoutGrid,
-  TrendingUp,
   Share2,
   Calculator,
   CreditCard,
@@ -45,7 +48,6 @@ import {
   Music,
   Type,
   Mail,
-  Wallet,
   Banknote,
   Save
 } from "lucide-react";
@@ -139,6 +141,141 @@ function Fiados({
   const [value, setValue] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [comparisonMode, setComparisonMode] = useState("week");
+
+  const safeFiados = Array.isArray(fiados) ? fiados : [];
+
+  const reportSummary = useMemo(() => {
+    const getInstallments = (fiado) => {
+      if (Array.isArray(fiado?.installments)) return fiado.installments;
+      if (typeof fiado?.installments === "string") {
+        try {
+          const parsed = JSON.parse(fiado.installments);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
+
+    const getCustomerKey = (fiado) => {
+      const customerIdValue = String(
+        fiado?.customerId || fiado?.customer_id || ""
+      ).trim();
+      if (customerIdValue && !customerIdValue.startsWith("manual-")) {
+        return `id:${customerIdValue}`;
+      }
+      const name = String(
+        fiado?.customerName || fiado?.customer_name || "Cliente"
+      ).trim().toLocaleLowerCase("pt-BR");
+      return `name:${name}`;
+    };
+
+    const getCreatedDate = (fiado) => {
+      const raw = fiado?.date || fiado?.createdAt || fiado?.created_at;
+      if (!raw) return null;
+      const date = raw instanceof Date ? raw : new Date(raw);
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    const summarize = (items) => {
+      const customers = new Set();
+      let registeredValue = 0;
+      let openValue = 0;
+
+      items.forEach((fiado) => {
+        customers.add(getCustomerKey(fiado));
+        getInstallments(fiado).forEach((installment) => {
+          const amount = Math.max(0, Number(installment?.value || 0));
+          registeredValue += amount;
+          if (!installment?.paid) openValue += amount;
+        });
+      });
+
+      return {
+        count: items.length,
+        people: customers.size,
+        registeredValue,
+        openValue,
+      };
+    };
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let currentStart;
+    let currentEnd;
+    let previousStart;
+    let previousEnd;
+    let currentLabel;
+    let previousLabel;
+
+    if (comparisonMode === "day") {
+      currentStart = todayStart;
+      currentEnd = new Date(todayStart);
+      currentEnd.setDate(currentEnd.getDate() + 1);
+      previousStart = new Date(todayStart);
+      previousStart.setDate(previousStart.getDate() - 1);
+      previousEnd = todayStart;
+      currentLabel = "Hoje";
+      previousLabel = "Ontem";
+    } else if (comparisonMode === "month") {
+      currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentEnd = now;
+      previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const previousMonthLastDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        0
+      ).getDate();
+      previousEnd = new Date(
+        previousStart.getFullYear(),
+        previousStart.getMonth(),
+        Math.min(now.getDate(), previousMonthLastDay),
+        now.getHours(),
+        now.getMinutes(),
+        now.getSeconds(),
+        now.getMilliseconds()
+      );
+      currentLabel = "Mês atual";
+      previousLabel = "Mesmo período do mês passado";
+    } else {
+      currentStart = new Date(todayStart);
+      const weekday = (currentStart.getDay() + 6) % 7;
+      currentStart.setDate(currentStart.getDate() - weekday);
+      currentEnd = now;
+      previousStart = new Date(currentStart);
+      previousStart.setDate(previousStart.getDate() - 7);
+      const elapsed = now.getTime() - currentStart.getTime();
+      previousEnd = new Date(previousStart.getTime() + elapsed);
+      currentLabel = "Semana atual";
+      previousLabel = "Mesmo período da semana passada";
+    }
+
+    const inRange = (fiado, start, end) => {
+      const created = getCreatedDate(fiado);
+      return created && created >= start && created < end;
+    };
+
+    const currentItems = safeFiados.filter((f) =>
+      inRange(f, currentStart, currentEnd)
+    );
+    const previousItems = safeFiados.filter((f) =>
+      inRange(f, previousStart, previousEnd)
+    );
+
+    return {
+      overall: summarize(safeFiados),
+      current: summarize(currentItems),
+      previous: summarize(previousItems),
+      currentLabel,
+      previousLabel,
+    };
+  }, [safeFiados, comparisonMode]);
+
+  const formatMoney = (amount) =>
+    money(Number.isFinite(Number(amount)) ? Number(amount) : 0);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("byse_token");
@@ -183,7 +320,7 @@ function Fiados({
 
     // Atualização otimista: o fiado aparece imediatamente na tela,
     // sem esperar a resposta da API.
-    const previousFiados = Array.isArray(fiados) ? fiados : [];
+    const previousFiados = safeFiados;
     setFiados([...previousFiados, item]);
     setShowForm(false);
     setCustomerId(customers[0]?.id || "");
@@ -215,13 +352,13 @@ function Fiados({
     }
   };
 
-  const toggle = async (id) => {
-    const updated = fiados.map((f) =>
+  const toggle = async (id, installmentIndex = 0) => {
+    const updated = safeFiados.map((f) =>
       f.id === id
         ? {
             ...f,
             installments: f.installments.map((i, idx) =>
-              idx === 0 ? { ...i, paid: !i.paid } : i
+              idx === installmentIndex ? { ...i, paid: !i.paid } : i
             )
           }
         : f
@@ -253,7 +390,7 @@ const deleteFiado = async (id) => {
     return;
   }
 
-  const previousFiados = [...fiados];
+  const previousFiados = [...safeFiados];
 
   try {
     const response = await fetch(`${FIADOS_API_URL}/${encodeURIComponent(String(id))}`, {
@@ -291,7 +428,7 @@ const deleteFiado = async (id) => {
       return;
     }
 
-    const itemsToDelete = [...fiados];
+    const itemsToDelete = [...safeFiados];
     const failedItems = [];
     setFiados([]);
 
@@ -332,7 +469,7 @@ const deleteFiado = async (id) => {
         subtext={subtext}
       />
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button
           onClick={() => setShowForm((v) => !v)}
           style={{
@@ -348,7 +485,27 @@ const deleteFiado = async (id) => {
           {showForm ? "Cancelar" : "Novo fiado"}
         </button>
 
-        {fiados.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowReport((visible) => !visible)}
+          style={{
+            background: showReport ? accent : "transparent",
+            color: showReport ? "#fff" : text,
+            border: "1px solid " + (showReport ? accent : border),
+            borderRadius: 8,
+            padding: "9px 14px",
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+          }}
+        >
+          <BarChart3 size={16} />
+          {showReport ? "Fechar relatório" : "Relatório"}
+        </button>
+
+        {safeFiados.length > 0 && (
           <button
             onClick={clearAllFiados}
             style={{
@@ -368,6 +525,114 @@ const deleteFiado = async (id) => {
           </button>
         )}
       </div>
+
+      {showReport && (
+        <section
+          style={{
+            background: card,
+            border: "1px solid " + border,
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 15 }}>
+                <BarChart3 size={18} color={accent} />
+                Relatório de fiados
+              </div>
+              <div style={{ color: subtext, fontSize: 12, marginTop: 4 }}>
+                Resumo dos registros e comparação entre períodos
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowReport(false)}
+              aria-label="Fechar relatório"
+              style={{ background: "transparent", border: "1px solid " + border, color: text, borderRadius: 8, padding: 7, cursor: "pointer" }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: 10, marginBottom: 18 }}>
+            {[
+              { label: "Fiados registrados", value: reportSummary.overall.count, icon: Clipboard },
+              { label: "Pessoas com fiado", value: reportSummary.overall.people, icon: UserRound },
+              { label: "Valor total registrado", value: formatMoney(reportSummary.overall.registeredValue), icon: Wallet },
+              { label: "Valor em aberto", value: formatMoney(reportSummary.overall.openValue), icon: TrendingUp },
+            ].map((metric) => {
+              const MetricIcon = metric.icon;
+              return (
+                <div key={metric.label} style={{ background: "rgba(127,127,127,0.08)", border: "1px solid " + border, borderRadius: 10, padding: 12, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, color: subtext, fontSize: 11, fontWeight: 700, marginBottom: 8 }}>
+                    <MetricIcon size={15} color={accent} />
+                    {metric.label}
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, overflowWrap: "anywhere" }}>{metric.value}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>Comparar períodos</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, color: subtext, fontSize: 12 }}>
+              <CalendarDays size={15} />
+              <select
+                value={comparisonMode}
+                onChange={(event) => setComparisonMode(event.target.value)}
+                style={{ background: card, color: text, border: "1px solid " + border, borderRadius: 8, padding: "8px 10px", fontWeight: 700 }}
+              >
+                <option value="day">Dias: hoje × ontem</option>
+                <option value="week">Semanas: esta × anterior</option>
+                <option value="month">Meses: atual × anterior</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            {[
+              { label: "Quantidade de fiados", current: reportSummary.current.count, previous: reportSummary.previous.count, format: (v) => String(v) },
+              { label: "Pessoas", current: reportSummary.current.people, previous: reportSummary.previous.people, format: (v) => String(v) },
+              { label: "Valor registrado", current: reportSummary.current.registeredValue, previous: reportSummary.previous.registeredValue, format: formatMoney },
+            ].map((comparison) => {
+              const difference = comparison.current - comparison.previous;
+              const positive = difference > 0;
+              const percentage = comparison.previous > 0
+                ? (difference / comparison.previous) * 100
+                : comparison.current > 0 ? 100 : 0;
+              return (
+                <div key={comparison.label} style={{ border: "1px solid " + border, borderRadius: 10, padding: 12 }}>
+                  <div style={{ fontSize: 12, color: subtext, fontWeight: 700, marginBottom: 10 }}>{comparison.label}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: subtext, marginBottom: 3 }}>{reportSummary.currentLabel}</div>
+                      <div style={{ fontWeight: 800, fontSize: 17, overflowWrap: "anywhere" }}>{comparison.format(comparison.current)}</div>
+                    </div>
+                    <div style={{ color: subtext, fontSize: 12 }}>×</div>
+                    <div>
+                      <div style={{ fontSize: 10, color: subtext, marginBottom: 3 }}>{reportSummary.previousLabel}</div>
+                      <div style={{ fontWeight: 800, fontSize: 17, overflowWrap: "anywhere" }}>{comparison.format(comparison.previous)}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid " + border, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: positive ? SUCCESS : difference < 0 ? DANGER : subtext }}>
+                    <TrendingUp size={13} style={{ transform: difference < 0 ? "rotate(180deg)" : "none" }} />
+                    {difference === 0
+                      ? "Sem alteração"
+                      : `${difference > 0 ? "+" : ""}${comparison.format(difference)} (${percentage > 0 ? "+" : ""}${percentage.toFixed(1).replace(".", ",")}%)`}
+                    <span style={{ color: subtext, fontWeight: 400 }}>em relação ao período anterior</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ color: subtext, fontSize: 11, marginTop: 10 }}>
+            A comparação considera a data de criação do fiado. O valor registrado soma todas as parcelas; o valor em aberto considera somente parcelas ainda não pagas.
+          </div>
+        </section>
+      )}
 
       {showForm && (
         <div
@@ -488,11 +753,11 @@ const deleteFiado = async (id) => {
         </div>
       )}
 
-      {fiados.length === 0 ? (
+      {safeFiados.length === 0 ? (
         <div style={{ color: subtext }}>Nenhum fiado cadastrado.</div>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
-          {fiados.map((f) => (
+          {safeFiados.map((f) => (
             <div
               key={f.id}
               style={{
@@ -552,7 +817,7 @@ const deleteFiado = async (id) => {
                     {i.paid ? "Pago" : "Pendente"}
                   </span>
                   <button
-                    onClick={() => toggle(f.id)}
+                    onClick={() => toggle(f.id, idx)}
                     style={{
                       border: "1px solid " + border,
                       background: "transparent",

@@ -1100,7 +1100,23 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         @keyframes catalogProductFall { 0% { transform: translate3d(0,-5vh,0) rotate(-12deg); opacity: 0; } 10% { opacity: .19; } 80% { opacity: .15; } 100% { transform: translate3d(35px,125vh,0) rotate(18deg); opacity: 0; } }
         @keyframes catalogProductTint { 0% { filter: grayscale(.22) brightness(.58) saturate(.9) contrast(1.08); } 100% { filter: grayscale(.04) sepia(.18) saturate(1.35) hue-rotate(-8deg) brightness(.9); } }
         .public-catalog-root { position: relative; z-index: 1; }
-        .catalog-product-card > div:first-child > div:not(.catalog-product-content) { max-height: 176px; }
+        .catalog-product-image-frame {
+          width:100%;
+          aspect-ratio:1 / 1.15;
+          overflow:hidden;
+          background:rgba(0,0,0,.03);
+        }
+        .catalog-product-image {
+          display:block;
+          width:100% !important;
+          height:100% !important;
+          max-height:none !important;
+          aspect-ratio:auto !important;
+          object-fit:cover !important;
+          object-position:center !important;
+          padding:0 !important;
+          background:transparent !important;
+        }
         .vip-theme .catalog-header, .vip-theme .catalog-product-card { background: #19160F !important; border-color: #806B3D !important; }
         .vip-theme .catalog-product-category { background: #342B19 !important; color: #E6C982 !important; }
         .vip-theme .catalog-header-title { color: #F5EBD3 !important; }
@@ -1248,7 +1264,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .catalog-products-grid { grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:18px !important; align-items:stretch; }
         .catalog-product-card { overflow:hidden; transition:transform .2s ease,border-color .2s ease !important; }
         .catalog-product-card:hover { transform:translateY(-3px); border-color:var(--shop-accent) !important; }
-        .catalog-product-image { height:auto !important; max-height:none !important; aspect-ratio:1/1 !important; object-fit:contain !important; background:var(--shop-surface-alt) !important; padding:8px; box-sizing:border-box; }
+        .catalog-product-image { display:block !important; width:100% !important; height:100% !important; max-height:none !important; aspect-ratio:auto !important; object-fit:cover !important; object-position:center !important; background:transparent !important; padding:0 !important; box-sizing:border-box; }
         .catalog-product-card > div:first-child > div:not(.catalog-product-content) { max-height:none !important; }
         .catalog-product-content { padding:12px 13px 8px !important; }
         .catalog-product-name { font-size:14px !important; line-height:1.35 !important; font-weight:650 !important; min-height:38px; }
@@ -1301,8 +1317,8 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .public-catalog-root { width:100%; max-width:1240px !important; margin:0 auto !important; padding:0 24px 48px !important; overflow:visible !important; box-sizing:border-box; }
         .catalog-header { margin:0 -24px 0 !important; padding:20px 24px !important; border-radius:0 !important; }
         .catalog-promo-hero { margin:18px 0 16px !important; min-height:210px; }
-        .catalog-store-banner-wrap { width:100%; margin:0 0 14px; overflow:hidden; border-radius:8px; background:var(--shop-surface); }
-        .catalog-store-banner { display:block; width:100%; aspect-ratio:4 / 1; max-height:none; min-height:0; object-fit:cover; object-position:center; }
+        .catalog-store-banner-wrap { width:100%; margin:0 0 14px; overflow:hidden; border-radius:10px; background:var(--shop-surface); }
+        .catalog-store-banner { display:block; width:100%; height:auto; aspect-ratio:4 / 1; max-height:none; min-height:0; object-fit:cover; object-position:center; }
         .shop-category-nav { position:-webkit-sticky !important; position:sticky !important; top:0 !important; align-self:flex-start; z-index:9999; display:flex; align-items:center; gap:22px; width:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; padding:13px 14px 14px; margin:0 0 22px; border:1px solid var(--shop-border); border-top:0; background:var(--shop-surface); box-shadow:0 7px 18px rgba(0,0,0,.10); scrollbar-width:thin; scrollbar-color:var(--shop-border) transparent; -webkit-overflow-scrolling:touch; }
         .shop-category-nav button { flex:0 0 auto; min-height:40px; padding:7px 2px; font-size:12px; letter-spacing:.2px; }
         .shop-category-nav button:focus-visible,.catalog-category-card:focus-visible { outline:3px solid var(--shop-accent); outline-offset:4px; }
@@ -1367,7 +1383,8 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           .catalog-category-count { font-size:9px !important; }
           .catalog-products-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:11px !important; }
           .catalog-product-card { border-radius:11px !important; }
-          .catalog-product-image { aspect-ratio:1/1 !important; padding:6px; }
+          .catalog-product-image-frame { aspect-ratio:1 / 1.15 !important; }
+          .catalog-product-image { width:100% !important; height:100% !important; object-fit:cover !important; padding:0 !important; }
           .catalog-product-content { padding:9px !important; }
           .catalog-product-name { font-size:12px !important; line-height:1.3 !important; min-height:32px; }
           .catalog-product-description { font-size:10px !important; line-height:1.35 !important; }
@@ -1396,6 +1413,126 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
         .catalog-info-panel h3 { margin:0 0 10px; font-size:18px; }
         .catalog-info-panel p { margin:0; white-space:pre-line; line-height:1.65; color:var(--shop-muted); font-size:14px; }
         .catalog-info-panel h4 { margin:14px 0 6px; }
+
+        /* Medidas copiadas do Simulador da Vitrine em Catalogo.tsx */
+        .public-catalog-root .catalog-products-grid {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, 165px), 1fr)) !important;
+          gap: 12px !important;
+          align-items: stretch !important;
+        }
+        .public-catalog-root .catalog-product-card {
+          min-width: 0 !important;
+          border-radius: 14px !important;
+          overflow: hidden !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+        }
+        .public-catalog-root .catalog-product-card > div:first-child {
+          width: 100% !important;
+          min-width: 0 !important;
+        }
+        .public-catalog-root .catalog-product-image-frame {
+          position: relative !important;
+          display: block !important;
+          width: 100% !important;
+          aspect-ratio: 1 / 1.15 !important;
+          height: auto !important;
+          min-height: 0 !important;
+          overflow: hidden !important;
+          background: rgba(0,0,0,0.03) !important;
+          line-height: 0 !important;
+        }
+        .public-catalog-root .catalog-product-image-frame .catalog-product-image {
+          position: absolute !important;
+          inset: 0 !important;
+          display: block !important;
+          width: 100% !important;
+          height: 100% !important;
+          min-width: 100% !important;
+          min-height: 100% !important;
+          max-width: none !important;
+          max-height: none !important;
+          aspect-ratio: auto !important;
+          object-fit: cover !important;
+          object-position: center !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          background: transparent !important;
+          box-sizing: border-box !important;
+        }
+        .public-catalog-root .catalog-product-content {
+          padding: 14px !important;
+        }
+        .public-catalog-root .catalog-product-name {
+          font-size: 14px !important;
+          line-height: 1.3 !important;
+          font-weight: 600 !important;
+          margin: 8px 0 4px !important;
+          min-height: 0 !important;
+          letter-spacing: -0.2px !important;
+          overflow-wrap: anywhere !important;
+        }
+        .public-catalog-root .catalog-product-description {
+          font-size: 12px !important;
+          line-height: 1.4 !important;
+          margin: 6px 0 0 !important;
+          display: block !important;
+          overflow: visible !important;
+        }
+        .public-catalog-root .catalog-product-footer {
+          padding: 0 14px 14px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          gap: 8px !important;
+          margin-top: auto !important;
+        }
+        .public-catalog-root .catalog-product-price {
+          font-size: 15px !important;
+          line-height: 1.2 !important;
+        }
+        .public-catalog-root .catalog-product-action {
+          flex-shrink: 0 !important;
+          padding: 8px 12px !important;
+          min-height: 0 !important;
+          border-radius: 8px !important;
+          font-size: 12px !important;
+          white-space: nowrap !important;
+        }
+        @media (max-width: 640px) {
+          .public-catalog-root .catalog-product-card {
+            border-radius: 11px !important;
+          }
+          .public-catalog-root .catalog-product-image-frame {
+            aspect-ratio: 1 / 1.15 !important;
+          }
+          .public-catalog-root .catalog-product-content {
+            padding: 14px !important;
+          }
+          .public-catalog-root .catalog-product-name {
+            font-size: 14px !important;
+            line-height: 1.3 !important;
+          }
+          .public-catalog-root .catalog-product-description {
+            font-size: 12px !important;
+            line-height: 1.4 !important;
+          }
+          .public-catalog-root .catalog-product-footer {
+            padding: 0 14px 14px !important;
+            gap: 8px !important;
+          }
+          .public-catalog-root .catalog-product-price {
+            font-size: 15px !important;
+          }
+          .public-catalog-root .catalog-product-action {
+            padding: 8px 12px !important;
+            font-size: 12px !important;
+          }
+        }
         .catalog-info-close { position:absolute; top:12px; right:12px; border:0; background:transparent; color:var(--shop-text); cursor:pointer; }
         .catalog-product-detail-backdrop { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.78); backdrop-filter:blur(5px); overflow-y:auto; }
         .catalog-product-detail { position:relative; width:min(900px,100%); max-height:92vh; overflow:auto; padding:22px; border:1px solid var(--shop-border); border-radius:18px; background:var(--shop-surface); color:var(--shop-text); box-shadow:0 24px 80px rgba(0,0,0,.4); }
@@ -1715,18 +1852,24 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           }
 
           .catalog-store-banner-wrap {
-            width: 100% !important;
-            margin: 0 0 12px !important;
-            overflow: hidden !important;
+            width:100% !important;
+            margin:0 0 12px !important;
+            overflow:hidden !important;
+            border-radius:10px !important;
+            background:var(--shop-surface-alt) !important;
           }
 
+          /* O banner é exportado em 4:1 no painel.
+             No celular preservamos a arte inteira para não cortar textos/logos nas laterais. */
           .catalog-store-banner {
-            display: block !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            aspect-ratio: 16 / 5 !important;
-            object-fit: cover !important;
-            border-radius: 8px !important;
+            display:block !important;
+            width:100% !important;
+            max-width:100% !important;
+            height:auto !important;
+            aspect-ratio:4 / 1 !important;
+            object-fit:contain !important;
+            object-position:center !important;
+            border-radius:10px !important;
           }
 
           .catalog-search-section {
@@ -1982,15 +2125,7 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
           </section>
         )}
 
-        <nav className="shop-category-nav" aria-label="Categorias do catálogo">
-          <button type="button" className={selectedCategory === 'Todos' ? 'active' : ''} onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(false); }}>Início</button>
-          {categories.map((cat: string) => (
-            <button type="button" key={`nav-${cat}`} className={selectedCategory === cat ? 'active' : ''} onClick={() => { setSelectedCategory(cat); setQuery(''); setShowAllProducts(true); }}>{cat}</button>
-          ))}
-          <button type="button" onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(true); }}>Todos os produtos</button>
-        </nav>
-
-        {/* BANNER DA MARCA: fica logo depois da navegação por categorias */}
+        {/* BANNER DA MARCA: aparece antes da navegação e das categorias. */}
         {catalogBrandBannerImage && (
           <div className="catalog-store-banner-wrap">
             <img
@@ -2000,6 +2135,14 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
             />
           </div>
         )}
+
+        <nav className="shop-category-nav" aria-label="Categorias do catálogo">
+          <button type="button" className={selectedCategory === 'Todos' ? 'active' : ''} onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(false); }}>Início</button>
+          {categories.map((cat: string) => (
+            <button type="button" key={`nav-${cat}`} className={selectedCategory === cat ? 'active' : ''} onClick={() => { setSelectedCategory(cat); setQuery(''); setShowAllProducts(true); }}>{cat}</button>
+          ))}
+          <button type="button" onClick={() => { setSelectedCategory('Todos'); setQuery(''); setShowAllProducts(true); }}>Todos os produtos</button>
+        </nav>
 
         {/* PESQUISA */}
         <div
@@ -2211,22 +2354,18 @@ export function PublicCatalog({ accent: accentProp, dark: darkProp }: any = {}) 
                 >
                   <div>
                     {imageUrl ? (
-                      <img
-                        src={imageUrl}
-                        alt={p.name}
-                        className="catalog-product-image"
-                        style={{
-                          width: '100%',
-                          aspectRatio: '4/5',
-                          objectFit: 'cover',
-                          display: 'block'
-                        }}
-                      />
+                      <div className="catalog-product-image-frame">
+                        <img
+                          src={imageUrl}
+                          alt={p.name}
+                          loading="lazy"
+                          className="catalog-product-image"
+                        />
+                      </div>
                     ) : (
                       <div
+                        className="catalog-product-image-frame"
                         style={{
-                          width: '100%',
-                          aspectRatio: '4/5',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Check, ChevronRight, Edit2 } from "lucide-react";
+import { Plus, Search, Trash2, Check, ChevronRight, Edit2, Gift, X, ArrowLeft, MessageCircle, CalendarDays, Send } from "lucide-react";
 import { DANGER } from "../data/constants";
 import { money, inputStyle } from "../utils/helpers";
 import { SectionTitle, Pill } from "../components/common";
@@ -23,12 +23,17 @@ function Clientes({
     ddd: "",
     phoneNumber: "",
     cpf: "",
+    birthDate: "",
   });
 
   const [phoneError, setPhoneError] = useState("");
   const [selected, setSelected] = useState(null);
   const [editingCashback, setEditingCashback] = useState(null);
   const [cashbackInput, setCashbackInput] = useState("");
+  const [showBirthdays, setShowBirthdays] = useState(false);
+  const [birthdayPeriod, setBirthdayPeriod] = useState("day");
+  const [birthdayMessage, setBirthdayMessage] = useState("Olá {nome}! 🎉 A equipe deseja a você um feliz aniversário, com muita saúde, alegria e conquistas. Esperamos você para comemorar conosco!");
+  const [birthdaySending, setBirthdaySending] = useState("");
 
   const getApiUrl = () => {
     if (import.meta.env.VITE_API_URL) {
@@ -125,6 +130,8 @@ function Clientes({
           name,
           phone: fullPhone,
           cpf: form.cpf,
+          birthDate: form.birthDate || null,
+          data_aniversario: form.birthDate || null,
           cashback: 0,
         }),
       });
@@ -142,6 +149,7 @@ function Clientes({
         ddd: "",
         phoneNumber: "",
         cpf: "",
+        birthDate: "",
       });
 
       setPhoneError("");
@@ -273,6 +281,57 @@ function Clientes({
     setEditingCashback(null);
   };
 
+  const birthdayDateOf = (customer) =>
+    String(customer?.birthDate || customer?.birth_date || customer?.data_aniversario || "").slice(0, 10);
+
+  const birthdayMatches = (customer) => {
+    const raw = birthdayDateOf(customer);
+    if (!raw) return false;
+    const [, month, day] = raw.split("-").map(Number);
+    if (!month || !day) return false;
+    const today = new Date();
+    const target = new Date(today.getFullYear(), month - 1, day);
+    target.setHours(0, 0, 0, 0);
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const end = new Date(start);
+    if (birthdayPeriod === "day") {
+      return target.getTime() === start.getTime();
+    }
+    if (birthdayPeriod === "week") {
+      const weekday = (start.getDay() + 6) % 7;
+      const monday = new Date(start);
+      monday.setDate(monday.getDate() - weekday);
+      const sunday = new Date(monday);
+      sunday.setDate(sunday.getDate() + 7);
+      return target >= monday && target < sunday;
+    }
+    return month === today.getMonth() + 1;
+  };
+
+  const birthdayCustomers = customers
+    .filter(birthdayMatches)
+    .sort((a, b) => {
+      const da = Number(birthdayDateOf(a).slice(8, 10));
+      const db = Number(birthdayDateOf(b).slice(8, 10));
+      return da - db;
+    });
+
+  const formatBirthdayMessage = (customer) =>
+    birthdayMessage
+      .replaceAll("{nome}", customer.name || "cliente")
+      .replaceAll("{telefone}", customer.phone || "");
+
+  const sendBirthdayMessage = (customer) => {
+    const phone = String(customer.phone || customer.telephone || "").replace(/\\D/g, "");
+    if (!phone) {
+      alert("Este cliente não possui WhatsApp cadastrado.");
+      return;
+    }
+    const url = `https://wa.me/${phone.startsWith("55") ? phone : `55${phone}`}?text=${encodeURIComponent(formatBirthdayMessage(customer))}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    setBirthdaySending(String(customer.id));
+  };
+
   const monthAgo = new Date();
   monthAgo.setDate(monthAgo.getDate() - 30);
 
@@ -354,6 +413,26 @@ function Clientes({
           }}
         >
           <Plus size={15} /> Novo cliente
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowBirthdays(true)}
+          style={{
+            background: showBirthdays ? accent : "transparent",
+            color: showBirthdays ? "#fff" : text,
+            border: `1px solid ${accent}`,
+            borderRadius: 8,
+            padding: "8px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          <Gift size={15} /> Aniversariantes
         </button>
 
         {customers.length > 0 && (
@@ -586,6 +665,16 @@ function Clientes({
             />
           </div>
 
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+            <label style={{ fontSize: 13, color: subtext, fontWeight: 600 }}>Data de aniversário</label>
+            <input
+              type="date"
+              value={form.birthDate}
+              onChange={(e) => setForm({ ...form, birthDate: e.target.value })}
+              style={{ ...inputStyle(border, text), width: "100%", boxSizing: "border-box" }}
+            />
+          </div>
+
           {/* Botão salvar */}
           <button
             onClick={addCustomer}
@@ -615,6 +704,103 @@ function Clientes({
           >
             Salvar cliente
           </button>
+        </div>
+      )}
+
+      {showBirthdays && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Painel de aniversariantes"
+          style={{
+            position: "relative",
+            background: `linear-gradient(135deg, ${card}, ${accent}12)`,
+            border: `1px solid ${accent}88`,
+            borderRadius: 16,
+            padding: 16,
+            marginBottom: 18,
+            boxShadow: `0 18px 55px ${accent}22`,
+            overflow: "hidden",
+            animation: "birthdayPanelIn .35s cubic-bezier(.2,.8,.2,1)",
+          }}
+        >
+          <style>{`
+            @keyframes birthdayPanelIn { from { opacity:0; transform:translateY(12px) scale(.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+            @keyframes birthdayParticleOut { 0% { opacity:1; transform:translate(0,0) scale(1) rotate(0); } 100% { opacity:0; transform:translate(var(--dx),var(--dy)) scale(.1) rotate(180deg); } }
+            .birthday-close-particles { position:relative; overflow:visible; }
+            .birthday-close-particles:active { transform:scale(.94); }
+            .birthday-close-particles .particle { position:absolute; width:5px;height:5px;border-radius:2px;background:${accent};pointer-events:none;animation:birthdayParticleOut .55s ease-out forwards; }
+            @media(max-width:600px){ .birthday-panel-grid{grid-template-columns:1fr!important;} .birthday-toolbar{align-items:stretch!important;} .birthday-toolbar button{flex:1;} }
+          `}</style>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:40,height:40,borderRadius:12,display:"grid",placeItems:"center",background:`${accent}20`,color:accent}}><Gift size={21}/></div>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:text}}>Central de aniversariantes</div>
+                <div style={{fontSize:12,color:subtext}}>Prepare e envie uma mensagem personalizada pelo WhatsApp</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Voltar"
+              className="birthday-close-particles"
+              onClick={(e) => {
+                const button = e.currentTarget;
+                for (let i=0;i<9;i++) {
+                  const particle=document.createElement("span");
+                  particle.className="particle";
+                  particle.style.left=`${8+i*8}%`;
+                  particle.style.top="50%";
+                  particle.style.setProperty("--dx",`${(i-4)*17}px`);
+                  particle.style.setProperty("--dy",`${-18-(i%3)*15}px`);
+                  button.appendChild(particle);
+                  setTimeout(()=>particle.remove(),600);
+                }
+                setTimeout(()=>setShowBirthdays(false),220);
+              }}
+              style={{width:38,height:38,borderRadius:11,border:`1px solid ${border}`,background:card,color:text,display:"grid",placeItems:"center",cursor:"pointer"}}
+            ><ArrowLeft size={18}/></button>
+          </div>
+
+          <div className="birthday-toolbar" style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+            {[
+              ["day","Hoje"],
+              ["week","Esta semana"],
+              ["month","Este mês"],
+            ].map(([value,label])=>(
+              <button key={value} type="button" onClick={()=>setBirthdayPeriod(value)} style={{
+                border:`1px solid ${birthdayPeriod===value?accent:border}`,
+                background:birthdayPeriod===value?accent:"transparent",
+                color:birthdayPeriod===value?"#fff":text,
+                borderRadius:9,padding:"8px 13px",fontSize:12,fontWeight:700,cursor:"pointer"
+              }}>{label}</button>
+            ))}
+            <span style={{marginLeft:"auto",fontSize:12,color:subtext}}>{birthdayCustomers.length} aniversariante(s)</span>
+          </div>
+
+          <div className="birthday-panel-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(260px,.85fr)",gap:14}}>
+            <div style={{background:card,border:`1px solid ${border}`,borderRadius:12,padding:12,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:800,color:text,marginBottom:9}}>Clientes do período</div>
+              {birthdayCustomers.length===0 ? (
+                <div style={{padding:"18px 8px",textAlign:"center",color:subtext,fontSize:13}}>Nenhum aniversário encontrado neste período.</div>
+              ) : birthdayCustomers.map(customer=>{
+                const birth=birthdayDateOf(customer);
+                return <div key={customer.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 0",borderTop:`1px solid ${border}`}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:text,overflow:"hidden",textOverflow:"ellipsis"}}>{customer.name}</div>
+                    <div style={{fontSize:11,color:subtext}}>{birth.slice(8,10)}/{birth.slice(5,7)} · {customer.phone || "Sem WhatsApp"}</div>
+                  </div>
+                  <button type="button" onClick={()=>sendBirthdayMessage(customer)} style={{border:0,borderRadius:8,padding:"8px 10px",background:"#16a34a",color:"#fff",display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}><MessageCircle size={14}/> Enviar</button>
+                </div>;
+              })}
+            </div>
+            <div style={{background:card,border:`1px solid ${border}`,borderRadius:12,padding:12,minWidth:0}}>
+              <label style={{fontSize:13,fontWeight:800,color:text,display:"block",marginBottom:8}}>Mensagem de aniversário</label>
+              <textarea value={birthdayMessage} onChange={e=>setBirthdayMessage(e.target.value)} rows={7} style={{...inputStyle(border,text),width:"100%",boxSizing:"border-box",resize:"vertical",lineHeight:1.5}}/>
+              <div style={{fontSize:11,color:subtext,margin:"7px 0 10px"}}>Use <b>{"{nome}"}</b> para inserir o nome do cliente e <b>{"{telefone}"}</b> para o telefone.</div>
+              <div style={{fontSize:11,color:subtext}}>A mensagem abre no WhatsApp para o vendedor revisar e confirmar o envio.</div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -738,6 +924,7 @@ function Clientes({
                     }}
                   >
                     <span>CPF: {c.cpf || "não informado"}</span>
+                    <span>· Aniversário: {birthdayDateOf(c) ? new Date(`${birthdayDateOf(c)}T12:00:00`).toLocaleDateString("pt-BR") : "não informado"}</span>
 
                     <span>· Cashback Atual:</span>
 
@@ -833,3 +1020,4 @@ function Clientes({
 }
 
 export { Clientes };
+
