@@ -165,22 +165,89 @@ import { PublicCatalog } from "../features/PublicCatalog";
 
 
 const getApiUrl = () => {
-  const raw = String(
-    import.meta.env.VITE_API_URL ||
-    (
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1"
-        ? "http://localhost:3333"
-        : "https://byse-pro-backend-production.up.railway.app"
-    )
-  ).trim();
+  const configuredUrl = String(import.meta.env.VITE_API_URL || "").trim();
+  const fallbackUrl =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+      ? "http://localhost:3333"
+      : "https://byse-pro-backend-production.up.railway.app";
 
-  return `${raw.replace(/\/+$/, "").replace(/\/api$/i, "")}/api`;
+  // Aceita VITE_API_URL com ou sem /api e com ou sem barra final.
+  const baseUrl = (configuredUrl || fallbackUrl)
+    .replace(/\/+$/, "")
+    .replace(/\/api$/i, "");
+
+  return `${baseUrl}/api`;
 };
-
 
 const API_URL = getApiUrl();
 
+/**
+ * Cache local protegido contra QuotaExceededError.
+ * Catálogos de produtos ficam no estado do React e no servidor, não no localStorage.
+ */
+const safeStorageSet = (key, value) => {
+  const normalizedKey = String(key || "");
+
+  if (
+    normalizedKey.startsWith("byse_products_") ||
+    normalizedKey.startsWith("byse_pre_treino_products_")
+  ) {
+    try { localStorage.removeItem(normalizedKey); } catch (error) {
+      console.warn("Não foi possível remover cache antigo de produtos:", error);
+    }
+    return false;
+  }
+
+  try {
+    localStorage.setItem(normalizedKey, value);
+    return true;
+  } catch (error) {
+    const isQuotaError =
+      error?.name === "QuotaExceededError" ||
+      error?.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      error?.code === 22 ||
+      error?.code === 1014;
+
+    if (!isQuotaError) {
+      console.warn(`Não foi possível salvar ${normalizedKey} no cache local:`, error);
+      return false;
+    }
+
+    // Libera somente caches descartáveis de produtos do mesmo usuário.
+    const userScopedPrefixes = [
+      "byse_customers_",
+      "byse_sales_",
+      "byse_products_",
+      "byse_sellers_",
+      "byse_fiados_",
+      "byse_pre_treino_records_",
+      "byse_pre_treino_products_",
+      "byse_pre_treino_customers_",
+    ];
+    const matchedPrefix = userScopedPrefixes.find((prefix) => normalizedKey.startsWith(prefix));
+    const userKey = matchedPrefix ? normalizedKey.slice(matchedPrefix.length) : null;
+
+    if (userKey) {
+      ["byse_products_", "byse_pre_treino_products_"].forEach((prefix) => {
+        try { localStorage.removeItem(`${prefix}${userKey}`); } catch (cleanupError) {
+          console.warn("Falha ao liberar cache de produtos:", cleanupError);
+        }
+      });
+    }
+
+    try {
+      localStorage.setItem(normalizedKey, value);
+      return true;
+    } catch (retryError) {
+      console.warn(
+        `Limite do armazenamento local atingido ao salvar ${normalizedKey}. A sincronização com o servidor continuará.`,
+        retryError,
+      );
+      return false;
+    }
+  }
+};
 
 
 function SupplementSystem() {
@@ -221,9 +288,9 @@ function SupplementSystem() {
 
 
 
-  useEffect(() => { localStorage.setItem("byse_dark", String(dark)); }, [dark]);
+  useEffect(() => { safeStorageSet("byse_dark", String(dark)); }, [dark]);
 
-  useEffect(() => { localStorage.setItem("byse_accent", accent); }, [accent]);
+  useEffect(() => { safeStorageSet("byse_accent", accent); }, [accent]);
 
 
 
@@ -469,7 +536,7 @@ function SupplementSystem() {
 
           setSales([...normalizedSales]);
 
-          localStorage.setItem(storageKey, JSON.stringify(normalizedSales));
+          safeStorageSet(storageKey, JSON.stringify(normalizedSales));
 
           return;
 
@@ -485,7 +552,7 @@ function SupplementSystem() {
 
           setFiados([...data]);
 
-          localStorage.setItem(storageKey, JSON.stringify(data));
+          safeStorageSet(storageKey, JSON.stringify(data));
 
           return;
 
@@ -494,18 +561,18 @@ function SupplementSystem() {
 
 
         if (key === "customers") setCustomers([...data]);
-
         if (key === "products") setProducts([...data]);
-
         if (key === "sellers") setSellers([...data]);
-
         if (key === "pre_treino_records") setPreTreinoRecords([...data]);
-
         if (key === "pre_treino_products") setProdutosPreTreino([...data]);
-
         if (key === "pre_treino_customers") setPreTreinoCustomers([...data]);
 
-        localStorage.setItem(storageKey, JSON.stringify(data));
+        // Produtos permanecem no estado e no banco, sem ocupar o localStorage.
+        if (key !== "products" && key !== "pre_treino_products") {
+          safeStorageSet(storageKey, JSON.stringify(data));
+        } else {
+          try { localStorage.removeItem(storageKey); } catch {}
+        }
 
       });
 
@@ -631,7 +698,8 @@ function SupplementSystem() {
 
         const localSales = localStorage.getItem(`byse_sales_${uKey}`);
 
-        const localProd = localStorage.getItem(`byse_products_${uKey}`);
+        try { localStorage.removeItem(`byse_products_${uKey}`); } catch {}
+        const localProd = null;
 
         const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
 
@@ -643,11 +711,8 @@ function SupplementSystem() {
 
         );
 
-        const localPtProds = localStorage.getItem(
-
-          `byse_pre_treino_products_${uKey}`,
-
-        );
+        try { localStorage.removeItem(`byse_pre_treino_products_${uKey}`); } catch {}
+        const localPtProds = null;
 
         const localPtCusts = localStorage.getItem(
 
@@ -719,9 +784,9 @@ function SupplementSystem() {
 
     setVisitedTabs(["pdv"]);
 
-    if (token) localStorage.setItem("byse_token", token);
+    if (token) safeStorageSet("byse_token", token);
 
-    localStorage.setItem("byse_user", JSON.stringify(userData));
+    safeStorageSet("byse_user", JSON.stringify(userData));
 
 
 
@@ -755,7 +820,8 @@ function SupplementSystem() {
 
     const localSales = localStorage.getItem(`byse_sales_${uKey}`);
 
-    const localProd = localStorage.getItem(`byse_products_${uKey}`);
+    try { localStorage.removeItem(`byse_products_${uKey}`); } catch {}
+    const localProd = null;
 
     const localSellers = localStorage.getItem(`byse_sellers_${uKey}`);
 
@@ -763,11 +829,8 @@ function SupplementSystem() {
 
     const localPtRecs = localStorage.getItem(`byse_pre_treino_records_${uKey}`);
 
-    const localPtProds = localStorage.getItem(
-
-      `byse_pre_treino_products_${uKey}`,
-
-    );
+    try { localStorage.removeItem(`byse_pre_treino_products_${uKey}`); } catch {}
+    const localPtProds = null;
 
     const localPtCusts = localStorage.getItem(
 
@@ -883,7 +946,7 @@ function SupplementSystem() {
 
     setCustomers([...newCustomers]);
 
-    localStorage.setItem(
+    safeStorageSet(
 
       getStorageKey("customers"),
 
@@ -1135,7 +1198,7 @@ function SupplementSystem() {
 
         setProducts(updatedProducts);
 
-        localStorage.setItem(
+        safeStorageSet(
 
           getStorageKey("products"),
 
@@ -1185,7 +1248,7 @@ function SupplementSystem() {
 
         setProducts(updatedProducts);
 
-        localStorage.setItem(
+        safeStorageSet(
 
           getStorageKey("products"),
 
@@ -1223,7 +1286,7 @@ function SupplementSystem() {
 
     setSellers([...newSellers]);
 
-    localStorage.setItem(getStorageKey("sellers"), JSON.stringify(newSellers));
+    safeStorageSet(getStorageKey("sellers"), JSON.stringify(newSellers));
 
 
 
@@ -1277,7 +1340,7 @@ function SupplementSystem() {
 
         const safeUpdated = Array.isArray(updated) ? updated : current;
 
-        localStorage.setItem(
+        safeStorageSet(
 
           getStorageKey("fiados"),
 
@@ -1299,7 +1362,7 @@ function SupplementSystem() {
 
     setFiados([...safeFiados]);
 
-    localStorage.setItem(getStorageKey("fiados"), JSON.stringify(safeFiados));
+    safeStorageSet(getStorageKey("fiados"), JSON.stringify(safeFiados));
 
   };
 
@@ -1323,7 +1386,7 @@ function SupplementSystem() {
 
     setFiados([...newFiados]);
 
-    localStorage.setItem(getStorageKey("fiados"), JSON.stringify(newFiados));
+    safeStorageSet(getStorageKey("fiados"), JSON.stringify(newFiados));
 
 
 
@@ -1389,7 +1452,7 @@ function SupplementSystem() {
 
     setSales([...newSales]);
 
-    localStorage.setItem(getStorageKey("sales"), JSON.stringify(newSales));
+    safeStorageSet(getStorageKey("sales"), JSON.stringify(newSales));
 
 
 
@@ -1493,7 +1556,7 @@ function SupplementSystem() {
 
       const safe = Array.isArray(updated) ? updated : current;
 
-      localStorage.setItem(getStorageKey("pre_treino_records"), JSON.stringify(safe));
+      safeStorageSet(getStorageKey("pre_treino_records"), JSON.stringify(safe));
 
       return safe;
 
@@ -1515,7 +1578,7 @@ function SupplementSystem() {
 
       const safe = Array.isArray(updated) ? updated : current;
 
-      localStorage.setItem(getStorageKey("pre_treino_products"), JSON.stringify(safe));
+      safeStorageSet(getStorageKey("pre_treino_products"), JSON.stringify(safe));
 
       return safe;
 
@@ -1871,7 +1934,7 @@ function SupplementSystem() {
 
               const safe = Array.isArray(updated) ? updated : current;
 
-              localStorage.setItem(getStorageKey("pre_treino_customers"), JSON.stringify(safe));
+              safeStorageSet(getStorageKey("pre_treino_customers"), JSON.stringify(safe));
 
               return safe;
 
