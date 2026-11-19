@@ -165,35 +165,18 @@ import { PublicCatalog } from "../features/PublicCatalog";
 
 
 const getApiUrl = () => {
+  const raw = String(
+    import.meta.env.VITE_API_URL ||
+    (
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1"
+        ? "http://localhost:3333"
+        : "https://byse-pro-backend-production.up.railway.app"
+    )
+  ).trim();
 
-  if (import.meta.env.VITE_API_URL) {
-
-    const raw = import.meta.env.VITE_API_URL;
-
-    return raw.endsWith("/api")
-
-      ? raw
-
-      : `${raw.endsWith("/") ? raw.slice(0, -1) : raw}/api`;
-
-  }
-
-  if (
-
-    window.location.hostname === "localhost" ||
-
-    window.location.hostname === "127.0.0.1"
-
-  ) {
-
-    return "http://localhost:3333/api";
-
-  }
-
-  return "https://byse-pro-backend-production.up.railway.app/api";
-
+  return `${raw.replace(/\/+$/, "").replace(/\/api$/i, "")}/api`;
 };
-
 
 
 const API_URL = getApiUrl();
