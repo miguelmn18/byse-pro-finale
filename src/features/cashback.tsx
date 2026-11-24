@@ -363,15 +363,11 @@ function Cashback({
       const remainingDays = getRemainingDays(customer);
       if (remainingDays === null) return false;
 
-      if (validityFilterDays === "15") {
-        return remainingDays >= 0 && remainingDays <= 15;
-      }
-      if (validityFilterDays === "30") {
-        return remainingDays >= 16 && remainingDays <= 30;
-      }
-      if (validityFilterDays === "60") {
-        return remainingDays >= 31 && remainingDays <= 60;
-      }
+      // Cada filtro exibe somente clientes com a quantidade EXATA
+      // de dias restantes. As demais datas ficam em "Todos ativos".
+      if (validityFilterDays === "15") return remainingDays === 15;
+      if (validityFilterDays === "30") return remainingDays === 30;
+      if (validityFilterDays === "60") return remainingDays === 60;
       return false;
     });
   }, [customers, validityFilterDays, currentTime]);
@@ -1481,9 +1477,9 @@ function Cashback({
             <option value="all">
               Todos ativos
             </option>
-            <option value="15">Até 15 dias</option>
-            <option value="30">Até 30 dias</option>
-            <option value="60">Até 60 dias</option>
+            <option value="15">Exatamente 15 dias</option>
+            <option value="30">Exatamente 30 dias</option>
+            <option value="60">Exatamente 60 dias</option>
 
           </select>
 

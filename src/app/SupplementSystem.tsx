@@ -99,6 +99,8 @@ import {
   LogOut,
 
   Calendar,
+  ClipboardList,
+  Instagram,
 
 } from "lucide-react";
 
@@ -161,6 +163,8 @@ import { Fiados } from "../features/fiados";
 import { PreTreino } from "../features/preTreino";
 
 import { PublicCatalog } from "../features/PublicCatalog";
+import { CancelarVendas } from "../features/CancelarVendas";
+import { CRM } from "../features/CRM";
 
 
 
@@ -322,13 +326,7 @@ function SupplementSystem() {
 
   const [adEntries, setAdEntries] = useState([]);
 
-  const [stockLocations, setStockLocations] = useState([
-
-    { id: "loja", name: "Loja física" },
-
-    { id: "degustacao", name: "Degustação" },
-
-  ]);
+  const [stockLocations, setStockLocations] = useState([]);
 
 
 
@@ -443,6 +441,8 @@ function SupplementSystem() {
       { key: "sales", url: `${API_URL}/sales` },
 
       { key: "products", url: `${API_URL}/products` },
+
+      { key: "stockLocations", url: `${API_URL}/locais` },
 
       { key: "sellers", url: `${API_URL}/sellers` },
 
@@ -562,6 +562,13 @@ function SupplementSystem() {
 
         if (key === "customers") setCustomers([...data]);
         if (key === "products") setProducts([...data]);
+        if (key === "stockLocations") {
+          setStockLocations(data.map((location) => ({
+            id: String(location.id),
+            name: location.name || "Local sem nome",
+          })));
+          return;
+        }
         if (key === "sellers") setSellers([...data]);
         if (key === "pre_treino_records") setPreTreinoRecords([...data]);
         if (key === "pre_treino_products") setProdutosPreTreino([...data]);
@@ -1219,57 +1226,32 @@ function SupplementSystem() {
 
 
   const handleEditProduct = async (updatedProduct) => {
-
-    try {
-
-      const response = await fetch(`${API_URL}/products/${updatedProduct.id}`, {
-
-        method: "PUT",
-
-        headers: getAuthHeaders(),
-
-        body: JSON.stringify(updatedProduct),
-
-      });
-
-
-
-      if (response.ok) {
-
-        const savedData = await response.json();
-
-        const finalProduct = savedData.id ? savedData : updatedProduct;
-
-        const updatedProducts = products.map((p) =>
-
-          p.id === finalProduct.id ? finalProduct : p,
-
-        );
-
-        setProducts(updatedProducts);
-
-        safeStorageSet(
-
-          getStorageKey("products"),
-
-          JSON.stringify(updatedProducts),
-
-        );
-
-      } else {
-
-        await handleUpdateProducts(updatedProduct);
-
-      }
-
-    } catch (err) {
-
-      console.error("Erro ao atualizar produto:", err);
-
-    }
-
+    // Usa o mesmo fluxo validado de criação/edição para evitar respostas
+    // silenciosas e manter o estado local sincronizado com o registro do banco.
+    return await handleUpdateProducts(updatedProduct);
   };
 
+  const handleSaveStockLocation = async ({ id, name }) => {
+    try {
+      const response = await fetch(`${API_URL}/locais`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ ...(id ? { id } : {}), name }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(data)) {
+        throw new Error(data?.error || "Falha ao salvar o local de estoque.");
+      }
+      setStockLocations(data.map((location) => ({
+        id: String(location.id),
+        name: location.name || "Local sem nome",
+      })));
+      return { success: true, locations: data };
+    } catch (error) {
+      console.error("Erro ao salvar local de estoque:", error);
+      return { success: false, error: error.message };
+    }
+  };
 
 
   const handleUpdateSellers = async (newSellers) => {
@@ -1544,6 +1526,14 @@ function SupplementSystem() {
 
 
 
+  const handleSalesAfterCancellation = async (nextSales) => {
+    const safeSales = Array.isArray(nextSales) ? nextSales : [];
+    setSales([...safeSales]);
+    safeStorageSet(getStorageKey("sales"), JSON.stringify(safeSales));
+    // Recarrega os dados oficiais para manter dashboard, DRE e demais módulos sincronizados.
+    await fetchUserData();
+  };
+
   const handleUpdatePreTreinoRecords = (valueOrUpdater) => {
 
     setPreTreinoRecords((current) => {
@@ -1668,6 +1658,10 @@ function SupplementSystem() {
 
     { id: "pdv", label: "PDV", icon: ShoppingCart },
 
+    { id: "cancelarVendas", label: "Cancelar vendas", icon: ClipboardList },
+
+    { id: "crm", label: "CRM Instagram", icon: Instagram },
+
     { id: "dashboard", label: "Painel", icon: BarChart3 },
 
     { id: "clientes", label: "Clientes", icon: Users },
@@ -1776,6 +1770,8 @@ function SupplementSystem() {
 
             setStockLocations,
 
+            onSaveStockLocation: handleSaveStockLocation,
+
             card,
 
             border,
@@ -1814,6 +1810,10 @@ function SupplementSystem() {
 
           onSaleCompleted={fetchUserData}
 
+          apiUrl={API_URL.replace(/\/api$/i, "")}
+
+          stockLocations={stockLocations}
+
           fiados={fiados}
 
           setFiados={handleUpdateFiados}
@@ -1823,6 +1823,21 @@ function SupplementSystem() {
         />
 
       );
+
+    if (screenTab === "cancelarVendas")
+      return (
+        <CancelarVendas
+          sales={sales}
+          setSales={setSales}
+          apiUrl={API_URL}
+          getAuthHeaders={getAuthHeaders}
+          onCancelled={handleSalesAfterCancellation}
+          {...{ card, border, subtext, accent, text }}
+        />
+      );
+
+    if (screenTab === "crm")
+      return <CRM userId={user?.id || user?.email || "guest"} {...{ card, border, subtext, accent, text }} />;
 
     if (screenTab === "vendedores")
 

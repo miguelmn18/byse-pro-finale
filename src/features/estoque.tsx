@@ -14,6 +14,7 @@ export function Estoque({
   onCreateProduct,
   stockLocations = [],
   setStockLocations,
+  onSaveStockLocation,
   onDeleteProduct,
   onEditProduct,
   card,
@@ -335,37 +336,41 @@ export function Estoque({
      LOCAIS DE ESTOQUE
   ========================================================= */
 
-  const renameLoc = (id, name) => {
-    const updatedLocations = (stockLocations || []).map((location) =>
-      location.id === id
-        ? {
-            ...location,
-            name,
-          }
-        : location,
-    );
+  const renameLoc = async (id, name) => {
+    const normalizedName = normalizeCategory(name);
+    if (!normalizedName || !id) return;
 
-    setStockLocations?.(updatedLocations);
+    try {
+      if (onSaveStockLocation) {
+        const result = await onSaveStockLocation({ id, name: normalizedName });
+        if (!result?.success) throw new Error(result?.error || "Não foi possível atualizar o local.");
+      } else {
+        const updatedLocations = (stockLocations || []).map((location) =>
+          String(location.id) === String(id) ? { ...location, name: normalizedName } : location,
+        );
+        setStockLocations?.(updatedLocations);
+      }
+    } catch (error) {
+      window.alert(error?.message || "Não foi possível renomear o local.");
+    }
   };
 
-  const addLoc = () => {
+  const addLoc = async () => {
     const name = normalizeCategory(newLocName);
-
     if (!name) return;
 
-    const newLocation = {
-      id: `loc_${Date.now()}`,
-      name,
-    };
-
-    const updatedLocations = [
-      ...(stockLocations || []),
-      newLocation,
-    ];
-
-    setStockLocations?.(updatedLocations);
-
-    setNewLocName("");
+    try {
+      if (onSaveStockLocation) {
+        const result = await onSaveStockLocation({ name });
+        if (!result?.success) throw new Error(result?.error || "Não foi possível cadastrar o local.");
+      } else {
+        const newLocation = { id: `loc_${Date.now()}`, name };
+        setStockLocations?.([...(stockLocations || []), newLocation]);
+      }
+      setNewLocName("");
+    } catch (error) {
+      window.alert(error?.message || "Não foi possível cadastrar o local.");
+    }
   };
 
   /* =========================================================
@@ -856,6 +861,10 @@ export function Estoque({
      * A categoria só entra nas sugestões depois que
      * o produto foi efetivamente salvo.
      */
+    if (!savedProduct?.success || !savedProduct?.product?.id) {
+      throw new Error(savedProduct?.error || "O servidor não confirmou o salvamento do produto.");
+    }
+
     if (
       savedProduct &&
       isValidSuggestionCategory(

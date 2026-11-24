@@ -23,6 +23,7 @@ export function PDV({
   sales = [],
   setSales,
   onSaleCompleted,
+  apiUrl,
   card,
   border,
   subtext,
@@ -30,32 +31,67 @@ export function PDV({
   text,
 }) {
   // Aceita VITE_API_URL com ou sem o sufixo /api, evitando /api/api nas rotas.
-  const API_URL = (
-    import.meta.env.VITE_API_URL || "http://localhost:3333"
-  )
-    .replace(/\/+$/, "")
-    .replace(/\/api$/i, "");
+  const API_URL = String(
+    apiUrl || import.meta.env.VITE_API_URL ||
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+        ? "http://localhost:3333"
+        : "https://superb-enjoyment-production-9659.up.railway.app")
+  ).replace(/\/+$/, "").replace(/\/api$/i, "");
 
   // ==========================================
   // CONTROLO DE TEMPO E PERSISTÊNCIA CONTÍNUA (localStorage)
   // ==========================================
-  const STORAGE_KEY = "byse_pdv_persistent_data";
+  // A persistência é isolada por loja/login. Nunca armazenamos imagens ou o objeto
+  // completo do produto no carrinho: isso poderia estourar a quota do navegador.
+  const getPdvUserId = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("byse_user") || "{}");
+      return String(user.id || localStorage.getItem("userId") || "guest");
+    } catch {
+      return String(localStorage.getItem("userId") || "guest");
+    }
+  };
+  const STORAGE_KEY = `byse_pdv_persistent_data_${getPdvUserId()}`;
+  const LEGACY_STORAGE_KEY = "byse_pdv_persistent_data";
   const TIMEOUT_DURATION = 10 * 60 * 1000; // 10 minutos
+
+  const compactCartItem = (item = {}) => ({
+    id: item.id ?? item.productId ?? item.product_id,
+    name: String(item.name || item.nome || "Produto"),
+    price: Number(item.price ?? item.preco ?? 0) || 0,
+    qty: Math.max(1, Number(item.qty ?? item.quantity ?? 1) || 1),
+    variationName: String(item.variationName || item.variation || ""),
+    variation: String(item.variationName || item.variation || ""),
+  });
+
+  const compactCustomer = (customer) => customer ? ({
+    id: customer.id,
+    name: String(customer.name || customer.nome || ""),
+    phone: String(customer.phone || customer.telefone || ""),
+    cashback: Number(customer.cashback || 0),
+  }) : null;
 
   const getInitialState = (key, defaultValue) => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      let saved = localStorage.getItem(STORAGE_KEY);
+      // Migração de sessões antigas: lê a chave global somente como fallback.
+      if (!saved) saved = localStorage.getItem(LEGACY_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        const elapsed = Date.now() - parsed.timestamp;
+        const elapsed = Date.now() - Number(parsed.timestamp || 0);
         if (elapsed < TIMEOUT_DURATION) {
-          return parsed[key] !== undefined ? parsed[key] : defaultValue;
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
+          const value = parsed[key] !== undefined ? parsed[key] : defaultValue;
+          if (key === "cart" && Array.isArray(value)) return value.map(compactCartItem);
+          if (key === "selectedCustomer" || key === "foundCustomer") return compactCustomer(value);
+          return value;
         }
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
       }
     } catch (e) {
-      console.error("Erro ao ler dados persistidos do PDV", e);
+      console.warn("Sessão antiga do PDV inválida ou excedida; iniciando uma sessão limpa.", e);
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      try { localStorage.removeItem(LEGACY_STORAGE_KEY); } catch {}
     }
     return defaultValue;
   };
@@ -143,16 +179,42 @@ export function PDV({
   const [activeReminderButton, setActiveReminderButton] = useState(false);
 
   useEffect(() => {
+    // Persiste somente os campos necessários para retomar o atendimento.
+    // Fotos/base64, estoque completo, variações e metadados do produto ficam fora.
     const currentState = {
       step,
-      phoneQuery,
-      foundCustomer,
-      selectedCustomer,
-      cart,
-      discount,
+      phoneQuery: String(phoneQuery || "").slice(0, 40),
+      foundCustomer: compactCustomer(foundCustomer),
+      selectedCustomer: compactCustomer(selectedCustomer),
+      cart: Array.isArray(cart) ? cart.map(compactCartItem) : [],
+      discount: Number(discount) || 0,
       timestamp: Date.now(),
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState));
+
+    try {
+      // Remove primeiro a sessão antiga (que podia conter fotos/base64 gigantes)
+      // para liberar espaço antes de gravar a versão compacta.
+      try { localStorage.removeItem(LEGACY_STORAGE_KEY); } catch {}
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState));
+    } catch (error) {
+      // QuotaExceededError nunca deve derrubar a tela do PDV.
+      console.warn("Não foi possível persistir a sessão do PDV no navegador. A venda continua disponível.", error);
+      try {
+        const minimalState = {
+          step,
+          phoneQuery: "",
+          foundCustomer: null,
+          selectedCustomer: compactCustomer(selectedCustomer),
+          cart: Array.isArray(cart) ? cart.map(compactCartItem) : [],
+          discount: Number(discount) || 0,
+          timestamp: Date.now(),
+        };
+        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalState));
+      } catch (fallbackError) {
+        console.warn("Armazenamento local indisponível; a sessão continuará apenas em memória.", fallbackError);
+      }
+    }
   }, [step, phoneQuery, foundCustomer, selectedCustomer, cart, discount]);
 
   useEffect(() => {
@@ -320,17 +382,32 @@ export function PDV({
     );
   };
 
-  const availableStockLocations =
-    stockLocations && stockLocations.length > 0
-      ? stockLocations
-      : [
-          { id: "Loja Física", name: "Loja Física" },
-          { id: "Degustação", name: "Degustação" },
-        ];
+  // Os IDs vêm exclusivamente do banco; não criar IDs locais fictícios,
+  // pois as chaves de products.stocks precisam ser exatamente as mesmas.
+  const availableStockLocations = Array.isArray(stockLocations)
+    ? stockLocations
+    : [];
+
+  const getDefaultStockLocation = () => {
+    const physicalLocation = availableStockLocations.find((location) =>
+      /loja\s*f[ií]sica/i.test(String(location.name || "")),
+    );
+    return String(
+      physicalLocation?.id || availableStockLocations[0]?.id || "",
+    );
+  };
 
   const [selectedStockLoc, setSelectedStockLoc] = useState(
-    availableStockLocations[0]?.id || "",
+    getDefaultStockLocation,
   );
+
+  useEffect(() => {
+    if (!availableStockLocations.length) return;
+    const stillExists = availableStockLocations.some(
+      (location) => String(location.id) === String(selectedStockLoc),
+    );
+    if (!stillExists) setSelectedStockLoc(getDefaultStockLocation());
+  }, [stockLocations, selectedStockLoc]);
 
   const categories = [
     "Todos produtos",
@@ -521,12 +598,14 @@ export function PDV({
 
       return [
         ...prev,
-        {
-          ...prod,
+        compactCartItem({
+          id: prod.id,
+          name: prod.name,
+          price: prod.price,
           qty: 1,
           variationName: cleanVariation,
           variation: cleanVariation,
-        },
+        }),
       ];
     });
     setActiveProductForVariation(null);
@@ -569,9 +648,9 @@ export function PDV({
       return;
     }
 
-    if (!selectedStockLoc) {
+    if (!availableStockLocations.length || !selectedStockLoc) {
       alert(
-        "Por favor, selecione um local de estoque antes de finalizar a venda.",
+        "Os locais de estoque ainda não foram carregados. Atualize a tela e tente novamente.",
       );
       return;
     }
@@ -588,9 +667,10 @@ export function PDV({
       const itemQty = Math.max(1, Number(item.qty || item.quantity || 1));
 
       return {
-        ...item,
-
-        // Identificação do produto
+        // Somente os dados necessários para registrar a venda; imagens/base64
+        // e demais metadados do catálogo não devem ser enviados no payload.
+        id: item.id,
+        name: item.name,
         productId: item.id,
         product_id: item.id,
 

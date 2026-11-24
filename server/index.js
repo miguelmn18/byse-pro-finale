@@ -1449,12 +1449,14 @@ async function saveProduct(req, res) {
     const p = req.body || {};
 
     const name = String(p.name || p.nome || "").trim();
+    const price = Number(p.price ?? p.preco ?? 0);
 
-    const price = Number(p.price || p.preco || 0);
+    const id =
+      req.params.id ||
+      p.id ||
+      `prod_${crypto.randomUUID()}`;
 
-    const id = req.params.id || p.id || `prod_${crypto.randomUUID()}`;
-
-    if (!name || isNaN(price) || price <= 0) {
+    if (!name || !Number.isFinite(price) || price <= 0) {
       return res.status(400).json({
         error: "O nome do produto e um preço de venda válido são obrigatórios.",
       });
@@ -1488,7 +1490,9 @@ async function saveProduct(req, res) {
           ? p.image_url
           : null;
 
-    const variationsArray = Array.isArray(p.variations) ? p.variations : [];
+    const variationsArray = Array.isArray(p.variations)
+      ? p.variations
+      : [];
 
     await pool.query(
       `INSERT INTO products(
@@ -1521,12 +1525,12 @@ async function saveProduct(req, res) {
       [
         id,
         req.user.id,
-        p.name || "Produto",
+        name,
         p.category || "Sem categoria",
         p.barcode || null,
         p.code || null,
         Number(p.cost || 0),
-        Number(p.price || 0),
+        price,
         Number(p.imposto || 0),
         Number(p.frete || 0),
         vipPriceVal == null ? null : Number(vipPriceVal),
@@ -1536,19 +1540,22 @@ async function saveProduct(req, res) {
         imageUrlVal,
         JSON.stringify(p.stocks || {}),
         JSON.stringify(variationsArray),
-      ],
+      ]
     );
 
     const r = await pool.query(
       "SELECT * FROM products WHERE id=$1 AND user_id=$2",
-      [id, req.user.id],
+      [id, req.user.id]
     );
 
-    res.status(201).json(normalizeProduct(r.rows[0]));
+    return res
+      .status(req.params.id ? 200 : 201)
+      .json(normalizeProduct(r.rows[0]));
+
   } catch (e) {
     console.error("[SAVE PRODUCT ERROR]", e);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Erro ao salvar produto.",
       details: e.message,
     });
@@ -1585,57 +1592,136 @@ app.delete("/api/produtos/:id", authMiddleware, async (req, res) => {
   res.json({ success: true });
 });
 
+
 app.get("/api/locais", authMiddleware, async (req, res) => {
-  let r = await pool.query(
-    "SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name",
-    [req.user.id],
-  );
-
-  if (!r.rows.length) {
-    const id = `loc_${req.user.id}`;
-
-    await pool.query(
-      `INSERT INTO stock_locations(id,user_id,name)
-       VALUES($1,$2,$3)
-       ON CONFLICT DO NOTHING`,
-      [id, req.user.id, "Loja Física"],
+  try {
+    let result = await pool.query(
+      `SELECT id, name
+       FROM stock_locations
+       WHERE user_id = $1
+       ORDER BY name`,
+      [req.user.id]
     );
 
-    r = await pool.query(
-      "SELECT id,name FROM stock_locations WHERE user_id=$1",
-      [req.user.id],
+    const hasPhysical = result.rows.some(
+      (location) =>
+        canonicalStockLocation(location.name) === "lojafisica"
     );
+
+    const hasTasting = result.rows.some(
+      (location) =>
+        canonicalStockLocation(location.name) === "degustacao"
+    );
+
+    const defaultsToCreate = [];
+
+    if (!hasPhysical) {
+      defaultsToCreate.push({
+        id: `loc_${req.user.id}_loja_fisica`,
+        name: "Loja física",
+      });
+    }
+
+    if (!hasTasting) {
+      defaultsToCreate.push({
+        id: `loc_${req.user.id}_degustacao`,
+        name: "Degustação",
+      });
+    }
+
+    for (const location of defaultsToCreate) {
+      await pool.query(
+        `INSERT INTO stock_locations(id, user_id, name)
+         VALUES($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [location.id, req.user.id, location.name]
+      );
+    }
+
+    result = await pool.query(
+      `SELECT id, name
+       FROM stock_locations
+       WHERE user_id = $1
+       ORDER BY name`,
+      [req.user.id]
+    );
+
+    return res.json(result.rows);
+
+  } catch (error) {
+    console.error("[GET STOCK LOCATIONS]", error);
+
+    return res.status(500).json({
+      error: "Não foi possível carregar os locais de estoque.",
+    });
   }
-
-  res.json(r.rows);
 });
 
+
 app.post("/api/locais", authMiddleware, async (req, res) => {
-  const { id, name } = req.body || {};
+  try {
+    const id = req.body?.id
+      ? String(req.body.id)
+      : null;
 
-  if (!name)
-    return res.status(400).json({
-      error: "Nome obrigatório.",
+    const name = String(req.body?.name || "").trim();
+
+    if (!name) {
+      return res.status(400).json({
+        error: "Nome obrigatório.",
+      });
+    }
+
+    if (name.length > 255) {
+      return res.status(400).json({
+        error: "O nome do local deve ter até 255 caracteres.",
+      });
+    }
+
+    if (id) {
+      const updated = await pool.query(
+        `UPDATE stock_locations
+         SET name=$1
+         WHERE id=$2 AND user_id=$3
+         RETURNING id,name`,
+        [name, id, req.user.id]
+      );
+
+      if (!updated.rowCount) {
+        return res.status(404).json({
+          error: "Local de estoque não encontrado nesta loja.",
+        });
+      }
+
+    } else {
+      await pool.query(
+        `INSERT INTO stock_locations(id,user_id,name)
+         VALUES($1,$2,$3)`,
+        [
+          `loc_${crypto.randomUUID()}`,
+          req.user.id,
+          name,
+        ]
+      );
+    }
+
+    const r = await pool.query(
+      `SELECT id,name
+       FROM stock_locations
+       WHERE user_id=$1
+       ORDER BY name`,
+      [req.user.id]
+    );
+
+    return res.json(r.rows);
+
+  } catch (error) {
+    console.error("[STOCK LOCATIONS SAVE]", error);
+
+    return res.status(500).json({
+      error: "Não foi possível salvar o local de estoque.",
     });
-
-  if (id) {
-    await pool.query(
-      "UPDATE stock_locations SET name=$1 WHERE id=$2 AND user_id=$3",
-      [name, id, req.user.id],
-    );
-  } else {
-    await pool.query(
-      "INSERT INTO stock_locations(id,user_id,name) VALUES($1,$2,$3)",
-      [`loc_${crypto.randomUUID()}`, req.user.id, name],
-    );
   }
-
-  const r = await pool.query(
-    "SELECT id,name FROM stock_locations WHERE user_id=$1 ORDER BY name",
-    [req.user.id],
-  );
-
-  res.json(r.rows);
 });
 
 // ==========================================
