@@ -170,7 +170,7 @@ const getApiUrl = () => {
     window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1"
       ? "http://localhost:3333"
-      : "https://byse-pro-backend-production.up.railway.app";
+      : "https://superb-enjoyment-production-9659.up.railway.app";
 
   // Aceita VITE_API_URL com ou sem /api e com ou sem barra final.
   const baseUrl = (configuredUrl || fallbackUrl)
